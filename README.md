@@ -2,7 +2,7 @@
 
 面向 LLM 训练的确定性合成金融衍生品数据项目。项目目标是把市场数据生成、任务定义、模型解题、独立校验和训练数据导出分成清晰的边界，并保证每个样本都可以通过固定配置与 seed 重放。
 
-当前仓库处于结构设计阶段：目录和设计文档已经就位，生成器、solver、verifier 与训练数据构建代码尚未实现。
+当前已完成 authoring pipeline 的第一版：使用 QuantLib 生成 underlying 路径和 European option 报价，通过 DuckDB 事务增量写入 snapshot。Solver、verifier 与训练数据构建尚未实现。
 
 ## 设计流程
 
@@ -21,6 +21,43 @@ Authoring、Solver 和 Trusted verifier 是三个不同的权限边界：
 - Authoring 可以使用固定版本的 QuantLib 和固定 seed 生成市场数据。
 - Solver 只能读取公开快照与合同，不得调用现成的定价、IV、Greeks 或 smile API。
 - Trusted verifier 可以使用固定版本的金融与数值包独立复算，但不能向 Solver 暴露 oracle 或 hidden tests。
+
+## Authoring smoke test
+
+仓库内置 [QuantLib generator 配置](configs/generators/quantlib_bsm_smoke_v1.json) 和 [DuckDB smoke snapshot](snapshots/public/quantlib_bsm_smoke_v1.duckdb)。这里的“5 种 option”表示 5 个 option contract templates；它们分别实例化到 5 个 underlyings 上，因此 5 个交易日的数据规模为：
+
+| 对象 | 行数 |
+|:---|---:|
+| Underlying master | 5 |
+| Option contract master | 25（5 × 5） |
+| `underlying_daily` | 25（5 × 5 日） |
+| `option_daily` | 125（25 × 5 日） |
+| `pricing_metadata` | 25（5 × 5 日） |
+
+先创建或幂等同步基准数据：
+
+```bash
+make install
+make smoke
+make snapshot-summary
+```
+
+加入第 6 个交易日只会新增该日的 5 条 underlying、25 条 option 和 5 条 metadata：
+
+```bash
+make append-day
+```
+
+增加 underlying 或 option template 时，先在 generator config 的相应数组中追加定义，然后运行：
+
+```bash
+.venv/bin/python scripts/edit_snapshot.py \
+  --database snapshots/public/quantlib_bsm_smoke_v1.duckdb \
+  --config configs/generators/quantlib_bsm_smoke_v1.json \
+  sync-config
+```
+
+`sync-config` 会为新增品种回填当前已有日期区间；已存在的业务主键和相同 row hash 不会重写。完整的 schema、主键、增量规则和命令见 [Authoring Pipeline](docs/authoring_pipeline.md)。
 
 ## 仓库结构
 
@@ -50,7 +87,7 @@ Authoring、Solver 和 Trusted verifier 是三个不同的权限边界：
 ├── schemas/                       # Snapshot、variant、trajectory、submission schemas
 ├── scripts/                       # venv、生成、校验和数据集构建入口脚本
 ├── snapshots/
-│   └── public/                    # 小型、冻结、可公开且带 hash 的市场快照
+│   └── public/                    # 小型、可公开且带 logical hash 的 DRAFT/FROZEN 快照
 ├── src/
 │   └── synthetic_derivatives/
 │       ├── authoring/             # 市场快照生成与冻结实现
@@ -69,7 +106,9 @@ Authoring、Solver 和 Trusted verifier 是三个不同的权限边界：
 
 ### `authoring/`
 
-存放出题端的配置与模板，不放 Solver 可见的数据。后续 authoring pipeline 会用 pinned QuantLib、generator config、seed 和 RNG 生成 `underlying_daily`、`option_daily` 与 `pricing_metadata`，随后冻结并计算 hash。内部 audit 与 oracle 输出应保持私有。
+存放出题端的配置与模板，不放 Solver 可见的数据。Authoring pipeline 使用 pinned QuantLib、generator config、seed 和 RNG 生成 `underlying_daily`、`option_daily` 与 `pricing_metadata`，随后冻结并计算 hash。内部 audit 与 oracle 输出应保持私有。
+
+新增 authoring job 时可从 [QuantLib/BSM generator 模板](authoring/templates/quantlib_bsm_generator.template.json) 复制配置；字段约束和 DRAFT/freeze 用法见 [模板说明](authoring/templates/README.md)。
 
 ### `configs/`
 
@@ -128,11 +167,11 @@ IV、Greeks、smile、surface、VaR 和 ES 是从统一快照派生的任务结�
 
 ### `scripts/` 与 `runs/`
 
-`scripts/` 将提供统一、非交互的项目入口；`runs/` 只保存本地临时运行结果、日志和报告。`runs/` 中的内容可以删除并重新生成，不作为数据集或 oracle 的可信来源。
+`scripts/` 提供统一、非交互的项目入口；`runs/` 只保存本地临时运行结果、日志和报告。`runs/` 中的内容可以删除并重新生成，不作为数据集或 oracle 的可信来源。
 
 ## 虚拟环境约定
 
-本项目只在仓库本地 `.venv` 中运行。实现阶段加入依赖锁文件后，命令将统一使用：
+本项目只在仓库本地 `.venv` 中运行。命令统一使用：
 
 ```bash
 python3 -m venv .venv
@@ -140,9 +179,10 @@ python3 -m venv .venv
 .venv/bin/python -m pytest
 ```
 
-`.venv/` 不提交 Git；可复现性由后续的 Python 版本声明和锁定依赖文件保证。
+`.venv/` 不提交 Git；可复现性由 Python 版本声明和锁定依赖文件保证。
 
 ## 设计文档
 
+- [DuckDB + QuantLib Authoring Pipeline](docs/authoring_pipeline.md)
 - [金融衍生品确定性 ORM Hard-Verifier 框架](docs/financial_derivatives_deterministic_orm_hard_verifier_framework.md)
 - [合成期权链 IV、Greeks 与 Smile Agent Trajectory 样例](docs/examples/synthetic_derivatives_iv_greeks_smile_deterministic_orm_agent_trajectory_example.md)

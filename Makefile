@@ -1,0 +1,26 @@
+VENV := .venv
+PYTHON := $(VENV)/bin/python
+EDITOR := $(PYTHON) scripts/edit_snapshot.py
+CONFIG := configs/generators/quantlib_bsm_smoke_v1.json
+DATABASE := snapshots/public/quantlib_bsm_smoke_v1.duckdb
+
+.PHONY: venv install smoke append-day snapshot-summary test
+
+venv:
+	python3 -m venv $(VENV)
+
+install: venv
+	$(PYTHON) -m pip install -r requirements.lock
+	$(PYTHON) -m pip install --no-build-isolation --no-deps -e .
+
+smoke:
+	$(EDITOR) --database $(DATABASE) --config $(CONFIG) create-smoke
+
+append-day:
+	$(EDITOR) --database $(DATABASE) --config $(CONFIG) append-dates --days 1
+
+snapshot-summary:
+	$(EDITOR) --database $(DATABASE) --config $(CONFIG) summary
+
+test:
+	$(PYTHON) -m pytest

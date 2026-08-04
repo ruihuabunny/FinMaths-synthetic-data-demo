@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "synthetic-derivatives-data"
+version = "0.1.0"
+description = "Deterministic QuantLib authoring pipeline for synthetic derivatives snapshots"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "duckdb==1.5.5",
+  "QuantLib==1.39",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==8.4.1"]
+
+[project.scripts]
+edit-derivatives-snapshot = "synthetic_derivatives.authoring.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config"
+testpaths = ["tests"]
+pythonpath = ["src"]
+filterwarnings = [
+  "ignore:builtin type .* has no __module__ attribute:DeprecationWarning",
+]
