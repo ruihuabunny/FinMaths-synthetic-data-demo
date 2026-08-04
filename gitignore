@@ -1,0 +1,126 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+secrets/
+internal/
+local_only/
+
+# Python environments and bytecode
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Python build and package artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# Test, coverage, lint, and type-check caches
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+
+# Notebook and tool caches
+.ipynb_checkpoints/
+.cache/
+
+# Bulk/generated market data
+# Keep small frozen demo snapshots under examples/ or tests/fixtures/ tracked.
+data/generated/
+data/raw/
+data/interim/
+data/cache/
+data/tmp/
+datasets/generated/
+snapshots/generated/
+snapshots/private/
+*.parquet
+*.feather
+*.arrow
+*.h5
+*.hdf5
+*.npy
+*.npz
+
+# Solver runs, trajectories, reports, and transient artifacts
+runs/
+outputs/
+artifacts/
+logs/
+reports/generated/
+*.log
+
+# Hidden verifier material and authoring-only oracle outputs
+# Public contract tests should remain under tests/ outside tests/hidden/.
+tests/hidden/
+verifiers/hidden/
+hidden_verifier/
+oracle_outputs/
+reference_runs/
+authoring/audit/
+
+# Local databases, database volumes, and backups
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+backups/
+db_data/
+postgres_data/
+mysql_data/
+*.dump
+*.bak
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.swp
+*.swo
+*~
+
+# IDE and editor settings
+.idea/
+.vscode/
+*.code-workspace
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+*Zone.Identifier
+
+# LaTeX build artifacts (keep .tex and Markdown sources tracked)
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.out
+*.synctex.gz
+*.toc
+
+# Intentionally tracked:
+# - configs/, schemas/, pyproject.toml, requirements*.txt, uv.lock/poetry.lock
+# - generator/verifier source, public pytest tests, README and documentation
+# - small canonical CSV/JSON snapshots in examples/ or tests/fixtures/
