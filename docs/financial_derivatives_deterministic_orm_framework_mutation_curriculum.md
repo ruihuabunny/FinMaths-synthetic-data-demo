@@ -73,13 +73,34 @@ Greeks、IV 与 volatility surface 任务的 ground truth 可以由已知参数�
 
 ### 可重放生成
 
-第 $v$ 个 market snapshot 定义为 $$D_v^{\mathrm{mkt}}
- =G_{\mathrm{mkt}}\!\left(\theta_v;\,
- \texttt{generator\_version},\texttt{seed}_v,\texttt{RNG}_v\right),$$ 其中 $\theta_v$ 可以包含： $$S_0,\; r,\; q,\; T,\; K,\; \sigma,\;
- \text{curve parameters},\;\text{skew},\;\text{curvature},\;
- \text{quote-noise model}.$$ 生成后保存 canonical serialization、snapshot id 与 hash： $$\operatorname{hash}(D_{v,t}^{\mathrm{mkt}})
- =\operatorname{hash}(D_v^{\mathrm{mkt}})
- \quad\text{for all solver steps }t.$$
+第 $v$ 个 market snapshot 定义为
+
+$$
+D_v^{\mathrm{mkt}}
+=G_{\mathrm{mkt}}\!\left(
+\theta_v;\,
+\texttt{generator\_version},
+\texttt{seed}_v,
+\texttt{RNG}_v
+\right).
+$$
+
+其中 $\theta_v$ 可以包含
+
+$$
+S_0,\; r,\; q,\; T,\; K,\; \sigma,\;
+\text{curve parameters},\; \text{skew},\; \text{curvature},\;
+\text{quote-noise model}.
+$$
+
+生成后保存 canonical serialization、snapshot id 与 hash。若
+$D_{v,t}^{\mathrm{mkt}}$ 表示 solver 在第 $t$ 步看到的 snapshot，则不可变性要求
+
+$$
+\operatorname{hash}\!\left(D_{v,t}^{\mathrm{mkt}}\right)
+=\operatorname{hash}\!\left(D_v^{\mathrm{mkt}}\right)
+\quad \text{for every solver step } t.
+$$
 
 ### QuantLib 统一生成器与三表合同
 
@@ -95,7 +116,7 @@ Greeks、IV 与 volatility surface 任务的 ground truth 可以由已知参数�
 
 `underlying_daily` 中用于历史收益、VaR/ES 的路径属于物理测度 $P$；`option_daily` 的定价属于风险中性测度 $Q$。两者可共享当日 spot、variance state 与市场日期，但 drift、风险溢价及模型参数必须分别保存为 `physical_dynamics` 与 `pricing_dynamics`。如果某题只需 flat rate/dividend，可以把完整 curves 简化为固定 $r,q$，但简化规则本身仍是合同字段。
 
-Authoring pipeline 固定为：QuantLib 先生成 underlying path/state，再对每个 valuation date 和 $K\times T$ grid 用指定 QuantLib pricing engine 生成 option chain，最后按题面精度量化并冻结。题目的 IV 真值必须从 solver 实际可见的、已量化 option price 按指定求根法重新反解，不能直接拿 QuantLib 内部未公开的 latent volatility 作答案。这样一套数据即可派生 Greeks、IV、smile/surface、underlying VaR/ES 与 option-portfolio VaR/ES variants；不需要维护彼此不一致的独立“Greeks 数据表”或“VaR 数据表”。
+Authoring pipeline 固定为：QuantLib 先生成 underlying path/state，再对每个 valuation date 和 strike--maturity grid $\mathcal{K}\times\mathcal{T}$ 用指定 QuantLib pricing engine 生成 option chain，最后按题面精度量化并冻结。题目的 IV 真值必须从 solver 实际可见的、已量化 option price 按指定求根法重新反解，不能直接拿 QuantLib 内部未公开的 latent volatility 作答案。这样一套数据即可派生 Greeks、IV、smile/surface、underlying VaR/ES 与 option-portfolio VaR/ES variants；不需要维护彼此不一致的独立“Greeks 数据表”或“VaR 数据表”。
 
 ### 最低有效性门控
 
@@ -114,7 +135,16 @@ Authoring pipeline 固定为：QuantLib 先生成 underlying path/state，再对
 
 ### 母对象与 variant
 
-金融 variant 可写为 $$v=(D_v^{\mathrm{mkt}},q_v,\tau_v,C_v,O_v,V_v,S_v,\Pi_v),$$ 其中 $\tau_v=(L_v,P_v,M_v,A_v,D_v,R_v)$ 是六维任务坐标，$C_v$ 是 convention contract；
+金融 variant 可写为
+
+$$
+\mathcal{V}_v
+=\left(
+D_v^{\mathrm{mkt}},q_v,\tau_v,C_v,O_v,V_v,S_v,\Pi_v
+\right),
+$$
+
+其中 $q_v$ 是 problem/query，$\tau_v=(L_v,P_v,M_v,A_v,D_v,R_v)$ 是六维任务坐标，$C_v$ 是 convention contract。这里坐标分量 $D_v$ 表示 data/tool axis，不是 market snapshot $D_v^{\mathrm{mkt}}$。
 
 $O_v$ 是 output contract，$V_v$ 是 verifier contract，$S_v$ 是 target skills，$\Pi_v$ 是 parent、operator、seed 与 hash 构成的 mutation provenance。旧式 model/method contract 被拆入 $M_v$ 与 $A_v$，从而可以分别归因“模型假设错误”和“数值方法错误”。
 
@@ -192,7 +222,8 @@ $$
 P1 的 ANO/CNO 可加入双重验证。例如 call payoff 满足
 
 $$
-S_T\mathbf 1_{\{S_T>K\}}=(S_T-K)^+ + K\mathbf 1_{\{S_T>K\}},
+S_T\mathbf{1}_{\{S_T>K\}}
+=(S_T-K)^+ + K\mathbf{1}_{\{S_T>K\}},
 $$
 
 因此 `ANO call = vanilla call + K × unit CNO call`。组合价格与 Greeks 还必须等于各 legs 按 position/notional 加权后的和。
@@ -283,7 +314,7 @@ $$
 
 并在生成 snapshot 与 answer 前执行 compatibility check。Mutation 类型包括：
 
-- **单轴上调/下调：** 只改变 $L/P/M/A/D/R$ 中一个坐标；
+- **单轴上调/下调：** 只改变 $(L,P,M,A,D,R)$ 中一个坐标；
 - **同级替换：** 难度近似不变但切换产品、模型或方法；
 - **单轴反事实：** 其余输入保持不变，用于能力归因；
 - **多轴组合：** 构造后期 curriculum 的完整 workflow；
@@ -407,11 +438,16 @@ $$
 
 ### 统一九字段
 
-顶层 schema 固定为 $$\boxed{
+顶层 schema 固定为
+
+$$
+\boxed{
 \begin{gathered}
 \text{Problem, Context, Assumptions, Skills, Evidence,}\\
 \text{Intermediate Reasoning, Verification, Confidence, Outcome}.
-\end{gathered}}$$
+\end{gathered}
+}
+$$
 
 *表 4：九字段在衍生品任务中的含义*
 
@@ -429,7 +465,10 @@ $$
 
 ### 推荐 trajectory
 
-典型 episode 的 actions 为： $$\begin{aligned}
+典型 episode 的 actions 为：
+
+$$
+\begin{aligned}
 &\text{parse coordinates/contract}
 \rightarrow \text{query and validate inputs}
 \rightarrow \text{identify structure/model}\\
@@ -438,21 +477,36 @@ $$
 \rightarrow \text{price/calibrate/risk}\\
 &\rightarrow \text{check residuals/invariants}
 \rightarrow \text{serialize output/artifacts}.
-\end{aligned}$$ 每一步保存真实 observation；hidden package output 只在 episode 终止后由 verifier 使用。可以保留 iteration history 作为 agent data，但不通过 step reward 暗示正确答案。
+\end{aligned}
+$$
+
+每一步保存真实 observation；hidden package output 只在 episode 终止后由 verifier 使用。可以保留 iteration history 作为 agent data，但不通过 step reward 暗示正确答案。
 
 ## Pytest Package-Backed Hard Verifier
 
 ### Verifier contract
 
-每个 variant 的 verifier manifest 至少包含： $$\begin{gathered}
+每个 variant 的 verifier manifest 至少包含：
+
+$$
+\begin{gathered}
 (\texttt{task coordinates},\texttt{lineage hashes},\texttt{backend package},\\
 \texttt{package version},\texttt{function/engine},\texttt{method id},\\
 \texttt{market conventions},\texttt{dtype/operation order},\\
 \texttt{decimal places},\texttt{rounding mode},\texttt{canonical schema},\\
 \texttt{banned imports},\texttt{test ids}).
-\end{gathered}$$
+\end{gathered}
+$$
 
-Trusted verifier 直接在 pytest fixture 中构造 package objects、加载冻结 market snapshot，并按与 solver 相同的 method contract 复算 outputs。Oracle 与 submission 都被强制转换为指定 dtype，再按同一 canonical schema 序列化并逐字段或逐字节比较： $$\texttt{assert canonical(submission) == canonical(package\_oracle)}.$$ 因此 verifier 不调用 `pytest.approx`、`math.isclose`、`numpy.isclose` 或 `allclose`，也不保存 `atol`/`rtol`。若 schema 本身要求定点 decimal，该定点表示属于输出类型而不是 verifier tolerance；数值算法内部的停止规则同样属于 method contract。
+Trusted verifier 直接在 pytest fixture 中构造 package objects、加载冻结 market snapshot，并按与 solver 相同的 method contract 复算 outputs。Oracle 与 submission 都被强制转换为指定 dtype，再按同一 canonical schema 序列化并逐字段或逐字节比较：
+
+$$
+\texttt{canonical(submission)}
+=
+\texttt{canonical(package\_oracle)}.
+$$
+
+因此 verifier 不调用 `pytest.approx`、`math.isclose`、`numpy.isclose` 或 `allclose`，也不保存 `atol`/`rtol`。若 schema 本身要求定点 decimal，该定点表示属于输出类型而不是 verifier tolerance；数值算法内部的停止规则同样属于 method contract。
 
 ### 测试层
 
@@ -466,7 +520,7 @@ Trusted verifier 直接在 pytest fixture 中构造 package objects、加载冻�
 | Snapshot identity    | market snapshot id/hash、seed、generator version 一致。                                     |
 | Import compliance    | 无禁止库、无隐藏文件访问、无动态安装/网络加载。                                             |
 | Method identity      | solver 声明的 method id、关键 method artifacts 与 verifier contract 精确一致。              |
-| Difficulty identity  | $L/P/M/A/D/R$ 坐标、compatibility decision 与 task-family id 精确一致。                     |
+| Difficulty identity  | $(L,P,M,A,D,R)$ 坐标、compatibility decision 与 task-family id 精确一致。                 |
 | Mutation lineage     | parent/child/operator/seed/config hash 完整，child snapshot 可重放。                        |
 | Price                | package oracle 与提交值经过共同 canonicalization 后字符串完全相等。                         |
 | Greeks               | method、definition、scaling 与 canonical value 逐字段完全相等。                             |
@@ -481,11 +535,15 @@ Trusted verifier 直接在 pytest fixture 中构造 package objects、加载冻�
 
 ### 二值 Outcome Reward
 
-$$R_{\mathrm{ORM}}=
-\mathbf 1\!\left\{
+$$
+R_{\mathrm{ORM}}
+=\mathbf{1}\!\left\{
 \bigwedge_{j=1}^{J}
-\texttt{pytest\_test}_j=\texttt{PASS}
-\right\}.$$ 单项测试的偏差和错误类型可以记录进 diagnostics，但任何一项失败都不能被其他正确项或长推理过程抵消。若任务希望分阶段 curriculum，应拆成多个独立 variants，而不是把 hard verifier 改成主观加权分。
+\left(\texttt{pytest\_test}_j=\texttt{PASS}\right)
+\right\}.
+$$
+
+单项测试的偏差和错误类型可以记录进 diagnostics，但任何一项失败都不能被其他正确项或长推理过程抵消。若任务希望分阶段 curriculum，应拆成多个独立 variants，而不是把 hard verifier 改成主观加权分。
 
 ## 防止绕过与数据污染
 

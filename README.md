@@ -166,6 +166,121 @@ FROM market.pricing_metadata
 ORDER BY underlying_id, valuation_date;
 ```
 
+## Market snapshot、pricing model 与 pricing engine 的边界
+
+下一阶段按“一个 snapshot 是一个已经实现的市场世界”设计。这里的市场事实是合约、
+underlying 状态和报价，而不是生成这些报价时使用的模型。当前 schema 已通过
+`(snapshot_id, date, option_id)` 主键保证同一个 snapshot 中同一合约同一天只有一条
+`bid / ask / mid`；后续不能为了比较模型而在 `option_daily` 中增加 model 维度。
+
+```text
+private authoring DGP
+  one generation model + one canonical generation engine + latent state/seed
+                               |
+                               v
+public frozen market snapshot
+  one contract/time/venue -> one bid/ask/mid
+                               |
+                 +-------------+-------------+
+                 v                           v
+task convention + IV solver          valuation/calibration runs
+  one derived BSM IV                 BSM / Heston / Bates / local vol ...
+                                     theoretical price + residual + diagnostics
+```
+
+具体边界如下：
+
+- 对固定的 spot、strike、expiry、discount/dividend curves 和 BSM convention，可行价格
+  区间内部的一条 European option mid 对应唯一的 BSM implied volatility；bid/ask 则
+  对应一个 IV interval。违反价格边界时应标记为“无有效 IV”，而不是产生第二个 IV。
+- 同一报价可以被 BSM、Heston、Bates 或 local-vol 等多个 valuation model 解释；各模型
+  的 theoretical price、calibrated parameters、residual 和 diagnostics 属于 task/run
+  output，不是第二份市场报价，也不能覆盖 snapshot 中的 mid。
+- 每个 snapshot 只选一个 private canonical generation model 和一个 canonical generation
+  engine 产生未舍入理论价格。有限差分或 Monte Carlo 等其他 engine 用于 cross-engine
+  verification、容差检查和数值诊断，不产生并列的 market truth。
+- 若要比较不同 data-generating models，应由相同私有 `market_scenario_id` 派生不同的
+  `snapshot_id`，形成 counterfactual market worlds；不能在同一个 snapshot 中按 model
+  重复同一合约的价格。
+- Market snapshot 默认只保存报价，不保存 IV truth table。若为了性能缓存 IV，它必须是
+  带 `source_quote_id`、`iv_convention_id`、输入曲线版本、solver method 和 tolerance 的
+  derived analytics，且可从报价重建。
+- 只有显式建模多个 venue 时，报价业务键才增加 `venue_id`；consolidated snapshot 仍然
+  只保留一组 NBBO-like bid/ask，而不是用 model id 伪装 venue。
+
+元数据需要进一步拆成 public market context 与 private authoring provenance：
+
+| 边界 | 应保存的内容 | 建议字段 |
+|:---|:---|:---|
+| Public snapshot | valuation timestamp、calendar/day count、currency、discount/dividend/borrow curves、settlement 与 quote precision | `iv_convention_id` 由 task contract 引用 |
+| Private authoring | P/Q generation model、canonical engine、latent parameters/state、seed/RNG、未舍入理论价格 | `generation_model_id`、`generation_engine_id` |
+| Task/run output | 用于解释同一市场报价的 model/engine、校准参数、理论价格、残差、收敛信息 | `valuation_model_id`、`valuation_engine_id` |
+
+当前 `solver_visible.pricing_metadata` 仍暴露 `physical_dynamics`、`pricing_dynamics`、
+`pricing_model`、`pricing_engine`、`generator_version`、`seed` 和 `rng`。这是 smoke v1 的
+过渡结构；在产生训练快照前应完成上述 public/private split，避免 Solver 直接读到 DGP
+和随机性 provenance。以上是下一阶段合同，尚未改变现有 DuckDB schema 或 generator。
+
+### Authoring realism roadmap
+
+建议按下面顺序增强，而不是先堆叠多个 pricing engines：
+
+1. **真实 option chain。** 把当前 strike 与 maturity 一一绑定的 5 个 templates 改成同一
+   expiry 下多个 puts/calls 和 strikes、同一 strike/moneyness 附近多个 expiries 的完整
+   $K\times T$ 网格；合约在上市后跨 valuation dates 保持身份不变，并按规则新增 weekly、
+   monthly 或 quarterly series。
+2. **全曲面无套利 quality gates。** 在加 spread、tick rounding 和缺失报价之后再次检查
+   单合约价格上下界、put-call parity、call 对 strike 的单调性与 convexity、以及相邻
+   maturities 的 calendar consistency。`bid <= mid <= ask` 只是最基础的一层。
+3. **公共市场状态与私有 DGP 隔离。** 先完成上面的 metadata split，再扩充模型；否则
+   更复杂的 Heston/Bates parameters 只会成为更明显的答案泄漏。
+4. **曲线、日历与合约约定。** 用非 flat discount/dividend/borrow term structures、离散
+   dividend/corporate actions、真实交易所 holidays/early closes、strike increments、
+   multiplier、exercise/settlement style 和 valuation timezone 替换 smoke 简化项。
+5. **报价微观结构与流动性状态。** Spread 应随 premium、moneyness、maturity、vega 和
+   liquidity 改变；加入合法 tick、bid/ask size、zero bid、stale/missing quote 与 quality
+   flags。Volume/open interest 应有跨日持续性，不能每天独立均匀抽样。
+6. **联合且跨日一致的 P/Q latent state。** Underlying 路径与 option surface 应共享 spot、
+   variance/regime/jump state，同时用明确的 risk premia 区分 P-measure path dynamics 与
+   Q-measure pricing dynamics，避免每天独立重画一张互不相关的 smile。
+7. **多个 DGP family，但每个 snapshot 仍只有一个。** 保留当前 deterministic-smile BSM
+   作为可解释 baseline，再分别生成 Heston、Bates/jump-diffusion、local-vol 等独立
+   snapshot；每个模型先选 canonical analytic/FD engine，再用另一 engine 做 verifier。
+8. **更长的历史与 regime coverage。** 从 5-day smoke 扩展到覆盖 calm/high-vol、earnings、
+   jump 和 liquidity stress 的多时间段、多 seed scenario；最后再升级 underlying OHLC、
+   overnight gap、volume 和 corporate-action 细节。
+
+每次生成都应在未舍入理论价格、最终可见报价和 derived IV 三层分别保留 private audit，
+但公开 snapshot 只暴露市场可观察量和任务明确允许的 conventions。这样既能保留可复现性，
+又不会把生成模型误当成市场事实。
+
+### 下一步实现计划
+
+后续实现按依赖顺序推进；每一阶段都必须保持固定 config/seed 可重放、one-shot 与 append
+结果一致、frozen snapshot 不可修改以及 logical hash 稳定。
+
+| 阶段 | 模块 | 首次实现范围 | 完成标准 |
+|:---|:---|:---|:---|
+| 1 | `OptionChainBuilder` | 在 config 中声明 expiry schedule、call/put、strike 或 moneyness grid、listing/roll rules；在 listing date 把 moneyness 转成绝对 strike 后固定，不随每日 spot 重写合约 | 同一 expiry 有多个 strikes 和成对 call/put；合约 id 跨日稳定；one-shot、append 与 `sync-config` 结果一致 |
+| 2 | `SurfaceQualityGate` | 按 `unrounded theoretical price -> spread/tick rounding -> visible quote -> quality gate` 的顺序检查单合约 bounds、put-call parity、strike monotonicity/convexity 和 calendar consistency | 正常 $K\times T$ chain 可 freeze；故意修改价格、spread 或末位 tick 的反例会被明确的 gate 拒绝 |
+| 3 | `MarketContext` / `AuthoringProvenance` split | Public 层只留 curves、calendar、timestamp、settlement 与 precision；private 层保存 generation model/engine、P/Q latent state、seed/RNG 和未舍入价格 | `solver_visible` 中不存在 DGP parameters、seed、RNG 或 generator engine；private audit 仍可完整重放 snapshot |
+| 4 | `ExchangeProfile` 与 `QuoteModel` | 加入真实 holiday/early-close、timezone、expiry/settlement、strike/tick rules，以及随 moneyness、maturity、vega、premium、liquidity 变化的 spread；补充 size、stale/missing/zero-bid 与 quality flags | 所有公开报价符合声明的 exchange profile；volume/open interest 和 liquidity state 具有跨日持续性 |
+| 5 | `CurveState` 与 joint P/Q state | 支持非 flat discount/dividend/borrow curves、离散 dividend/corporate actions，并让 underlying 与 option surface 共享跨日 variance/regime/jump state | 同一 valuation timestamp 的 spot、curves、dividend 与 surface 使用同一个 market-state version；P/Q 差异由显式 risk premia 描述 |
+| 6 | `GenerationModel` / `GenerationEngine` registry | 先保留 deterministic-smile BSM baseline，再分别加入 Heston、Bates/jump-diffusion、local-vol snapshot DGP；每个 snapshot 只选一个 canonical engine，另一个 engine 做 verifier | 不同 DGP 使用不同 `snapshot_id`；同一 snapshot/合约/时间仍只有一条市场报价；cross-engine error 在预设 tolerance 内 |
+| 7 | Scenario campaign | 扩展日期跨度、seed、calm/high-vol/earnings/jump/liquidity-stress regimes，并升级 OHLC、overnight gap、volume 与 corporate actions | manifest 记录 scenario lineage；dataset split 按 snapshot/scenario 分组，避免同一 latent world 跨 train/test 泄漏 |
+
+最小可审阅的提交顺序建议为：
+
+1. 先只实现 `OptionChainBuilder`、配置校验与 contract-id/append-invariance tests，不改变
+   当前 BSM 报价公式；smoke target 可使用 3 个 expiries × 7 个固定 strikes × call/put。
+2. 在完整 chain 上实现 `SurfaceQualityGate` 及 adversarial tests，然后才允许新的 snapshot
+   freeze。
+3. 完成 public/private metadata migration；此后 Heston/Bates 等新 DGP 才能接入，避免把
+   richer latent parameters 暴露给 Solver。
+
+因此第一项代码工作应是 `OptionChainBuilder`，第二项是 `SurfaceQualityGate`；pricing
+model registry 是建立好市场数据结构、无套利约束和权限边界之后的工作。
+
 常用的只读 DuckDB 查询集中保存在
 [`snapshots/public/sql_query/`](snapshots/public/sql_query/README.md)，包括 snapshot 摘要、
 underlying 时间序列、option chain、moneyness、pricing context 和 authoring audit。
