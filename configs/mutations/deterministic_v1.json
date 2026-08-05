@@ -1,7 +1,6 @@
 {
   "schema_version": "1.0.0",
   "engine_id": "deterministic-task-mutation-v1",
-  "child_id_suffix_length": 10,
   "operators": [
     {
       "operator_id": "raise_single_axis",

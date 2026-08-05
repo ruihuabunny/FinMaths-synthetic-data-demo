@@ -93,12 +93,14 @@ S_0,\; r,\; q,\; T,\; K,\; \sigma,\;
 \text{quote-noise model}.
 $$
 
-生成后保存 canonical serialization、snapshot id 与 hash。若
+生成后保存 snapshot id 与 revision。若
 $D_{v,t}^{\mathrm{mkt}}$ 表示 solver 在第 $t$ 步看到的 snapshot，则不可变性要求
 
 $$
-\operatorname{hash}\!\left(D_{v,t}^{\mathrm{mkt}}\right)
-=\operatorname{hash}\!\left(D_v^{\mathrm{mkt}}\right)
+\operatorname{id}\!\left(D_{v,t}^{\mathrm{mkt}}\right)
+=\operatorname{id}\!\left(D_v^{\mathrm{mkt}}\right),\qquad
+\operatorname{revision}\!\left(D_{v,t}^{\mathrm{mkt}}\right)
+=\operatorname{revision}\!\left(D_v^{\mathrm{mkt}}\right)
 \quad \text{for every solver step } t.
 $$
 
@@ -146,7 +148,7 @@ $$
 
 其中 $q_v$ 是 problem/query，$\tau_v=(L_v,P_v,M_v,A_v,D_v,R_v)$ 是六维任务坐标，$C_v$ 是 convention contract。这里坐标分量 $D_v$ 表示 data/tool axis，不是 market snapshot $D_v^{\mathrm{mkt}}$。
 
-$O_v$ 是 output contract，$V_v$ 是 verifier contract，$S_v$ 是 target skills，$\Pi_v$ 是 parent、operator、seed 与 hash 构成的 mutation provenance。旧式 model/method contract 被拆入 $M_v$ 与 $A_v$，从而可以分别归因“模型假设错误”和“数值方法错误”。
+$O_v$ 是 output contract，$V_v$ 是 verifier contract，$S_v$ 是 target skills，$\Pi_v$ 是 parent/child id、engine id、operator 与 seed 构成的 mutation provenance。旧式 model/method contract 被拆入 $M_v$ 与 $A_v$，从而可以分别归因“模型假设错误”和“数值方法错误”。
 
 ### 必须冻结的金融约定
 
@@ -331,9 +333,7 @@ $$
   "before": {"L": 1, "P": 0, "M": 0, "A": 0, "D": 0, "R": 1},
   "after":  {"L": 1, "P": 0, "M": 2, "A": 3, "D": 0, "R": 1},
   "seed": 20260804,
-  "config_hash": "...",
-  "parent_hash": "...",
-  "logical_hash": "..."
+  "engine_id": "deterministic-task-mutation-v1"
 }
 ```
 
@@ -490,7 +490,7 @@ $$
 
 $$
 \begin{gathered}
-(\texttt{task coordinates},\texttt{lineage hashes},\texttt{backend package},\\
+(\texttt{task coordinates},\texttt{lineage ids},\texttt{backend package},\\
 \texttt{package version},\texttt{function/engine},\texttt{method id},\\
 \texttt{market conventions},\texttt{dtype/operation order},\\
 \texttt{decimal places},\texttt{rounding mode},\texttt{canonical schema},\\
@@ -517,18 +517,18 @@ $$
 | 测试                 | 断言                                                                                        |
 |:---------------------|:--------------------------------------------------------------------------------------------|
 | Submission schema    | 必需字段、row/strike/maturity 顺序、单位、无 NaN/Inf。                                      |
-| Snapshot identity    | market snapshot id/hash、seed、generator version 一致。                                     |
+| Snapshot identity    | market snapshot id/revision、seed、generator version 一致。                                 |
 | Import compliance    | 无禁止库、无隐藏文件访问、无动态安装/网络加载。                                             |
 | Method identity      | solver 声明的 method id、关键 method artifacts 与 verifier contract 精确一致。              |
 | Difficulty identity  | $(L,P,M,A,D,R)$ 坐标、compatibility decision 与 task-family id 精确一致。                 |
-| Mutation lineage     | parent/child/operator/seed/config hash 完整，child snapshot 可重放。                        |
+| Mutation lineage     | parent/child/engine/operator/seed 完整，child snapshot 可重放。                            |
 | Price                | package oracle 与提交值经过共同 canonicalization 后字符串完全相等。                         |
 | Greeks               | method、definition、scaling 与 canonical value 逐字段完全相等。                             |
 | Implied volatility   | 同一 root method 产生的 canonical IV、status 与 iteration contract 完全相等。               |
 | Smile/surface        | coordinate、basis、weights、routine、coefficient order 与 canonical coefficients 完全相等。 |
 | Financial invariants | put–call parity、bounds、sign、monotonicity/convexity 或任务指定性质。                      |
 | Portfolio identities | leg aggregation、straddle/spread/butterfly、ANO/CNO 等静态复制关系。                        |
-| Artifact contract    | SQL/code/JSON/table/report 等要求的文件存在、schema 正确且 hash 可复现。                    |
+| Artifact contract    | SQL/code/JSON/table/report 等要求的文件存在且 schema/version 正确。                        |
 | Edge cases           | deep ITM/OTM、short maturity、low vega、root failure 的指定行为。                           |
 
 金融 hard verifier 的 pytest tests
@@ -576,7 +576,7 @@ Package oracle 本身不自动解决语义和方法错配。Authoring 时必须�
 
 ### Authoring-side checks
 
-1.  用固定 seed materialize market snapshot 并保存 hash；
+1.  用固定 seed materialize market snapshot 并保存 snapshot id/revision；
 2.  检查输入定义域、price bounds、IV root existence 与 method feasibility；
 3.  用同方法的 pinned package backend 生成 canonical answer；
 4.  重复运行 pytest，确认 expected files 在目标环境中 byte-identical；
@@ -584,7 +584,7 @@ Package oracle 本身不自动解决语义和方法错配。Authoring 时必须�
 6.  将任一 canonical 字段最后一位改变 $1$，确认 exact-equality test 失败；
 7.  检查 solver 容器确实无法 import 被禁 packages；
 8.  将 package lock、wrapper version 与 test manifest 纳入 verifier id。
-9.  对 mutation child 检查 compatibility、parent/child hashes、单轴不变量与可重放 lineage；
+9.  对 mutation child 检查 compatibility、parent/child ids、单轴不变量与可重放 lineage；
 10. 用故意错误的数值、方法、schema、坐标和 lineage 做 verifier robustness mutation tests；
 11. 冻结模型重复评估 `pass@1`、`pass@N`、repair gain、难度 cell 成功率与 fixed-seed consistency；
 12. 检查 curriculum scheduler 只改变采样权重，不修改 frozen task 或 hard reward 定义。

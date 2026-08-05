@@ -2,24 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-import re
 from dataclasses import dataclass, replace
 from typing import Any, Mapping
 
 
 AXES = ("L", "P", "M", "A", "D", "R")
-_SHA256 = re.compile(r"^[0-9a-f]{64}$")
-
-
-def canonical_sha256(value: Mapping[str, Any]) -> str:
-    """Hash a JSON-compatible mapping using the repository's canonical form."""
-
-    payload = json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -68,7 +55,7 @@ class TaskSpec:
     task_family_id: str
     coordinates: TaskCoordinates
     snapshot_id: str
-    snapshot_hash: str
+    snapshot_revision: int
     method_id: str
     output_contract_id: str
 
@@ -82,8 +69,8 @@ class TaskSpec:
         ):
             if not getattr(self, field_name):
                 raise ValueError(f"{field_name} must not be empty")
-        if not _SHA256.fullmatch(self.snapshot_hash):
-            raise ValueError("snapshot_hash must be a lowercase SHA-256 hex digest")
+        if self.snapshot_revision < 1:
+            raise ValueError("snapshot_revision must be positive")
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "TaskSpec":
@@ -92,7 +79,7 @@ class TaskSpec:
             task_family_id=value["task_family_id"],
             coordinates=TaskCoordinates.from_mapping(value["coordinates"]),
             snapshot_id=value["snapshot_id"],
-            snapshot_hash=value["snapshot_hash"],
+            snapshot_revision=value["snapshot_revision"],
             method_id=value["method_id"],
             output_contract_id=value["output_contract_id"],
         )
@@ -103,11 +90,7 @@ class TaskSpec:
             "task_family_id": self.task_family_id,
             "coordinates": self.coordinates.to_dict(),
             "snapshot_id": self.snapshot_id,
-            "snapshot_hash": self.snapshot_hash,
+            "snapshot_revision": self.snapshot_revision,
             "method_id": self.method_id,
             "output_contract_id": self.output_contract_id,
         }
-
-    @property
-    def logical_hash(self) -> str:
-        return canonical_sha256(self.to_dict())

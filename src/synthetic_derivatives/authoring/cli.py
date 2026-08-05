@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from datetime import date
 from pathlib import Path
 from typing import Any, Sequence
@@ -47,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     range_parser.add_argument("--start-date", type=date.fromisoformat, required=True)
     range_parser.add_argument("--end-date", type=date.fromisoformat, required=True)
-    subparsers.add_parser("summary", help="show logical counts, revision, and content hash")
+    subparsers.add_parser("summary", help="show logical counts and revision")
     subparsers.add_parser(
         "freeze", help="run quality gates and make this snapshot immutable"
     )
@@ -55,8 +54,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    if sys.prefix == sys.base_prefix:
-        raise SystemExit("this project must run inside its repository-local .venv")
     args = build_parser().parse_args(argv)
     config = load_generator_config(args.config)
     with AuthoringPipeline(args.database, config) as pipeline:
@@ -73,8 +70,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = pipeline.summary()
         elif args.command == "freeze":
             result = pipeline.freeze()
-        else:  # pragma: no cover - argparse makes this unreachable
-            raise AssertionError(args.command)
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     return 0
 

@@ -1,13 +1,11 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
   "snapshot_id": "DERIVATIVES-QUANTLIB-SMOKE-v1",
   "status": "DRAFT",
   "revision": 1,
-  "content_sha256": "7eacf2a6a1d1c579aeadca57a748c4ba4c682b149334cabcfecf57645e26734d",
   "database_file": "quantlib_bsm_smoke_v1.duckdb",
   "generator_config_id": "quantlib-bsm-smoke-v1",
   "generator_version": "0.1.0",
-  "config_sha256": "6a4ff79783af4153b2f021f6da6b4ff0e365ecf4316e791360926cc38d49e3cd",
   "quantlib_version": "1.39",
   "duckdb_version": "1.5.5",
   "seed": 20260804,
@@ -19,6 +17,5 @@
   "option_contract_count": 25,
   "underlying_daily_count": 25,
   "option_daily_count": 125,
-  "pricing_metadata_count": 25,
-  "hash_scope": "ordered logical row hashes; operational run timestamps excluded"
+  "pricing_metadata_count": 25
 }

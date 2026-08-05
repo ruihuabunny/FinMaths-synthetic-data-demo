@@ -1,8 +1,7 @@
-"""Generator configuration parsing and deterministic identifiers."""
+"""Generator configuration parsing."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from bisect import bisect_right
@@ -127,8 +126,6 @@ class OptionTemplate:
 
 @dataclass(frozen=True)
 class GeneratorConfig:
-    raw: dict[str, Any]
-    sha256: str
     generator_config_id: str
     generator_version: str
     snapshot_id: str
@@ -148,13 +145,6 @@ class GeneratorConfig:
     option_templates: tuple[OptionTemplate, ...]
     smile: dict[str, float]
     quote_model: dict[str, Any]
-
-
-def _canonical_bytes(value: dict[str, Any]) -> bytes:
-    return (
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        + "\n"
-    ).encode("utf-8")
 
 
 def load_generator_config(path: str | Path) -> GeneratorConfig:
@@ -209,10 +199,7 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
         for item in raw["option_templates"]
     )
     _validate_entities(underlyings, templates)
-    canonical = _canonical_bytes(raw)
     return GeneratorConfig(
-        raw=raw,
-        sha256=hashlib.sha256(canonical).hexdigest(),
         generator_config_id=raw["generator_config_id"],
         generator_version=raw["generator_version"],
         snapshot_id=raw["snapshot_id"],

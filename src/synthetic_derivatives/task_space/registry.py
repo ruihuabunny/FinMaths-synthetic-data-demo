@@ -11,7 +11,6 @@ from synthetic_derivatives.task_space.models import (
     AXES,
     TaskCoordinates,
     TaskSpec,
-    canonical_sha256,
 )
 
 
@@ -43,9 +42,7 @@ class TaskSpaceRegistry:
     def __init__(self, raw: Mapping[str, Any]):
         if raw.get("schema_version") != "1.0.0":
             raise ValueError("unsupported task-space schema_version")
-        self.raw = dict(raw)
         self.registry_id = str(raw["registry_id"])
-        self.config_hash = canonical_sha256(self.raw)
         axes = raw["axes"]
         if set(axes) != set(AXES):
             raise ValueError(f"task-space axes must be exactly {AXES}")

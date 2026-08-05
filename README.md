@@ -2,7 +2,7 @@
 
 面向 LLM 训练的确定性合成金融衍生品数据项目。项目目标是把市场数据生成、任务定义、模型解题、独立校验和训练数据导出分成清晰的边界，并保证每个样本都可以通过固定配置与 seed 重放。
 
-当前已完成 authoring pipeline 的第一版：使用 QuantLib 生成 underlying 路径和 European option 报价，通过 DuckDB 事务增量写入 snapshot。在此基础上，仓库已加入最小可运行的六维 `task_space` registry、受约束 `mutation` engine 和 adaptive `curriculum` scheduler；它们只按 id/hash 引用 snapshot，不修改 authoring 数据。Solver、verifier 与训练数据构建尚未实现。
+当前已完成 authoring pipeline 的第一版：使用 QuantLib 生成 underlying 路径和 European option 报价，通过 DuckDB 事务增量写入 snapshot。在此基础上，仓库已加入最小可运行的六维 `task_space` registry、受约束 `mutation` engine 和 adaptive `curriculum` scheduler；它们只按 id/revision 引用 snapshot，不修改 authoring 数据。Solver、verifier 与训练数据构建尚未实现。
 
 ## 设计流程
 
@@ -59,7 +59,7 @@ make append-day
   sync-config
 ```
 
-`sync-config` 会为新增品种回填当前已有日期区间；已存在的业务主键和相同 row hash 不会重写。完整的 schema、主键、增量规则和命令见 [Authoring Pipeline](docs/authoring_pipeline.md)。
+`sync-config` 会为新增品种回填当前已有日期区间；已存在的业务主键不会重写。完整的 schema、主键、增量规则和命令见 [Authoring Pipeline](docs/authoring_pipeline.md)。
 
 ## Deterministic physical drift / volatility
 
@@ -257,7 +257,7 @@ task convention + IV solver          valuation/calibration runs
 ### 下一步实现计划
 
 后续实现按依赖顺序推进；每一阶段都必须保持固定 config/seed 可重放、one-shot 与 append
-结果一致、frozen snapshot 不可修改以及 logical hash 稳定。
+结果一致、frozen snapshot 不可修改以及 revision 稳定。
 
 | 阶段 | 模块 | 首次实现范围 | 完成标准 |
 |:---|:---|:---|:---|
@@ -302,7 +302,7 @@ underlying 时间序列、option chain、moneyness、pricing context 和 authori
 │   └── variants/                  # Solver 可见的 task/method/output contracts
 ├── datasets/
 │   ├── generated/                 # 构建出的训练 JSONL/Parquet，不提交 Git
-│   └── manifests/                 # 数据集版本、split、来源和 hash 清单
+│   └── manifests/                 # 数据集版本、split 和来源清单
 ├── docs/
 │   ├── examples/                  # 完整设计样例
 │   └── *.md                       # 框架、架构和方法说明
@@ -317,7 +317,7 @@ underlying 时间序列、option chain、moneyness、pricing context 和 authori
 ├── schemas/                       # Snapshot、variant、trajectory、submission schemas
 ├── scripts/                       # venv、生成、校验和数据集构建入口脚本
 ├── snapshots/
-│   └── public/                    # 小型、可公开且带 logical hash 的 DRAFT/FROZEN 快照
+│   └── public/                    # 小型、可公开且带 revision 的 DRAFT/FROZEN 快照
 │       └── sql_query/             # 可复用、只读且显式排序的常用 DuckDB 查询
 ├── src/
 │   └── synthetic_derivatives/
@@ -342,7 +342,7 @@ underlying 时间序列、option chain、moneyness、pricing context 和 authori
 
 ### `authoring/`
 
-存放出题端的配置与模板，不放 Solver 可见的数据。Authoring pipeline 使用 pinned QuantLib、generator config、seed 和 RNG 生成 `underlying_daily`、`option_daily` 与 `pricing_metadata`，随后冻结并计算 hash。内部 audit 与 oracle 输出应保持私有。
+存放出题端的配置与模板，不放 Solver 可见的数据。Authoring pipeline 使用 pinned QuantLib、generator config、seed 和 RNG 生成 `underlying_daily`、`option_daily` 与 `pricing_metadata`，随后冻结并记录 revision。内部 audit 与 oracle 输出应保持私有。
 
 新增 authoring job 时可从 [QuantLib/BSM generator 模板](authoring/templates/quantlib_bsm_generator.template.json) 复制配置；字段约束和 DRAFT/freeze 用法见 [模板说明](authoring/templates/README.md)。
 
@@ -363,7 +363,7 @@ underlying 时间序列、option chain、moneyness、pricing context 和 authori
 保存生成后冻结的市场快照。`public/` 仅提交小型 demo；批量快照与私有快照不进入 Git。当前 public demo 使用 DuckDB，配套内容包括：
 
 - `quantlib_bsm_smoke_v1.duckdb`：market、metadata 和 solver-visible views；
-- `quantlib_bsm_smoke_v1.manifest.json`：revision、行数与 logical SHA-256；
+- `quantlib_bsm_smoke_v1.manifest.json`：snapshot/config 版本标识、revision 与行数；
 - `sql_query/`：只读查询模板，不包含 canonical answer 或 hidden oracle。
 
 IV、Greeks、smile、surface、VaR 和 ES 是从统一快照派生的任务结果，不在这里维护彼此独立的 truth tables。
@@ -376,7 +376,7 @@ IV、Greeks、smile、surface、VaR 和 ES 是从统一快照派生的任务结�
 
 项目的 Python 源码根目录。权限边界模块与训练编排模块分开：
 
-- `authoring/`：允许使用 QuantLib，负责生成、质量门控、冻结与 hash。
+- `authoring/`：允许使用 QuantLib，负责生成、质量门控、冻结与 revision。
 - `task_space/`：只判断六维坐标和 task family 是否兼容，不生成任务、不决定采样。
 - `mutation/`：从不可变母题生成确定性 child task 和 lineage，不读取模型表现。
 - `curriculum/`：根据 stage 与 `pass@1` diagnostics 计算采样权重，不修改 frozen task 或二值 hard reward。
@@ -392,7 +392,7 @@ IV、Greeks、smile、surface、VaR 和 ES 是从统一快照派生的任务结�
 
 ### `datasets/`
 
-`generated/` 存放可重建的训练集，因此被 `.gitignore` 排除；`manifests/` 存放应提交的版本信息、数据来源、snapshot grouping、train/validation/test split 和内容 hash。训练集不得包含 hidden oracle、hidden tests 或 verifier 私有输出。
+`generated/` 存放可重建的训练集，因此被 `.gitignore` 排除；`manifests/` 存放应提交的版本信息、数据来源、snapshot grouping 和 train/validation/test split。训练集不得包含 hidden oracle、hidden tests 或 verifier 私有输出。
 
 ### `examples/`
 
@@ -403,7 +403,7 @@ IV、Greeks、smile、surface、VaR 和 ES 是从统一快照派生的任务结�
 - `fixtures/` 提供稳定的小型输入。
 - `public/` 检查公开 schema、snapshot identity、method contract 和端到端接口。
 - `unit/` 检查 task grammar、受约束 mutation、lineage 与 curriculum sampling。
-- `integration/` 检查 task manifest 仅按 id/hash 引用 authoring snapshot。
+- `integration/` 检查 task manifest 仅按 id/revision 引用 authoring snapshot。
 - `verifier_robustness/` 主动修改末位数字、单位、method ID、行顺序或 import，确认 hard verifier 必须失败；该目录与正式 task mutation engine 无关。
 
 生产 hidden tests 应放在 Solver 无法读取的独立环境中，不提交到公开仓库。

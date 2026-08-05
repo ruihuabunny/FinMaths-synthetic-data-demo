@@ -8,7 +8,7 @@ quantlib_bsm_smoke_v1.manifest.json
 ```
 
 DuckDB 文件保存市场数据和生成审计信息，manifest 保存 snapshot 当前 revision、
-逻辑内容 hash 和各表行数。日常分析或 Solver 输入应优先读取
+配置版本和各表行数。日常分析或 Solver 输入应优先读取
 `solver_visible` views；只有 authoring 排查和审计才需要读取完整的 `market`、
 `metadata` schemas。
 
@@ -49,23 +49,23 @@ manifest 或 `metadata.snapshots` 中的最新结果为准。
 ```json
 {
   "snapshot_id": "DERIVATIVES-QUANTLIB-SMOKE-v1",
-  "snapshot_hash": "7eacf2a6a1d1c579aeadca57a748c4ba4c682b149334cabcfecf57645e26734d"
+  "snapshot_revision": 1
 }
 ```
 
-若 DRAFT snapshot 发生逻辑变化，`content_sha256` 会改变，引用旧 hash 的 task
-应立即视为失效并重新生成。已发布 task 不允许改指向；应使用新的 snapshot id、
+若 DRAFT snapshot 发生逻辑变化，revision 会递增，引用旧 revision 的 task
+保持指向原版本。已发布 task 不允许改指向；应使用新的 snapshot id/revision、
 task id 和 lineage 记录创建 child task。
 
 ## Snapshot、Task Mutation 与 Curriculum 边界
 
-四个模块通过显式 id/hash 衔接，职责不混用：
+四个模块通过显式 id/revision 衔接，职责不混用：
 
 | 模块 | 保存什么 | 是否写本 DuckDB |
 |:---|:---|:---:|
-| `authoring` | market rows、revision、generation audit、content hash | 是 |
+| `authoring` | market rows、revision、generation audit | 是 |
 | `task_space` | $L/P/M/A/D/R$ 坐标、task family、compatibility decision | 否 |
-| `mutation` | parent/child、operator、seed、before/after、logical hashes | 否 |
+| `mutation` | parent/child、engine、operator、seed、before/after | 否 |
 | `curriculum` | stage、`pass@1` diagnostics、sampling weights | 否 |
 
 边界流程为：
@@ -73,7 +73,7 @@ task id 和 lineage 记录创建 child task。
 ```text
 Generator config
   -> Authoring DuckDB + snapshot manifest
-  -> Task manifest (snapshot_id + snapshot_hash + L/P/M/A/D/R)
+  -> Task manifest (snapshot_id + snapshot_revision + L/P/M/A/D/R)
   -> Compatibility-constrained mutation + lineage
   -> Curriculum sampling
   -> Solver rollout
@@ -83,7 +83,7 @@ Generator config
 Mutation 是否可以复用当前 DuckDB 取决于变更内容：
 
 - 只改变 reasoning、output 或读取方式，且可见市场输入不变时，可以继续引用同一
-  `snapshot_id`/`snapshot_hash`；
+  `snapshot_id`/`snapshot_revision`；
 - 改变 market state、generator、seed、模型参数或可见报价时，必须通过 authoring
   创建新的 snapshot，不能原地更新当前 task 所引用的数据；
 - 改变数值方法轴 `A` 时必须同时给出新的 `method_id`；
@@ -102,7 +102,7 @@ Mutation 是否可以复用当前 DuckDB 取决于变更内容：
 
 | Schema | 用途 |
 |:---|:---|
-| `market` | 完整业务表，以及 authoring 使用的 row hash 和生成血缘。 |
+| `market` | 完整业务表，以及 authoring 使用的生成血缘。 |
 | `metadata` | Snapshot 状态、revision、生成批次和数据库 schema 版本。 |
 | `solver_visible` | 去掉 authoring 内部字段的只读 views，供分析和 Solver 使用。 |
 
@@ -418,7 +418,6 @@ SELECT
     snapshot_id,
     status,
     current_revision,
-    content_sha256,
     generator_config_id,
     generator_version,
     seed,
@@ -431,8 +430,7 @@ FROM metadata.snapshots;
 
 - `DRAFT` 可以继续追加数据；
 - `FROZEN` 拒绝后续增量写入；
-- `current_revision` 只在逻辑内容实际变化时增加；
-- `content_sha256` 是五张 market 表有序 logical row hashes 的汇总 hash。
+- `current_revision` 只在逻辑内容实际变化时增加。
 
 ### `metadata.generation_runs`
 
@@ -459,8 +457,7 @@ ORDER BY started_at;
 - `NOOP`：幂等重跑，没有数据变化；
 - `FAILED`：生成、约束或质量检查失败。
 
-`table_stats` 是 JSON，包含各表的 `requested`、`inserted`、`updated` 和
-`unchanged` 数量。
+`table_stats` 是 JSON，包含各表的 `requested`、`inserted` 和 `unchanged` 数量。
 
 ### `metadata.snapshot_revisions`
 
@@ -470,7 +467,6 @@ ORDER BY started_at;
 SELECT
     revision,
     run_id,
-    content_sha256,
     underlying_count,
     option_contract_count,
     underlying_daily_count,
@@ -482,10 +478,9 @@ WHERE snapshot_id = 'DERIVATIVES-QUANTLIB-SMOKE-v1'
 ORDER BY revision;
 ```
 
-### `metadata.schema_migrations`
+### `metadata.schema_versions`
 
-保存 DuckDB DDL 版本及 checksum。Pipeline 打开数据库时会校验它，避免代码在
-未知或不兼容的 schema 上继续写入。
+保存 DuckDB schema version。
 
 ## Solver-visible views
 
@@ -499,10 +494,8 @@ solver_visible.pricing_metadata
 
 这些 views 保留业务字段，但不暴露以下 authoring 内部字段：
 
-- `row_sha256`；
 - `generated_run_id`；
-- `created_run_id`；
-- `last_run_id`。
+- `created_run_id`。
 
 一般的 IV、Greeks、smile 或数据浏览应从这些 views 开始。
 
@@ -538,15 +531,15 @@ Generator config
   -> 写入临时 staging tables
   -> 按业务主键 MERGE
   -> 执行跨表 quality gates
-  -> 更新 revision 和 content hash
+  -> 更新 revision
   -> transaction commit
   -> 原子更新 manifest
 ```
 
 管理规则包括：
 
-- 同一业务主键且 `row_sha256` 相同的记录保持不变；
-- 已存在的 underlying 和 option contract 定义不可原地修改；
+- 同一业务主键的记录保持不变；
+- 已存在的 underlying 和 option contract 由 ID 与 generator version 标识；
 - DRAFT 配置可以追加新的 underlying 或 option template；
 - 不允许回填 underlying 历史路径中间的日期缺口；
 - 任一步骤失败都会 rollback 整个批次；

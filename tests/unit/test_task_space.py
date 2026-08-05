@@ -25,7 +25,7 @@ def test_checked_in_base_task_is_compatible(
     assert decision.compatible
     assert decision.rule_id == "bsm-vanilla"
     assert task.coordinates.to_dict() == {"L": 0, "P": 0, "M": 0, "A": 0, "D": 0, "R": 0}
-    assert len(task.logical_hash) == 64
+    assert task.snapshot_revision == 1
 
 
 def test_registry_rejects_incompatible_product_model_method(

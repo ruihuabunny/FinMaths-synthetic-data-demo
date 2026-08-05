@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from synthetic_derivatives.task_space import AXES, TaskSpaceRegistry, TaskSpec
-from synthetic_derivatives.task_space.models import canonical_sha256
 
 
 @dataclass(frozen=True)
@@ -27,9 +26,7 @@ class MutationLineage:
     before: dict[str, int]
     after: dict[str, int]
     seed: int
-    config_hash: str
-    parent_hash: str
-    logical_hash: str
+    engine_id: str
     compatibility_rule_id: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -40,9 +37,7 @@ class MutationLineage:
             "before": self.before,
             "after": self.after,
             "seed": self.seed,
-            "config_hash": self.config_hash,
-            "parent_hash": self.parent_hash,
-            "logical_hash": self.logical_hash,
+            "engine_id": self.engine_id,
             "compatibility_rule_id": self.compatibility_rule_id,
         }
 
@@ -62,12 +57,7 @@ class MutationEngine:
     def __init__(self, raw: Mapping[str, Any], registry: TaskSpaceRegistry):
         if raw.get("schema_version") != "1.0.0":
             raise ValueError("unsupported mutation schema_version")
-        self.raw = dict(raw)
         self.engine_id = str(raw["engine_id"])
-        self.config_hash = canonical_sha256(self.raw)
-        self.child_id_suffix_length = int(raw.get("child_id_suffix_length", 10))
-        if not 6 <= self.child_id_suffix_length <= 32:
-            raise ValueError("child_id_suffix_length must be between 6 and 32")
         self.registry = registry
         operator_items = list(raw["operators"])
         operator_ids = [item["operator_id"] for item in operator_items]
@@ -116,7 +106,7 @@ class MutationEngine:
         method_id: str | None = None,
         output_contract_id: str | None = None,
         snapshot_id: str | None = None,
-        snapshot_hash: str | None = None,
+        snapshot_revision: int | None = None,
     ) -> MutatedTask:
         """Create one child and its reproducible lineage record."""
 
@@ -145,9 +135,6 @@ class MutationEngine:
         self._validate_direction(parent, coordinates, changed_axes, operator)
         if "A" in changed_axes and method_id is None:
             raise ValueError("changing method axis A requires an explicit method_id")
-        if (snapshot_id is None) != (snapshot_hash is None):
-            raise ValueError("snapshot_id and snapshot_hash must be overridden together")
-
         child_family = (
             parent.task_family_id if task_family_id is None else task_family_id
         )
@@ -158,29 +145,33 @@ class MutationEngine:
             else output_contract_id
         )
         child_snapshot_id = parent.snapshot_id if snapshot_id is None else snapshot_id
-        child_snapshot_hash = (
-            parent.snapshot_hash if snapshot_hash is None else snapshot_hash
+        child_snapshot_revision = (
+            parent.snapshot_revision
+            if snapshot_revision is None
+            else snapshot_revision
         )
         decision = self.registry.require_compatible(coordinates, child_family)
-        identity = {
-            "parent_hash": parent.logical_hash,
-            "operator": operator_id,
-            "coordinates": coordinates.to_dict(),
-            "seed": seed,
-            "task_family_id": child_family,
-            "method_id": child_method,
-            "output_contract_id": child_output_contract,
-            "snapshot_id": child_snapshot_id,
-            "snapshot_hash": child_snapshot_hash,
-            "engine_config_hash": self.config_hash,
-        }
-        suffix = canonical_sha256(identity)[: self.child_id_suffix_length]
+        coordinate_id = "-".join(
+            f"{axis}{value}" for axis, value in coordinates.to_dict().items()
+        )
+        mutation_id = "-".join(
+            (
+                self.engine_id,
+                operator_id,
+                str(seed),
+                coordinate_id,
+                child_snapshot_id,
+                f"r{child_snapshot_revision}",
+                child_method,
+                child_output_contract,
+            )
+        )
         child = TaskSpec(
-            task_id=f"{parent.task_id}_m{suffix}",
+            task_id=f"{parent.task_id}_m-{mutation_id}",
             task_family_id=child_family,
             coordinates=coordinates,
             snapshot_id=child_snapshot_id,
-            snapshot_hash=child_snapshot_hash,
+            snapshot_revision=child_snapshot_revision,
             method_id=child_method,
             output_contract_id=child_output_contract,
         )
@@ -191,10 +182,8 @@ class MutationEngine:
             before=parent.coordinates.to_dict(),
             after=coordinates.to_dict(),
             seed=seed,
-            config_hash=self.config_hash,
-            parent_hash=parent.logical_hash,
-            logical_hash=child.logical_hash,
-            compatibility_rule_id=decision.rule_id or "",
+            engine_id=self.engine_id,
+            compatibility_rule_id=decision.rule_id,
         )
         return MutatedTask(child, lineage)
 

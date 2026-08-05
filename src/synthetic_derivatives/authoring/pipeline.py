@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from contextlib import AbstractContextManager
 from datetime import date
@@ -13,7 +12,7 @@ from uuid import uuid4
 import duckdb
 import QuantLib as ql
 
-from synthetic_derivatives.authoring.config import GeneratorConfig, option_id
+from synthetic_derivatives.authoring.config import GeneratorConfig
 from synthetic_derivatives.authoring.generator import QuantLibGenerator
 from synthetic_derivatives.authoring.schema import (
     SCHEMA_VERSION,
@@ -80,19 +79,20 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         self.connection.execute("BEGIN TRANSACTION")
         try:
             self._ensure_snapshot_is_editable()
-            self._validate_additive_config()
             self.connection.execute(
                 """
                 INSERT INTO metadata.generation_runs (
-                    run_id, snapshot_id, operation, status, config_sha256,
+                    run_id, snapshot_id, operation, status,
+                    generator_config_id, generator_version,
                     requested_start_date, requested_end_date
-                ) VALUES (?, ?, ?, 'RUNNING', ?, ?, ?)
+                ) VALUES (?, ?, ?, 'RUNNING', ?, ?, ?, ?)
                 """,
                 [
                     run_id,
                     self.config.snapshot_id,
                     operation,
-                    self.config.sha256,
+                    self.config.generator_config_id,
+                    self.config.generator_version,
                     dates[0],
                     dates[-1],
                 ],
@@ -100,22 +100,17 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
 
             stats = self._generate_incremental_rows(dates, run_id)
             self._assert_quality_gates()
-            changed = sum(
-                table_stats["inserted"] + table_stats["updated"]
-                for table_stats in stats.values()
-            )
-            content_hash = self._content_hash()
+            changed = sum(table_stats["inserted"] for table_stats in stats.values())
             status = "COMPLETED" if changed else "NOOP"
             if changed:
-                self._record_revision(run_id, content_hash)
+                self._record_revision(run_id)
             self.connection.execute(
                 """
                 UPDATE metadata.snapshots
-                SET current_config_sha256 = ?, content_sha256 = ?,
-                    updated_at = current_timestamp
+                SET updated_at = current_timestamp
                 WHERE snapshot_id = ?
                 """,
-                [self.config.sha256, content_hash, self.config.snapshot_id],
+                [self.config.snapshot_id],
             )
             self.connection.execute(
                 """
@@ -128,8 +123,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             self.connection.execute("COMMIT")
         except Exception as error:
             self.connection.execute("ROLLBACK")
-            if not (isinstance(error, RuntimeError) and "snapshot is FROZEN" in str(error)):
-                self._record_failed_run(run_id, operation, dates[0], dates[-1], error)
+            self._record_failed_run(run_id, operation, dates[0], dates[-1], error)
             raise
         summary = self.summary()
         self._write_manifest(summary)
@@ -137,7 +131,6 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             "run_id": run_id,
             "status": status,
             "snapshot_id": self.config.snapshot_id,
-            "content_sha256": content_hash,
             "table_stats": stats,
             "summary": summary,
         }
@@ -147,15 +140,14 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         try:
             self._ensure_snapshot_is_editable()
             self._assert_quality_gates()
-            content_hash = self._content_hash()
             self.connection.execute(
                 """
                 UPDATE metadata.snapshots
-                SET status = 'FROZEN', content_sha256 = ?,
-                    frozen_at = current_timestamp, updated_at = current_timestamp
+                SET status = 'FROZEN', frozen_at = current_timestamp,
+                    updated_at = current_timestamp
                 WHERE snapshot_id = ?
                 """,
-                [content_hash, self.config.snapshot_id],
+                [self.config.snapshot_id],
             )
             self.connection.execute("COMMIT")
         except Exception:
@@ -168,9 +160,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
     def summary(self) -> dict[str, Any]:
         snapshot = self.connection.execute(
             """
-            SELECT status, current_revision, content_sha256,
-                   generator_config_id, generator_version,
-                   current_config_sha256, quantlib_version, duckdb_version,
+            SELECT status, current_revision, generator_config_id,
+                   generator_version, quantlib_version, duckdb_version,
                    seed, rng
             FROM metadata.snapshots
             WHERE snapshot_id = ?
@@ -191,14 +182,12 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             "snapshot_id": self.config.snapshot_id,
             "status": snapshot[0] if snapshot else "NOT_CREATED",
             "revision": snapshot[1] if snapshot else 0,
-            "content_sha256": snapshot[2] if snapshot else None,
-            "generator_config_id": snapshot[3] if snapshot else None,
-            "generator_version": snapshot[4] if snapshot else None,
-            "config_sha256": snapshot[5] if snapshot else self.config.sha256,
-            "quantlib_version": snapshot[6] if snapshot else ql.__version__,
-            "duckdb_version": snapshot[7] if snapshot else duckdb.__version__,
-            "seed": snapshot[8] if snapshot else self.config.seed,
-            "rng": snapshot[9] if snapshot else self.config.rng,
+            "generator_config_id": snapshot[2] if snapshot else None,
+            "generator_version": snapshot[3] if snapshot else None,
+            "quantlib_version": snapshot[4] if snapshot else ql.__version__,
+            "duckdb_version": snapshot[5] if snapshot else duckdb.__version__,
+            "seed": snapshot[6] if snapshot else self.config.seed,
+            "rng": snapshot[7] if snapshot else self.config.rng,
             "date_min": date_bounds[0].isoformat() if date_bounds[0] else None,
             "date_max": date_bounds[1].isoformat() if date_bounds[1] else None,
             "business_date_count": date_bounds[2],
@@ -207,7 +196,10 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
 
     def _ensure_snapshot_is_editable(self) -> None:
         row = self.connection.execute(
-            "SELECT status, generator_config_id FROM metadata.snapshots WHERE snapshot_id = ?",
+            """
+            SELECT status, generator_config_id, generator_version
+            FROM metadata.snapshots WHERE snapshot_id = ?
+            """,
             [self.config.snapshot_id],
         ).fetchone()
         if row is None:
@@ -215,16 +207,14 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 """
                 INSERT INTO metadata.snapshots (
                     snapshot_id, schema_version, status, generator_config_id,
-                    generator_version, current_config_sha256, quantlib_version,
-                    duckdb_version, seed, rng
-                ) VALUES (?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?, ?)
+                    generator_version, quantlib_version, duckdb_version, seed, rng
+                ) VALUES (?, ?, 'DRAFT', ?, ?, ?, ?, ?, ?)
                 """,
                 [
                     self.config.snapshot_id,
                     SCHEMA_VERSION,
                     self.config.generator_config_id,
                     self.config.generator_version,
-                    self.config.sha256,
                     ql.__version__,
                     duckdb.__version__,
                     self.config.seed,
@@ -238,35 +228,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             )
         if row[1] != self.config.generator_config_id:
             raise ValueError("generator_config_id cannot change within one snapshot")
-
-    def _validate_additive_config(self) -> None:
-        configured_underlyings = {item.underlying_id for item in self.config.underlyings}
-        existing_underlyings = {
-            row[0]
-            for row in self.connection.execute(
-                "SELECT underlying_id FROM market.underlyings WHERE snapshot_id = ?",
-                [self.config.snapshot_id],
-            ).fetchall()
-        }
-        removed = existing_underlyings - configured_underlyings
-        if removed:
-            raise ValueError(f"config cannot remove existing underlyings: {sorted(removed)}")
-
-        configured_options = {
-            option_id(underlying.underlying_id, template.template_id)
-            for underlying in self.config.underlyings
-            for template in self.config.option_templates
-        }
-        existing_options = {
-            row[0]
-            for row in self.connection.execute(
-                "SELECT option_id FROM market.option_contracts WHERE snapshot_id = ?",
-                [self.config.snapshot_id],
-            ).fetchall()
-        }
-        removed_options = existing_options - configured_options
-        if removed_options:
-            raise ValueError(f"config cannot remove existing options: {sorted(removed_options)}")
+        if row[2] != self.config.generator_version:
+            raise ValueError("generator_version cannot change within one snapshot")
 
     def _generate_incremental_rows(
         self, dates: list[date], run_id: str
@@ -280,12 +243,6 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             for underlying in self.config.underlyings
             for template in self.config.option_templates
         ]
-        self._assert_master_definitions_are_immutable(
-            "market.underlyings", "underlying_id", underlying_master_rows, "underlyings"
-        )
-        self._assert_master_definitions_are_immutable(
-            "market.option_contracts", "option_id", option_contract_rows, "option_contracts"
-        )
         stats = {
             "underlyings": merge_rows(
                 self.connection, TABLE_SPECS["underlyings"], underlying_master_rows
@@ -422,34 +379,6 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         )
         return stats
 
-    def _assert_master_definitions_are_immutable(
-        self,
-        table: str,
-        id_column: str,
-        candidate_rows: list[tuple[Any, ...]],
-        spec_name: str,
-    ) -> None:
-        existing = {
-            row[0]: row[1]
-            for row in self.connection.execute(
-                f"SELECT {id_column}, row_sha256 FROM {table} WHERE snapshot_id = ?",
-                [self.config.snapshot_id],
-            ).fetchall()
-        }
-        spec = TABLE_SPECS[spec_name]
-        id_index = spec.columns.index(id_column)
-        hash_index = spec.columns.index("row_sha256")
-        changed = [
-            row[id_index]
-            for row in candidate_rows
-            if row[id_index] in existing and existing[row[id_index]] != row[hash_index]
-        ]
-        if changed:
-            raise ValueError(
-                f"existing entity definitions are immutable: {sorted(changed)}; "
-                "use a new snapshot_id for corrections"
-            )
-
     def _assert_quality_gates(self) -> None:
         checks = {
             "orphan_option_contract": """
@@ -503,7 +432,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         if failures:
             raise ValueError(f"snapshot quality gates failed: {failures}")
 
-    def _record_revision(self, run_id: str, content_hash: str) -> None:
+    def _record_revision(self, run_id: str) -> None:
         counts = self._counts()
         current_revision = self.connection.execute(
             "SELECT current_revision FROM metadata.snapshots WHERE snapshot_id = ?",
@@ -513,17 +442,15 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         self.connection.execute(
             """
             INSERT INTO metadata.snapshot_revisions (
-                snapshot_id, revision, run_id, config_sha256, content_sha256,
-                underlying_count, option_contract_count, underlying_daily_count,
+                snapshot_id, revision, run_id, underlying_count,
+                option_contract_count, underlying_daily_count,
                 option_daily_count, pricing_metadata_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 self.config.snapshot_id,
                 revision,
                 run_id,
-                self.config.sha256,
-                content_hash,
                 counts["underlying_count"],
                 counts["option_contract_count"],
                 counts["underlying_daily_count"],
@@ -547,15 +474,17 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         self.connection.execute(
             """
             INSERT INTO metadata.generation_runs (
-                run_id, snapshot_id, operation, status, config_sha256,
+                run_id, snapshot_id, operation, status,
+                generator_config_id, generator_version,
                 requested_start_date, requested_end_date, error_message, completed_at
-            ) VALUES (?, ?, ?, 'FAILED', ?, ?, ?, ?, current_timestamp)
+            ) VALUES (?, ?, ?, 'FAILED', ?, ?, ?, ?, ?, current_timestamp)
             """,
             [
                 run_id,
                 self.config.snapshot_id,
                 operation,
-                self.config.sha256,
+                self.config.generator_config_id,
+                self.config.generator_version,
                 start_date,
                 end_date,
                 str(error),
@@ -578,29 +507,6 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             for name, table in tables.items()
         }
 
-    def _content_hash(self) -> str:
-        digest = hashlib.sha256()
-        tables_and_order = (
-            ("market.underlyings", "underlying_id"),
-            ("market.option_contracts", "option_id"),
-            ("market.underlying_daily", "date, underlying_id"),
-            ("market.option_daily", "date, option_id"),
-            ("market.pricing_metadata", "valuation_timestamp, underlying_id"),
-        )
-        for table, ordering in tables_and_order:
-            rows = self.connection.execute(
-                f"""
-                SELECT row_sha256 FROM {table}
-                WHERE snapshot_id = ? ORDER BY {ordering}
-                """,
-                [self.config.snapshot_id],
-            ).fetchall()
-            digest.update(f"{table}\n".encode("utf-8"))
-            for row in rows:
-                digest.update(row[0].encode("ascii"))
-                digest.update(b"\n")
-        return digest.hexdigest()
-
     def _write_manifest(self, summary: dict[str, Any]) -> None:
         """Atomically publish the current logical revision next to the DuckDB file."""
 
@@ -611,11 +517,9 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             "snapshot_id": summary["snapshot_id"],
             "status": summary["status"],
             "revision": summary["revision"],
-            "content_sha256": summary["content_sha256"],
             "database_file": self.database.name,
             "generator_config_id": summary["generator_config_id"],
             "generator_version": summary["generator_version"],
-            "config_sha256": summary["config_sha256"],
             "quantlib_version": summary["quantlib_version"],
             "duckdb_version": summary["duckdb_version"],
             "seed": summary["seed"],
@@ -628,7 +532,6 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             "underlying_daily_count": summary["underlying_daily_count"],
             "option_daily_count": summary["option_daily_count"],
             "pricing_metadata_count": summary["pricing_metadata_count"],
-            "hash_scope": "ordered logical row hashes; operational run timestamps excluded",
         }
         temporary_path.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",

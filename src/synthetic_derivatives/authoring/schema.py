@@ -1,27 +1,26 @@
-"""DuckDB schema and transactional incremental merge primitives."""
+"""DuckDB schema and transactional incremental insert primitives."""
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from typing import Any, Sequence
-from uuid import uuid4
 
 import duckdb
 
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "2.0.0"
 
-DDL = r"""
+SCHEMA_BOOTSTRAP = r"""
 CREATE SCHEMA IF NOT EXISTS metadata;
-CREATE SCHEMA IF NOT EXISTS market;
-CREATE SCHEMA IF NOT EXISTS solver_visible;
-
-CREATE TABLE IF NOT EXISTS metadata.schema_migrations (
+CREATE TABLE IF NOT EXISTS metadata.schema_versions (
     schema_version VARCHAR PRIMARY KEY,
-    ddl_sha256 VARCHAR NOT NULL,
     applied_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
+"""
+
+DDL = r"""
+CREATE SCHEMA IF NOT EXISTS market;
+CREATE SCHEMA IF NOT EXISTS solver_visible;
 
 CREATE TABLE IF NOT EXISTS metadata.snapshots (
     snapshot_id VARCHAR PRIMARY KEY,
@@ -29,13 +28,11 @@ CREATE TABLE IF NOT EXISTS metadata.snapshots (
     status VARCHAR NOT NULL CHECK (status IN ('DRAFT', 'FROZEN')),
     generator_config_id VARCHAR NOT NULL,
     generator_version VARCHAR NOT NULL,
-    current_config_sha256 VARCHAR NOT NULL,
     quantlib_version VARCHAR NOT NULL,
     duckdb_version VARCHAR NOT NULL,
     seed UBIGINT NOT NULL,
     rng VARCHAR NOT NULL,
     current_revision INTEGER NOT NULL DEFAULT 0,
-    content_sha256 VARCHAR,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     frozen_at TIMESTAMPTZ
@@ -46,7 +43,8 @@ CREATE TABLE IF NOT EXISTS metadata.generation_runs (
     snapshot_id VARCHAR NOT NULL,
     operation VARCHAR NOT NULL,
     status VARCHAR NOT NULL CHECK (status IN ('RUNNING', 'COMPLETED', 'NOOP', 'FAILED')),
-    config_sha256 VARCHAR NOT NULL,
+    generator_config_id VARCHAR NOT NULL,
+    generator_version VARCHAR NOT NULL,
     requested_start_date DATE,
     requested_end_date DATE,
     table_stats JSON,
@@ -59,8 +57,6 @@ CREATE TABLE IF NOT EXISTS metadata.snapshot_revisions (
     snapshot_id VARCHAR NOT NULL,
     revision INTEGER NOT NULL,
     run_id VARCHAR NOT NULL,
-    config_sha256 VARCHAR NOT NULL,
-    content_sha256 VARCHAR NOT NULL,
     underlying_count BIGINT NOT NULL,
     option_contract_count BIGINT NOT NULL,
     underlying_daily_count BIGINT NOT NULL,
@@ -82,9 +78,7 @@ CREATE TABLE IF NOT EXISTS market.underlyings (
     dividend_yield DOUBLE NOT NULL,
     base_implied_volatility DOUBLE NOT NULL CHECK (base_implied_volatility > 0),
     generator_config_id VARCHAR NOT NULL,
-    row_sha256 VARCHAR NOT NULL,
     created_run_id VARCHAR NOT NULL,
-    last_run_id VARCHAR NOT NULL,
     PRIMARY KEY (snapshot_id, underlying_id)
 );
 
@@ -99,9 +93,7 @@ CREATE TABLE IF NOT EXISTS market.option_contracts (
     exercise_style VARCHAR NOT NULL,
     settlement_type VARCHAR NOT NULL,
     contract_multiplier DECIMAL(24, 8) NOT NULL CHECK (contract_multiplier > 0),
-    row_sha256 VARCHAR NOT NULL,
     created_run_id VARCHAR NOT NULL,
-    last_run_id VARCHAR NOT NULL,
     PRIMARY KEY (snapshot_id, option_id)
 );
 
@@ -117,7 +109,6 @@ CREATE TABLE IF NOT EXISTS market.underlying_daily (
     volume BIGINT NOT NULL CHECK (volume >= 0),
     dividend DECIMAL(24, 8) NOT NULL,
     corporate_action VARCHAR NOT NULL,
-    row_sha256 VARCHAR NOT NULL,
     generated_run_id VARCHAR NOT NULL,
     PRIMARY KEY (snapshot_id, date, underlying_id),
     CHECK (spot_high >= spot_open AND spot_high >= spot_close),
@@ -142,7 +133,6 @@ CREATE TABLE IF NOT EXISTS market.option_daily (
     settlement_price DECIMAL(24, 8) NOT NULL CHECK (settlement_price >= 0),
     volume BIGINT NOT NULL CHECK (volume >= 0),
     open_interest BIGINT NOT NULL CHECK (open_interest >= 0),
-    row_sha256 VARCHAR NOT NULL,
     generated_run_id VARCHAR NOT NULL,
     PRIMARY KEY (snapshot_id, date, option_id)
 );
@@ -169,7 +159,6 @@ CREATE TABLE IF NOT EXISTS market.pricing_metadata (
     rng VARCHAR NOT NULL,
     input_precision JSON NOT NULL,
     canonicalization JSON NOT NULL,
-    row_sha256 VARCHAR NOT NULL,
     generated_run_id VARCHAR NOT NULL,
     PRIMARY KEY (snapshot_id, valuation_timestamp, underlying_id)
 );
@@ -203,7 +192,6 @@ class TableSpec:
     name: str
     columns: tuple[str, ...]
     keys: tuple[str, ...]
-    immutable_on_update: tuple[str, ...] = ()
 
 
 TABLE_SPECS = {
@@ -213,28 +201,26 @@ TABLE_SPECS = {
             "snapshot_id", "underlying_id", "currency", "asset_class",
             "initial_spot", "physical_drift", "physical_volatility",
             "risk_free_rate", "dividend_yield", "base_implied_volatility",
-            "generator_config_id", "row_sha256", "created_run_id", "last_run_id",
+            "generator_config_id", "created_run_id",
         ),
         ("snapshot_id", "underlying_id"),
-        ("created_run_id",),
     ),
     "option_contracts": TableSpec(
         "market.option_contracts",
         (
             "snapshot_id", "option_id", "underlying_id", "template_id",
             "call_put", "strike", "expiry", "exercise_style",
-            "settlement_type", "contract_multiplier", "row_sha256",
-            "created_run_id", "last_run_id",
+            "settlement_type", "contract_multiplier",
+            "created_run_id",
         ),
         ("snapshot_id", "option_id"),
-        ("created_run_id",),
     ),
     "underlying_daily": TableSpec(
         "market.underlying_daily",
         (
             "snapshot_id", "date", "underlying_id", "spot_open", "spot_high",
             "spot_low", "spot_close", "adjusted_close", "volume", "dividend",
-            "corporate_action", "row_sha256", "generated_run_id",
+            "corporate_action", "generated_run_id",
         ),
         ("snapshot_id", "date", "underlying_id"),
     ),
@@ -244,7 +230,7 @@ TABLE_SPECS = {
             "snapshot_id", "date", "underlying_id", "option_id", "call_put",
             "strike", "expiry", "exercise_style", "settlement_type",
             "contract_multiplier", "bid", "ask", "mid", "settlement_price",
-            "volume", "open_interest", "row_sha256", "generated_run_id",
+            "volume", "open_interest", "generated_run_id",
         ),
         ("snapshot_id", "date", "option_id"),
     ),
@@ -256,8 +242,7 @@ TABLE_SPECS = {
             "dividend_curve", "dividend_yield", "borrow_or_carry_rate",
             "calendar", "day_count", "physical_dynamics", "pricing_dynamics",
             "pricing_model", "pricing_engine", "generator_version", "seed",
-            "rng", "input_precision", "canonicalization", "row_sha256",
-            "generated_run_id",
+            "rng", "input_precision", "canonicalization", "generated_run_id",
         ),
         ("snapshot_id", "valuation_timestamp", "underlying_id"),
     ),
@@ -265,35 +250,24 @@ TABLE_SPECS = {
 
 
 def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
-    ddl_hash = hashlib.sha256(DDL.encode("utf-8")).hexdigest()
-    schema_exists = connection.execute(
+    connection.execute(SCHEMA_BOOTSTRAP)
+    current_version = connection.execute(
         """
-        SELECT count(*)
-        FROM information_schema.tables
-        WHERE table_schema = 'metadata' AND table_name = 'schema_migrations'
+        SELECT schema_version FROM metadata.schema_versions
+        ORDER BY applied_at DESC LIMIT 1
         """
-    ).fetchone()[0]
-    if schema_exists:
-        migration = connection.execute(
-            """
-            SELECT ddl_sha256 FROM metadata.schema_migrations
-            WHERE schema_version = ?
-            """,
-            [SCHEMA_VERSION],
-        ).fetchone()
-        if migration is None or migration[0] != ddl_hash:
-            raise RuntimeError(
-                "DuckDB schema checksum mismatch; add an explicit schema migration"
-            )
-        return
-
+    ).fetchone()
+    if current_version and current_version[0] != SCHEMA_VERSION:
+        raise RuntimeError(
+            f"unsupported DuckDB schema version: {current_version[0]}"
+        )
     connection.execute(DDL)
     connection.execute(
         """
-        INSERT INTO metadata.schema_migrations (schema_version, ddl_sha256)
-        VALUES (?, ?)
+        INSERT INTO metadata.schema_versions (schema_version)
+        VALUES (?) ON CONFLICT DO NOTHING
         """,
-        [SCHEMA_VERSION, ddl_hash],
+        [SCHEMA_VERSION],
     )
 
 
@@ -302,14 +276,11 @@ def merge_rows(
     spec: TableSpec,
     rows: Sequence[Sequence[Any]],
 ) -> dict[str, int]:
-    """Merge one incremental batch and leave byte-identical logical rows untouched."""
+    """Insert rows whose primary IDs do not already exist."""
 
     if not rows:
-        return {"requested": 0, "inserted": 0, "updated": 0, "unchanged": 0}
-    if any(len(row) != len(spec.columns) for row in rows):
-        raise ValueError(f"row width does not match {spec.name}")
-
-    stage_name = f"stage_{uuid4().hex}"
+        return {"requested": 0, "inserted": 0, "unchanged": 0}
+    stage_name = "incremental_rows"
     column_csv = ", ".join(spec.columns)
     placeholders = ", ".join("?" for _ in spec.columns)
     connection.execute(
@@ -320,37 +291,25 @@ def merge_rows(
             f"INSERT INTO {stage_name} ({column_csv}) VALUES ({placeholders})", rows
         )
         key_join = " AND ".join(f"target.{key} = source.{key}" for key in spec.keys)
-        update_columns = tuple(
-            column
-            for column in spec.columns
-            if column not in spec.keys and column not in spec.immutable_on_update
-        )
-        update_set = ", ".join(
-            f"{column} = source.{column}" for column in update_columns
-        )
         insert_values = ", ".join(f"source.{column}" for column in spec.columns)
         actions = connection.execute(
             f"""
             MERGE INTO {spec.name} AS target
             USING {stage_name} AS source
             ON {key_join}
-            WHEN MATCHED AND target.row_sha256 <> source.row_sha256 THEN
-                UPDATE SET {update_set}
             WHEN NOT MATCHED THEN
                 INSERT ({column_csv}) VALUES ({insert_values})
             RETURNING merge_action
             """
         ).fetchall()
     finally:
-        connection.execute(f"DROP TABLE IF EXISTS {stage_name}")
+        connection.execute(f"DROP TABLE {stage_name}")
 
     inserted = sum(action[0] == "INSERT" for action in actions)
-    updated = sum(action[0] == "UPDATE" for action in actions)
     return {
         "requested": len(rows),
         "inserted": inserted,
-        "updated": updated,
-        "unchanged": len(rows) - inserted - updated,
+        "unchanged": len(rows) - inserted,
     }
 
 

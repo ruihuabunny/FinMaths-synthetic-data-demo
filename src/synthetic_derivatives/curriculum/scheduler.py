@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from synthetic_derivatives.task_space import AXES, TaskCoordinates, TaskSpec
-from synthetic_derivatives.task_space.models import canonical_sha256
 
 
 @dataclass(frozen=True)
@@ -38,9 +37,7 @@ class AdaptiveCurriculumScheduler:
     def __init__(self, raw: Mapping[str, Any]):
         if raw.get("schema_version") != "1.0.0":
             raise ValueError("unsupported curriculum schema_version")
-        self.raw = dict(raw)
         self.curriculum_id = str(raw["curriculum_id"])
-        self.config_hash = canonical_sha256(self.raw)
         mixture = raw["mixture"]
         self.mixture = {
             "replay": float(mixture["replay"]),
@@ -111,13 +108,10 @@ class AdaptiveCurriculumScheduler:
     def mastery_band(self, pass_at_1: float) -> MasteryBand:
         if not 0.0 <= pass_at_1 <= 1.0:
             raise ValueError("pass@1 must be in [0, 1]")
-        for index, band in enumerate(self.mastery_bands):
-            is_last = index == len(self.mastery_bands) - 1
-            if band.minimum <= pass_at_1 < band.maximum or (
-                is_last and pass_at_1 == band.maximum
-            ):
+        for band in self.mastery_bands[:-1]:
+            if band.minimum <= pass_at_1 < band.maximum:
                 return band
-        raise AssertionError("validated mastery bands must contain pass@1")
+        return self.mastery_bands[-1]
 
     def sampling_weights(
         self,

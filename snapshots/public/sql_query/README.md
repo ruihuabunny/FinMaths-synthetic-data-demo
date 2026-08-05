@@ -6,7 +6,7 @@ query，并在文件开头使用单行 `parameters` CTE 集中声明可编辑参
 
 | 文件 | 用途 | 默认参数 |
 |:---|:---|:---|
-| `snapshot_summary.sql` | Snapshot 状态、hash、日期范围和各表行数 | 当前 smoke snapshot |
+| `snapshot_summary.sql` | Snapshot 状态、revision、日期范围和各表行数 | 当前 smoke snapshot |
 | `underlying_time_series.sql` | 单个 underlying 的 OHLCV 时间序列 | `SYNTH-U03` |
 | `option_chain.sql` | 指定日期和 underlying 的完整 option chain | `2026-08-03`, `SYNTH-U03` |
 | `option_spot_moneyness.sql` | Option quote、spot 与 spot moneyness | `2026-08-03`, `SYNTH-U03` |

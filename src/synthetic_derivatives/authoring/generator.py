@@ -27,19 +27,6 @@ def canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def logical_row_hash(values: list[Any]) -> str:
-    encoded = canonical_json([_json_value(value) for value in values]).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def _json_value(value: Any) -> Any:
-    if isinstance(value, (date, datetime)):
-        return value.isoformat()
-    if isinstance(value, Decimal):
-        return format(value, "f")
-    return value
-
-
 def quantize_price(value: float | Decimal) -> Decimal:
     result = Decimal(str(value)).quantize(PRICE_QUANTUM, rounding=ROUND_HALF_EVEN)
     return abs(result) if result == 0 else result
@@ -113,17 +100,7 @@ class QuantLibGenerator:
             underlying.base_implied_volatility,
             self.config.generator_config_id,
         ]
-        definition = logical
-        if not (
-            underlying.physical_drift_function.is_constant
-            and underlying.physical_volatility_function.is_constant
-        ):
-            definition = [
-                *logical,
-                underlying.physical_drift_function.as_dict(),
-                underlying.physical_volatility_function.as_dict(),
-            ]
-        return (*logical, logical_row_hash(definition), run_id, run_id)
+        return (*logical, run_id)
 
     def option_contract_row(
         self,
@@ -148,7 +125,7 @@ class QuantLibGenerator:
             template.settlement_type,
             quantize_price(template.contract_multiplier),
         ]
-        return (*logical, logical_row_hash(logical), run_id, run_id)
+        return (*logical, run_id)
 
     def underlying_daily_row(
         self,
@@ -220,7 +197,7 @@ class QuantLibGenerator:
             Decimal("0.00000000"),
             "none",
         ]
-        return (*logical, logical_row_hash(logical), run_id)
+        return (*logical, run_id)
 
     def option_daily_row(
         self,
@@ -302,7 +279,7 @@ class QuantLibGenerator:
             volume,
             open_interest,
         ]
-        return (*logical, logical_row_hash(logical), run_id)
+        return (*logical, run_id)
 
     def pricing_metadata_row(
         self,
@@ -396,7 +373,7 @@ class QuantLibGenerator:
             input_precision,
             canonicalization,
         ]
-        return (*logical, logical_row_hash(logical), run_id)
+        return (*logical, run_id)
 
     def physical_interval_parameters(
         self,
@@ -428,8 +405,7 @@ class QuantLibGenerator:
         material = "|".join(
             [self.config.snapshot_id, str(self.config.seed), *(str(part) for part in parts)]
         ).encode("utf-8")
-        seed = int.from_bytes(hashlib.sha256(material).digest()[:4], "big")
-        return seed or 1
+        return int.from_bytes(hashlib.sha256(material).digest()[:4], "big")
 
     def _gaussian(self, *parts: Any) -> float:
         uniform = ql.MersenneTwisterUniformRng(self._derived_seed(*parts))

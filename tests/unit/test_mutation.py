@@ -42,10 +42,9 @@ def test_single_axis_mutation_is_deterministic_and_keeps_snapshot(
     assert parent.coordinates.L == 0
     assert first.task.coordinates.L == 1
     assert first.task.snapshot_id == parent.snapshot_id
-    assert first.task.snapshot_hash == parent.snapshot_hash
+    assert first.task.snapshot_revision == parent.snapshot_revision
     assert first.lineage.before == parent.coordinates.to_dict()
-    assert first.lineage.logical_hash == first.task.logical_hash
-    assert first.lineage.parent_hash == parent.logical_hash
+    assert first.lineage.engine_id == engine.engine_id
 
 
 def test_mutation_rejects_incompatible_child(

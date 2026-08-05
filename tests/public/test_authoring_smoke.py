@@ -16,11 +16,11 @@ def _create(database: Path, config_path: Path) -> dict:
         return pipeline.create_smoke_snapshot()
 
 
-def _hashes(database: Path, table: str) -> list[tuple]:
+def _rows(database: Path, view: str, ordering: str) -> list[tuple]:
     connection = duckdb.connect(str(database), read_only=True)
     try:
         return connection.execute(
-            f"SELECT * FROM (SELECT row_sha256 FROM {table} ORDER BY row_sha256)"
+            f"SELECT * FROM solver_visible.{view} ORDER BY {ordering}"
         ).fetchall()
     finally:
         connection.close()
@@ -65,7 +65,6 @@ def test_five_underlyings_five_options_five_days_smoke(
     result = _create(database, smoke_config_path)
 
     assert result["status"] == "COMPLETED"
-    assert len(result["summary"]["content_sha256"]) == 64
     assert result["summary"]["underlying_count"] == 5
     assert result["summary"]["option_contract_count"] == 25
     assert result["summary"]["business_date_count"] == 5
@@ -73,7 +72,8 @@ def test_five_underlyings_five_options_five_days_smoke(
     assert result["summary"]["option_daily_count"] == 125
     assert result["summary"]["pricing_metadata_count"] == 25
     manifest = json.loads(database.with_suffix(".manifest.json").read_text())
-    assert manifest["content_sha256"] == result["summary"]["content_sha256"]
+    assert manifest["snapshot_id"] == result["summary"]["snapshot_id"]
+    assert manifest["revision"] == result["summary"]["revision"] == 1
 
     connection = duckdb.connect(str(database), read_only=True)
     try:
@@ -92,12 +92,14 @@ def test_five_underlyings_five_options_five_days_smoke(
 
 def test_rerun_is_a_noop(tmp_path: Path, smoke_config_path: Path) -> None:
     database = tmp_path / "noop.duckdb"
-    first = _create(database, smoke_config_path)
+    _create(database, smoke_config_path)
     second = _create(database, smoke_config_path)
 
     assert second["status"] == "NOOP"
     assert second["summary"]["revision"] == 1
-    assert second["content_sha256"] == first["content_sha256"]
+    assert all(
+        stats["inserted"] == 0 for stats in second["table_stats"].values()
+    )
 
 
 def test_append_one_day_only_inserts_one_daily_slice(
@@ -105,8 +107,8 @@ def test_append_one_day_only_inserts_one_daily_slice(
 ) -> None:
     database = tmp_path / "append.duckdb"
     _create(database, smoke_config_path)
-    old_underlying_hashes = _hashes(database, "market.underlying_daily")
-    old_option_hashes = _hashes(database, "market.option_daily")
+    old_underlying_rows = _rows(database, "underlying_daily", "date, underlying_id")
+    old_option_rows = _rows(database, "option_daily", "date, option_id")
 
     config = load_generator_config(smoke_config_path)
     with AuthoringPipeline(database, config) as pipeline:
@@ -117,8 +119,12 @@ def test_append_one_day_only_inserts_one_daily_slice(
     assert result["table_stats"]["pricing_metadata"]["inserted"] == 5
     assert result["summary"]["underlying_daily_count"] == 30
     assert result["summary"]["option_daily_count"] == 150
-    assert set(old_underlying_hashes) <= set(_hashes(database, "market.underlying_daily"))
-    assert set(old_option_hashes) <= set(_hashes(database, "market.option_daily"))
+    assert set(old_underlying_rows) <= set(
+        _rows(database, "underlying_daily", "date, underlying_id")
+    )
+    assert set(old_option_rows) <= set(
+        _rows(database, "option_daily", "date, option_id")
+    )
 
 
 def test_add_underlying_backfills_only_the_new_entity(
@@ -126,7 +132,7 @@ def test_add_underlying_backfills_only_the_new_entity(
 ) -> None:
     database = tmp_path / "add-underlying.duckdb"
     _create(database, smoke_config_path)
-    old_daily_hashes = _hashes(database, "market.underlying_daily")
+    old_daily_rows = _rows(database, "underlying_daily", "date, underlying_id")
     expanded_path = _expanded_config(
         smoke_config_path, tmp_path / "with-u06.json", add_underlying=True
     )
@@ -140,7 +146,9 @@ def test_add_underlying_backfills_only_the_new_entity(
     assert result["table_stats"]["option_daily"]["inserted"] == 25
     assert result["summary"]["underlying_count"] == 6
     assert result["summary"]["underlying_daily_count"] == 30
-    assert set(old_daily_hashes) <= set(_hashes(database, "market.underlying_daily"))
+    assert set(old_daily_rows) <= set(
+        _rows(database, "underlying_daily", "date, underlying_id")
+    )
 
 
 def test_add_option_backfills_only_the_new_contract_family(
@@ -148,7 +156,7 @@ def test_add_option_backfills_only_the_new_contract_family(
 ) -> None:
     database = tmp_path / "add-option.duckdb"
     _create(database, smoke_config_path)
-    old_option_hashes = _hashes(database, "market.option_daily")
+    old_option_rows = _rows(database, "option_daily", "date, option_id")
     expanded_path = _expanded_config(
         smoke_config_path, tmp_path / "with-option.json", add_option=True
     )
@@ -161,7 +169,9 @@ def test_add_option_backfills_only_the_new_contract_family(
     assert result["table_stats"]["option_daily"]["inserted"] == 25
     assert result["summary"]["option_contract_count"] == 30
     assert result["summary"]["option_daily_count"] == 150
-    assert set(old_option_hashes) <= set(_hashes(database, "market.option_daily"))
+    assert set(old_option_rows) <= set(
+        _rows(database, "option_daily", "date, option_id")
+    )
 
 
 def test_frozen_snapshot_rejects_incremental_writes(
@@ -180,4 +190,7 @@ def test_frozen_snapshot_rejects_incremental_writes(
             pipeline.append_business_days(1)
         assert pipeline.connection.execute(
             "SELECT count(*) FROM metadata.generation_runs"
-        ).fetchone()[0] == run_count
+        ).fetchone()[0] == run_count + 1
+        assert pipeline.connection.execute(
+            "SELECT status FROM metadata.generation_runs ORDER BY started_at DESC LIMIT 1"
+        ).fetchone()[0] == "FAILED"

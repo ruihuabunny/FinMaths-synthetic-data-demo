@@ -97,7 +97,7 @@ def test_checked_in_smoke_snapshot_matches_its_manifest(repository_root: Path) -
     try:
         catalog = connection.execute(
             """
-            SELECT status, current_revision, content_sha256
+            SELECT status, current_revision
             FROM metadata.snapshots WHERE snapshot_id = ?
             """,
             [manifest["snapshot_id"]],
@@ -105,7 +105,6 @@ def test_checked_in_smoke_snapshot_matches_its_manifest(repository_root: Path) -
         assert catalog == (
             manifest["status"],
             manifest["revision"],
-            manifest["content_sha256"],
         )
         assert connection.execute(
             "SELECT count(*) FROM market.underlying_daily"

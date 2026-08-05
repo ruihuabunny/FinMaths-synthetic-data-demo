@@ -314,7 +314,7 @@ Agent 改用 Newton、Brent，或在 residual 看起来足够小时提前停止�
 
 | 对象              | 内容                                                                                         |
 |:------------------|:---------------------------------------------------------------------------------------------|
-| `market_snapshot` | QuantLib 生成的 `underlying_daily`、`option_daily`、`pricing_metadata`，以及 version/seed/RNG/config、canonical serialization/hash。 |
+| `market_snapshot` | QuantLib 生成的 `underlying_daily`、`option_daily`、`pricing_metadata`，以及 snapshot/config version、seed 与 RNG。 |
 | `task_variant`    | BSM/IV/Greek/smile contracts、solver allowlist/denylist、output schema。                     |
 | `reference_run`   | 同方法 package wrapper、canonical strings/bytes、rounding contract、uniqueness certificate。 |
 | `agent_episode`   | 表 [对应表格](#tab:trajectory) 的 transitions、tool observations 与 artifacts。              |

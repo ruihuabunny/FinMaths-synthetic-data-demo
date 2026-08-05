@@ -6,9 +6,6 @@ from synthetic_derivatives.curriculum import AdaptiveCurriculumScheduler
 from synthetic_derivatives.task_space import TaskCoordinates, TaskSpec
 
 
-SNAPSHOT_HASH = "7eacf2a6a1d1c579aeadca57a748c4ba4c682b149334cabcfecf57645e26734d"
-
-
 def _task(task_id: str, coordinates: TaskCoordinates) -> TaskSpec:
     family = "bsm_multileg" if coordinates.P > 0 else "bsm_vanilla"
     return TaskSpec(
@@ -16,7 +13,7 @@ def _task(task_id: str, coordinates: TaskCoordinates) -> TaskSpec:
         task_family_id=family,
         coordinates=coordinates,
         snapshot_id="DERIVATIVES-QUANTLIB-SMOKE-v1",
-        snapshot_hash=SNAPSHOT_HASH,
+        snapshot_revision=1,
         method_id="bsm-analytic-price-v1",
         output_contract_id="canonical-float64-json-v1",
     )

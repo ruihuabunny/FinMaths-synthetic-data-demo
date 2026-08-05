@@ -17,7 +17,7 @@ def test_base_task_references_authoring_snapshot_without_copying_oracle_data(
     snapshot_manifest = json.loads(snapshot_manifest_path.read_text(encoding="utf-8"))
 
     assert task.snapshot_id == snapshot_manifest["snapshot_id"]
-    assert task.snapshot_hash == snapshot_manifest["content_sha256"]
+    assert task.snapshot_revision == snapshot_manifest["revision"]
     assert raw_task["status"] == snapshot_manifest["status"] == "DRAFT"
     assert raw_task["publication_eligible"] is False
     assert "oracle" not in raw_task

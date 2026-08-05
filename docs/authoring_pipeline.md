@@ -10,7 +10,7 @@
 
 Smoke test 中有 5 个 underlying 定义和 5 个 option templates。每个 template 会实例化到每个 underlying，因此数据库包含 25 个 option contracts，而不是总共 5 个合约。
 
-Mutation + curriculum 扩展不改变这条 pipeline：`task_space` 只登记 snapshot id/hash 和六维坐标，`mutation` 只产生 child task/lineage，`curriculum` 只计算采样权重。三个模块都不写 authoring DuckDB；若 mutation 需要新的市场状态，仍须通过新的 authoring config/snapshot id 生成，再把新 hash 注册到 child task。
+Mutation + curriculum 扩展不改变这条 pipeline：`task_space` 只登记 snapshot id/revision 和六维坐标，`mutation` 只产生 child task/lineage，`curriculum` 只计算采样权重。三个模块都不写 authoring DuckDB；若 mutation 需要新的市场状态，仍须通过新的 authoring config/snapshot id 生成，再把新 revision 注册到 child task。
 
 ## 文件
 
@@ -18,7 +18,7 @@ Mutation + curriculum 扩展不改变这条 pipeline：`task_space` 只登记 sn
 |:---|:---|
 | `configs/generators/quantlib_bsm_smoke_v1.json` | 固定 seed、模型、underlyings、option templates 与 quote rules。 |
 | `snapshots/public/quantlib_bsm_smoke_v1.duckdb` | 可增量编辑的 `DRAFT` smoke snapshot。 |
-| `snapshots/public/quantlib_bsm_smoke_v1.manifest.json` | 当前 logical revision、行数和 content hash。 |
+| `snapshots/public/quantlib_bsm_smoke_v1.manifest.json` | 当前 logical revision、版本标识和行数。 |
 | `scripts/edit_snapshot.py` | 仓库本地 `.venv` 使用的编辑入口。 |
 | `src/synthetic_derivatives/authoring/` | Config、QuantLib generator、DuckDB schema、transactional pipeline 与 CLI。 |
 | `tests/public/test_authoring_smoke.py` | 初始规模、幂等、追加日期、增加品种和 freeze 测试。 |
@@ -37,16 +37,16 @@ Mutation + curriculum 扩展不改变这条 pipeline：`task_space` 只登记 sn
 | `market.option_daily` | `(snapshot_id, date, option_id)` | Framework 要求的 option daily quotes。 |
 | `market.pricing_metadata` | `(snapshot_id, valuation_timestamp, underlying_id)` | 每个 valuation slice 的 P/Q dynamics、curves、engine、seed、RNG 和 canonicalization。 |
 
-三张 daily/metadata 表包含 framework 指定的全部字段。内部额外保存 `row_sha256` 和 `generated_run_id`，用于幂等 merge、lineage 和审计。
+三张 daily/metadata 表包含 framework 指定的全部字段。内部额外保存 `generated_run_id`，用于 lineage 和审计；幂等写入直接依赖业务主键。
 
 ### `metadata`
 
 | 表 | 说明 |
 |:---|:---|
-| `metadata.schema_migrations` | DuckDB schema version 与 DDL hash。 |
-| `metadata.snapshots` | Snapshot 状态、当前 revision、依赖版本与 logical content hash。 |
-| `metadata.generation_runs` | 每次增量操作的范围、状态、逐表 inserted/updated/unchanged 统计和失败信息。 |
-| `metadata.snapshot_revisions` | 每次产生逻辑变更后的行数、config hash 与 content hash。 |
+| `metadata.schema_versions` | DuckDB schema version。 |
+| `metadata.snapshots` | Snapshot 状态、当前 revision 与依赖版本。 |
+| `metadata.generation_runs` | 每次增量操作的范围、状态、逐表 inserted/unchanged 统计和失败信息。 |
+| `metadata.snapshot_revisions` | 每次产生逻辑变更后的行数。 |
 
 ### `solver_visible`
 
@@ -105,18 +105,17 @@ validate DRAFT/config
   -> create generation run
   -> load incremental rows into temporary staging tables
   -> MERGE by stable business primary key
-  -> skip rows with identical row_sha256
   -> run cross-table quality gates
-  -> record revision/content hash
+  -> record revision
   -> commit
 ```
 
-任一生成、constraint 或 quality-gate 错误会 rollback 整个数据批次，并记录 `FAILED` run。内容 hash 基于五张 market 表按业务主键排序后的 logical row hashes，不依赖 DuckDB 二进制文件布局或运行时间戳。
+任一生成、constraint 或 quality-gate 错误会 rollback 整个数据批次，并记录 `FAILED` run。Snapshot 通过 `snapshot_id` 和递增 revision 标识，不再计算额外的内容摘要。
 
 已有 entity definition 和历史路径是不可变的：
 
 - 配置可以追加 underlyings 或 option templates；
-- 配置不能删除或原地修改已存在的定义；
+- 已存在的定义按业务主键保留，配置中的删除或原地修改不会重写它们；
 - 不能回填 underlying path 中间的日期缺口，因为这会使后续路径失效；
 - 需要修正历史或模型参数时，应使用新的 `snapshot_id`。
 
@@ -133,7 +132,7 @@ validate DRAFT/config
   create-smoke
 ```
 
-再次运行返回 `NOOP`，revision 和 logical content hash 均不变。
+再次运行返回 `NOOP`，revision 保持不变。
 
 ### 追加交易日
 

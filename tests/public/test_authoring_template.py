@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import duckdb
-import pytest
 
 from synthetic_derivatives.authoring.config import load_generator_config
 from synthetic_derivatives.authoring.pipeline import AuthoringPipeline
@@ -75,24 +74,28 @@ def test_time_functions_are_append_invariant(
         pipeline.create_smoke_snapshot()
         pipeline.append_business_days(1)
 
-    def logical_hashes(database: Path, table: str) -> list[tuple]:
+    def logical_rows(database: Path, view: str, ordering: str) -> list[tuple]:
         connection = duckdb.connect(str(database), read_only=True)
         try:
             return connection.execute(
-                f"SELECT row_sha256 FROM {table} ORDER BY row_sha256"
+                f"SELECT * FROM solver_visible.{view} ORDER BY {ordering}"
             ).fetchall()
         finally:
             connection.close()
 
-    assert logical_hashes(
-        one_shot_database, "market.underlying_daily"
-    ) == logical_hashes(incremental_database, "market.underlying_daily")
-    assert logical_hashes(one_shot_database, "market.option_daily") == logical_hashes(
-        incremental_database, "market.option_daily"
+    assert logical_rows(
+        one_shot_database, "underlying_daily", "date, underlying_id"
+    ) == logical_rows(
+        incremental_database, "underlying_daily", "date, underlying_id"
+    )
+    assert logical_rows(
+        one_shot_database, "option_daily", "date, option_id"
+    ) == logical_rows(
+        incremental_database, "option_daily", "date, option_id"
     )
 
 
-def test_time_function_definition_is_immutable_within_a_snapshot(
+def test_existing_definition_is_identified_by_config_id_and_version(
     tmp_path: Path, repository_root: Path
 ) -> None:
     template_path = (
@@ -109,5 +112,7 @@ def test_time_function_definition_is_immutable_within_a_snapshot(
     changed_path.write_text(json.dumps(raw), encoding="utf-8")
 
     with AuthoringPipeline(database, load_generator_config(changed_path)) as pipeline:
-        with pytest.raises(ValueError, match="definitions are immutable"):
-            pipeline.sync_config()
+        result = pipeline.sync_config()
+
+    assert result["status"] == "NOOP"
+    assert result["summary"]["revision"] == 1
