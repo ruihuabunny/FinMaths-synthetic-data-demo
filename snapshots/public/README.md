@@ -12,6 +12,10 @@ DuckDB 文件保存市场数据和生成审计信息，manifest 保存 snapshot 
 `solver_visible` views；只有 authoring 排查和审计才需要读取完整的 `market`、
 `metadata` schemas。
 
+本 README 只描述 market snapshot 的查询、生命周期和边界。六维 task 定义、
+mutation lineage 与 curriculum state 不写入 DuckDB，分别由仓库中的 task manifest、
+声明式配置和独立 Python 模块管理。
+
 ## 当前基准 snapshot
 
 当前提交的 smoke snapshot 为：
@@ -30,6 +34,67 @@ DuckDB 文件保存市场数据和生成审计信息，manifest 保存 snapshot 
 
 这些数值描述当前提交的基准文件。运行增量 authoring 命令后，应以同名
 manifest 或 `metadata.snapshots` 中的最新结果为准。
+
+当前 snapshot 仍为 `DRAFT`。与它配套的 smoke task manifest 是
+[`datasets/manifests/tasks/quantlib_bsm_smoke_price_v1.json`](../../datasets/manifests/tasks/quantlib_bsm_smoke_price_v1.json)，
+同样标记为 `DRAFT` 和 `publication_eligible: false`。该 task 使用六维坐标：
+
+```json
+{"L": 0, "P": 0, "M": 0, "A": 0, "D": 0, "R": 0}
+```
+
+这里表示单一 BSM vanilla analytic price、参数直接给出的基础任务。Task manifest
+通过以下两个字段引用本 snapshot，而不是复制数据或 oracle：
+
+```json
+{
+  "snapshot_id": "DERIVATIVES-QUANTLIB-SMOKE-v1",
+  "snapshot_hash": "7eacf2a6a1d1c579aeadca57a748c4ba4c682b149334cabcfecf57645e26734d"
+}
+```
+
+若 DRAFT snapshot 发生逻辑变化，`content_sha256` 会改变，引用旧 hash 的 task
+应立即视为失效并重新生成。已发布 task 不允许改指向；应使用新的 snapshot id、
+task id 和 lineage 记录创建 child task。
+
+## Snapshot、Task Mutation 与 Curriculum 边界
+
+四个模块通过显式 id/hash 衔接，职责不混用：
+
+| 模块 | 保存什么 | 是否写本 DuckDB |
+|:---|:---|:---:|
+| `authoring` | market rows、revision、generation audit、content hash | 是 |
+| `task_space` | $L/P/M/A/D/R$ 坐标、task family、compatibility decision | 否 |
+| `mutation` | parent/child、operator、seed、before/after、logical hashes | 否 |
+| `curriculum` | stage、`pass@1` diagnostics、sampling weights | 否 |
+
+边界流程为：
+
+```text
+Generator config
+  -> Authoring DuckDB + snapshot manifest
+  -> Task manifest (snapshot_id + snapshot_hash + L/P/M/A/D/R)
+  -> Compatibility-constrained mutation + lineage
+  -> Curriculum sampling
+  -> Solver rollout
+  -> Hard verifier binary outcome
+```
+
+Mutation 是否可以复用当前 DuckDB 取决于变更内容：
+
+- 只改变 reasoning、output 或读取方式，且可见市场输入不变时，可以继续引用同一
+  `snapshot_id`/`snapshot_hash`；
+- 改变 market state、generator、seed、模型参数或可见报价时，必须通过 authoring
+  创建新的 snapshot，不能原地更新当前 task 所引用的数据；
+- 改变数值方法轴 `A` 时必须同时给出新的 `method_id`；
+- child task 必须先通过 compatibility registry，curriculum 只能改变采样权重，
+  不能修改 snapshot、task contract 或 hard-verifier reward。
+
+相关配置入口：
+
+- [`configs/task_space/derivatives_v1.json`](../../configs/task_space/derivatives_v1.json)
+- [`configs/mutations/deterministic_v1.json`](../../configs/mutations/deterministic_v1.json)
+- [`configs/curricula/adaptive_v1.json`](../../configs/curricula/adaptive_v1.json)
 
 ## Schema 分层
 
@@ -421,6 +486,10 @@ solver_visible.pricing_metadata
 
 一般的 IV、Greeks、smile 或数据浏览应从这些 views 开始。
 
+Solver 实际可见的日期、underlying、option rows、字段顺序和 `ORDER BY` 必须由
+task contract 固定；不能仅凭 DuckDB 中“有哪些数据”推断题目范围。DuckDB 也不保存
+canonical answer、hidden oracle、verifier output 或 curriculum mastery state。
+
 ## 行排序规则
 
 DuckDB 表没有可以依赖的天然行顺序。即使两次执行同一条 `SELECT *`，也不应假设
@@ -477,3 +546,5 @@ Generator config
 [`src/synthetic_derivatives/authoring/schema.py`](../../src/synthetic_derivatives/authoring/schema.py)，
 增量和 snapshot 生命周期逻辑见
 [`src/synthetic_derivatives/authoring/pipeline.py`](../../src/synthetic_derivatives/authoring/pipeline.py)。
+Task mutation 与 curriculum 的最新整体规范见
+[`docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum.md`](../../docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum.md)。

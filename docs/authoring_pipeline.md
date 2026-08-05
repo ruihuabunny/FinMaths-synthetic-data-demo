@@ -10,6 +10,8 @@
 
 Smoke test 中有 5 个 underlying 定义和 5 个 option templates。每个 template 会实例化到每个 underlying，因此数据库包含 25 个 option contracts，而不是总共 5 个合约。
 
+Mutation + curriculum 扩展不改变这条 pipeline：`task_space` 只登记 snapshot id/hash 和六维坐标，`mutation` 只产生 child task/lineage，`curriculum` 只计算采样权重。三个模块都不写 authoring DuckDB；若 mutation 需要新的市场状态，仍须通过新的 authoring config/snapshot id 生成，再把新 hash 注册到 child task。
+
 ## 文件
 
 | 文件 | 用途 |

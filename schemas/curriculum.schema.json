@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "curriculum.schema.json",
+  "title": "Reproducible adaptive curriculum state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["curriculum_id", "config_hash", "current_stage", "pass_at_1", "sampling_weights"],
+  "properties": {
+    "curriculum_id": {"type": "string", "minLength": 1},
+    "config_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "current_stage": {"type": "integer", "minimum": 0, "maximum": 7},
+    "pass_at_1": {"type": "object", "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}},
+    "sampling_weights": {"type": "object", "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}}
+  }
+}

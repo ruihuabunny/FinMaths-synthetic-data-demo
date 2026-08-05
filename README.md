@@ -2,14 +2,16 @@
 
 面向 LLM 训练的确定性合成金融衍生品数据项目。项目目标是把市场数据生成、任务定义、模型解题、独立校验和训练数据导出分成清晰的边界，并保证每个样本都可以通过固定配置与 seed 重放。
 
-当前已完成 authoring pipeline 的第一版：使用 QuantLib 生成 underlying 路径和 European option 报价，通过 DuckDB 事务增量写入 snapshot。Solver、verifier 与训练数据构建尚未实现。
+当前已完成 authoring pipeline 的第一版：使用 QuantLib 生成 underlying 路径和 European option 报价，通过 DuckDB 事务增量写入 snapshot。在此基础上，仓库已加入最小可运行的六维 `task_space` registry、受约束 `mutation` engine 和 adaptive `curriculum` scheduler；它们只按 id/hash 引用 snapshot，不修改 authoring 数据。Solver、verifier 与训练数据构建尚未实现。
 
 ## 设计流程
 
 ```text
 Authoring
   -> 生成并冻结 market snapshot
-  -> 发布 task variant 与 method contract
+  -> 注册六维 task variant 与 compatibility decision
+  -> Mutation Engine 生成带 lineage 的 candidate pool
+  -> Curriculum Scheduler 按 mastery 选择训练分布
   -> Solver 手工计算 IV / Greeks / smile
   -> Trusted verifier 独立复算并执行 exact equality
   -> 记录 ORM outcome 与 agent trajectory
@@ -69,6 +71,9 @@ make append-day
 │   └── templates/                 # 新 generator、snapshot 和 variant 的模板
 ├── configs/
 │   ├── generators/                # 可发布的 generator 配置与版本声明
+│   ├── task_space/                # 六维坐标范围和 compatibility registry
+│   ├── mutations/                 # 受约束 mutation operators
+│   ├── curricula/                 # stage、mastery bands 和采样 mixture
 │   └── variants/                  # Solver 可见的 task/method/output contracts
 ├── datasets/
 │   ├── generated/                 # 构建出的训练 JSONL/Parquet，不提交 Git
@@ -91,12 +96,17 @@ make append-day
 ├── src/
 │   └── synthetic_derivatives/
 │       ├── authoring/             # 市场快照生成与冻结实现
+│       ├── task_space/            # 六维 task grammar 与 compatibility
+│       ├── mutation/              # 确定性 child task 与 lineage
+│       ├── curriculum/            # 不改 task/reward 的 adaptive sampling
 │       ├── solver/                # 受限环境中的公式、求根、Greeks 与拟合实现
 │       ├── training/              # Trajectory 清洗、split 和 LLM 数据导出实现
 │       └── verifier/              # 独立 package oracle 与 hard verifier 实现
 └── tests/
     ├── fixtures/                  # 小型冻结测试输入和公开期望结构
-    ├── mutation/                  # 验证错误数字、方法和 schema 必须被拒绝
+    ├── unit/                      # task-space、mutation、curriculum 单元测试
+    ├── integration/               # task manifest 与 authoring snapshot 边界
+    ├── verifier_robustness/       # 验证错误数字、方法和 schema 必须被拒绝
     └── public/                    # Snapshot、contract、重放和端到端公开测试
 ```
 
@@ -115,6 +125,9 @@ make append-day
 保存可复现行为所需的声明式配置：
 
 - `generators/` 描述模型、参数、随机数生成器、draw order、定价 engine 和 generator version。
+- `task_space/` 描述 $L/P/M/A/D/R$ 六个轴与合法 product--model--method 组合。
+- `mutations/` 描述允许改变的轴、单次最大变更轴数和方向约束。
+- `curricula/` 描述 stage、20/60/20 replay/current/explore mixture 与 mastery 调度区间。
 - `variants/` 描述某一道任务的 snapshot、金融约定、method IDs、数值顺序、舍入规则、Solver 权限和输出格式。
 
 配置文件只描述合同，不存放实现代码或 hidden reference answer。
@@ -136,9 +149,12 @@ IV、Greeks、smile、surface、VaR 和 ES 是从统一快照派生的任务结�
 
 ### `src/synthetic_derivatives/`
 
-项目的 Python 源码根目录，按权限拆为四个子包：
+项目的 Python 源码根目录。权限边界模块与训练编排模块分开：
 
 - `authoring/`：允许使用 QuantLib，负责生成、质量门控、冻结与 hash。
+- `task_space/`：只判断六维坐标和 task family 是否兼容，不生成任务、不决定采样。
+- `mutation/`：从不可变母题生成确定性 child task 和 lineage，不读取模型表现。
+- `curriculum/`：根据 stage 与 `pass@1` diagnostics 计算采样权重，不修改 frozen task 或二值 hard reward。
 - `solver/`：只使用合同允许的基础原语，自行实现指定计算方法。
 - `verifier/`：不得导入 Solver 的定价实现；使用独立 package oracle 复算并做 canonical exact equality。
 - `training/`：把通过校验的任务、trajectory、证据和 outcome 转换为 LLM 训练记录，并按 snapshot 分组切分数据，避免泄漏。
@@ -161,7 +177,9 @@ IV、Greeks、smile、surface、VaR 和 ES 是从统一快照派生的任务结�
 
 - `fixtures/` 提供稳定的小型输入。
 - `public/` 检查公开 schema、snapshot identity、method contract 和端到端接口。
-- `mutation/` 主动修改末位数字、单位、method ID、行顺序或 import，确认 hard verifier 必须失败。
+- `unit/` 检查 task grammar、受约束 mutation、lineage 与 curriculum sampling。
+- `integration/` 检查 task manifest 仅按 id/hash 引用 authoring snapshot。
+- `verifier_robustness/` 主动修改末位数字、单位、method ID、行顺序或 import，确认 hard verifier 必须失败；该目录与正式 task mutation engine 无关。
 
 生产 hidden tests 应放在 Solver 无法读取的独立环境中，不提交到公开仓库。
 
@@ -184,5 +202,5 @@ python3 -m venv .venv
 ## 设计文档
 
 - [DuckDB + QuantLib Authoring Pipeline](docs/authoring_pipeline.md)
-- [金融衍生品确定性 ORM Hard-Verifier 框架](docs/financial_derivatives_deterministic_orm_hard_verifier_framework.md)
+- [金融衍生品 Task Mutation 与 Curriculum 扩展](docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum.md)
 - [合成期权链 IV、Greeks 与 Smile Agent Trajectory 样例](docs/examples/synthetic_derivatives_iv_greeks_smile_deterministic_orm_agent_trajectory_example.md)
