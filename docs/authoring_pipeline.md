@@ -62,7 +62,19 @@ Mutation + curriculum 扩展不改变这条 pipeline：`task_space` 只登记 sn
 
 ### Underlying path
 
-每个 underlying 使用 `QuantLib.BlackScholesMertonProcess.evolve` 生成 P-measure GBM close。物理 drift 和 physical volatility 与风险中性定价参数分开保存。
+每个 underlying 使用 `QuantLib.BlackScholesMertonProcess.evolve` 生成 P-measure
+time-inhomogeneous GBM close：
+
+\[
+\frac{dS_t}{S_t}=\mu(t)dt+\sigma(t)dW_t.
+\]
+
+`physical_drift` 和 `physical_volatility` 既可以是向后兼容的 scalar，也可以是以
+`start_date` 为原点的 `piecewise_linear` deterministic function。每个 close
+interval 对 \(\mu(t)\) 精确积分并取算术平均，对 \(\sigma^2(t)\) 精确积分并取
+root-mean-square；得到的 interval-equivalent 参数交给 QuantLib 的 exact GBM
+transition。物理 drift/volatility function 与风险中性定价参数分开保存，完整函数
+和当日有效参数写入 `pricing_metadata.physical_dynamics`。
 
 随机流不是一个依赖循环顺序的全局 stream，而是使用以下 tuple 派生 32-bit seed：
 

@@ -113,7 +113,17 @@ class QuantLibGenerator:
             underlying.base_implied_volatility,
             self.config.generator_config_id,
         ]
-        return (*logical, logical_row_hash(logical), run_id, run_id)
+        definition = logical
+        if not (
+            underlying.physical_drift_function.is_constant
+            and underlying.physical_volatility_function.is_constant
+        ):
+            definition = [
+                *logical,
+                underlying.physical_drift_function.as_dict(),
+                underlying.physical_volatility_function.as_dict(),
+            ]
+        return (*logical, logical_row_hash(definition), run_id, run_id)
 
     def option_contract_row(
         self,
@@ -154,19 +164,23 @@ class QuantLibGenerator:
         if dt <= 0:
             raise ValueError("underlying dates must be strictly increasing")
 
+        effective_drift, effective_volatility = self.physical_interval_parameters(
+            underlying, previous_date, market_date
+        )
+
         ql.Settings.instance().evaluationDate = valuation_date
         spot_quote = ql.QuoteHandle(ql.SimpleQuote(float(previous_close)))
         zero_dividend = ql.YieldTermStructureHandle(
             ql.FlatForward(valuation_date, 0.0, self.day_count)
         )
         physical_drift = ql.YieldTermStructureHandle(
-            ql.FlatForward(valuation_date, underlying.physical_drift, self.day_count)
+            ql.FlatForward(valuation_date, effective_drift, self.day_count)
         )
         volatility = ql.BlackVolTermStructureHandle(
             ql.BlackConstantVol(
                 valuation_date,
                 self.calendar,
-                underlying.physical_volatility,
+                effective_volatility,
                 self.day_count,
             )
         )
@@ -181,7 +195,7 @@ class QuantLibGenerator:
             process.evolve(0.0, float(previous_close), dt, close_shock)
         )
         open_price = quantize_price(previous_close)
-        range_fraction = underlying.physical_volatility * math.sqrt(dt) * range_shock * 0.25
+        range_fraction = effective_volatility * math.sqrt(dt) * range_shock * 0.25
         high = quantize_price(max(open_price, close) * Decimal(str(1.0 + range_fraction)))
         low = quantize_price(
             max(
@@ -294,6 +308,7 @@ class QuantLibGenerator:
         self,
         underlying: UnderlyingConfig,
         market_date: date,
+        previous_date: date,
         run_id: str,
     ) -> tuple[Any, ...]:
         valuation_timestamp = datetime.combine(
@@ -301,15 +316,39 @@ class QuantLibGenerator:
             time.fromisoformat(self.config.valuation_time_utc),
             tzinfo=timezone.utc,
         )
-        physical_dynamics = canonical_json(
-            {
-                "measure": "P",
-                "process": self.config.physical_process,
-                "drift": underlying.physical_drift,
-                "volatility": underlying.physical_volatility,
-                "increment_partition": "sha256(snapshot_id,seed,purpose,entity,date)",
-            }
-        )
+        physical_dynamics_value: dict[str, Any] = {
+            "measure": "P",
+            "process": self.config.physical_process,
+            "drift": underlying.physical_drift,
+            "volatility": underlying.physical_volatility,
+            "increment_partition": "sha256(snapshot_id,seed,purpose,entity,date)",
+        }
+        if not (
+            underlying.physical_drift_function.is_constant
+            and underlying.physical_volatility_function.is_constant
+        ):
+            effective_drift, effective_volatility = self.physical_interval_parameters(
+                underlying, previous_date, market_date
+            )
+            physical_dynamics_value.update(
+                {
+                    "drift": effective_drift,
+                    "volatility": effective_volatility,
+                    "drift_function": underlying.physical_drift_function.as_dict(),
+                    "volatility_function": (
+                        underlying.physical_volatility_function.as_dict()
+                    ),
+                    "time_origin": self.config.start_date.isoformat(),
+                    "time_axis": "calendar_day_offset/Actual365Fixed",
+                    "interval_start": previous_date.isoformat(),
+                    "interval_end": market_date.isoformat(),
+                    "interval_reduction": {
+                        "drift": "arithmetic_mean",
+                        "volatility": "root_mean_square",
+                    },
+                }
+            )
+        physical_dynamics = canonical_json(physical_dynamics_value)
         pricing_dynamics = canonical_json(
             {
                 "measure": "Q",
@@ -358,6 +397,29 @@ class QuantLibGenerator:
             canonicalization,
         ]
         return (*logical, logical_row_hash(logical), run_id)
+
+    def physical_interval_parameters(
+        self,
+        underlying: UnderlyingConfig,
+        previous_date: date,
+        market_date: date,
+    ) -> tuple[float, float]:
+        if market_date <= previous_date:
+            raise ValueError("underlying dates must be strictly increasing")
+        start_day_offset = float((previous_date - self.config.start_date).days)
+        end_day_offset = float((market_date - self.config.start_date).days)
+        # These two reductions preserve both integrals in the exact
+        # time-inhomogeneous GBM transition: integral(mu dt) and
+        # integral(sigma^2 dt).
+        effective_drift = underlying.physical_drift_function.interval_average(
+            start_day_offset, end_day_offset
+        )
+        effective_volatility = (
+            underlying.physical_volatility_function.interval_root_mean_square(
+                start_day_offset, end_day_offset
+            )
+        )
+        return effective_drift, effective_volatility
 
     def previous_business_date(self, market_date: date) -> date:
         return py_date(self.calendar.advance(ql_date(market_date), -1, ql.Days))

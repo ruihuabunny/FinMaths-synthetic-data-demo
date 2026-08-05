@@ -1,7 +1,7 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "generator_config_id": "quantlib-bsm-example-v1",
-  "generator_version": "0.1.0",
+  "generator_version": "0.2.0",
   "snapshot_id": "DERIVATIVES-EXAMPLE-v1",
   "seed": 20260804,
   "rng": "QuantLib.BoxMullerMersenneTwisterGaussianRng/partitioned-sha256-seed-v1",
@@ -19,8 +19,26 @@
     {
       "underlying_id": "SYNTH-EXAMPLE-01",
       "initial_spot": 100.0,
-      "physical_drift": 0.07,
-      "physical_volatility": 0.22,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {"day_offset": 0, "value": 0.07},
+          {"day_offset": 2, "value": 0.04},
+          {"day_offset": 4, "value": 0.08},
+          {"day_offset": 10, "value": 0.06}
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {"day_offset": 0, "value": 0.22},
+          {"day_offset": 2, "value": 0.30},
+          {"day_offset": 4, "value": 0.18},
+          {"day_offset": 10, "value": 0.24}
+        ],
+        "extrapolation": "flat"
+      },
       "risk_free_rate": 0.03,
       "dividend_yield": 0.01,
       "base_implied_volatility": 0.23

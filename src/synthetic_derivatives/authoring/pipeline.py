@@ -296,6 +296,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         }
 
         underlying_daily_rows: list[tuple[Any, ...]] = []
+        requested_dates = set(dates)
+        previous_date_by_key: dict[tuple[date, str], date] = {}
         for underlying in self.config.underlyings:
             existing = {
                 row[0]: row[1]
@@ -336,6 +338,16 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 underlying_daily_rows.append(row)
                 existing[market_date] = row[6]
 
+            prior_path_date: date | None = None
+            for path_date in sorted(existing):
+                if path_date in requested_dates:
+                    previous_date_by_key[(path_date, underlying.underlying_id)] = (
+                        prior_path_date
+                        if prior_path_date is not None
+                        else self.generator.previous_business_date(path_date)
+                    )
+                prior_path_date = path_date
+
         stats["underlying_daily"] = merge_rows(
             self.connection, TABLE_SPECS["underlying_daily"], underlying_daily_rows
         )
@@ -352,7 +364,12 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             ).fetchall()
         }
         metadata_rows = [
-            self.generator.pricing_metadata_row(underlying, market_date, run_id)
+            self.generator.pricing_metadata_row(
+                underlying,
+                market_date,
+                previous_date_by_key[(market_date, underlying.underlying_id)],
+                run_id,
+            )
             for underlying in self.config.underlyings
             for market_date in dates
             if (market_date, underlying.underlying_id) not in existing_metadata

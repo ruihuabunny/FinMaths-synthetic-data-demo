@@ -328,6 +328,26 @@ WHERE snapshot_id = 'DERIVATIVES-QUANTLIB-SMOKE-v1'
 ORDER BY valuation_timestamp;
 ```
 
+## 可复用 SQL Query 文件
+
+本页下方保留了主要查询示例；可直接执行和修改的版本统一放在
+[`sql_query/`](sql_query/README.md)：
+
+```text
+sql_query/
+├── snapshot_summary.sql
+├── underlying_time_series.sql
+├── option_chain.sql
+├── option_spot_moneyness.sql
+├── option_pricing_context.sql
+└── generation_audit.sql
+```
+
+这些文件都只读取 `market`、`metadata` 或 `solver_visible`，不执行 DDL/DML。
+查询参数集中在文件顶部的 `parameters` CTE；结果排序显式写入 SQL。涉及
+`TIMESTAMP WITH TIME ZONE` 的查询会先按 UTC 解释 valuation date，再将输出
+timestamp 转为字符串，从而不依赖调用端的本地时区或额外 Python timezone 包。
+
 ## 常用关联查询
 
 ### Option、spot 与 moneyness

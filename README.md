@@ -61,6 +61,116 @@ make append-day
 
 `sync-config` 会为新增品种回填当前已有日期区间；已存在的业务主键和相同 row hash 不会重写。完整的 schema、主键、增量规则和命令见 [Authoring Pipeline](docs/authoring_pipeline.md)。
 
+## Deterministic physical drift / volatility
+
+Generator config schema `1.1.0` 支持把 underlying 的 P-measure
+`physical_drift` 和 `physical_volatility` 配置成时间的确定性分段线性函数。原来的
+scalar 写法继续支持，并等价于 constant function。当前 checked-in
+`quantlib_bsm_smoke_v1` 保留为 constant baseline；新 job 可以从已使用时间函数的
+[QuantLib/BSM generator 模板](authoring/templates/quantlib_bsm_generator.template.json)
+复制配置。核心配置片段如下；完整可运行字段以模板为准。
+
+```json
+{
+  "schema_version": "1.1.0",
+  "start_date": "2026-08-03",
+  "underlyings": [
+    {
+      "underlying_id": "SYNTH-EXAMPLE-01",
+      "initial_spot": 100.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {"day_offset": 0, "value": 0.07},
+          {"day_offset": 2, "value": 0.04},
+          {"day_offset": 4, "value": 0.08}
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {"day_offset": 0, "value": 0.22},
+          {"day_offset": 2, "value": 0.30},
+          {"day_offset": 4, "value": 0.18}
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.23
+    }
+  ]
+}
+```
+
+`day_offset` 是从 `start_date` 开始计算的日历日，不是 business-day index。节点间
+使用线性插值；第一个节点必须为 0，节点必须按严格递增的整数 offset 排列，节点外
+目前只支持 flat extrapolation。Physical volatility 的所有节点必须大于 0。例如
+上面的 drift 在 day 0、1、2 分别为 `0.070`、`0.055`、`0.040`。
+
+路径生成不是简单地取 close date 终点处的函数值，而是对每个
+`previous close -> current close` 区间计算精确等效参数：
+
+$$
+\mu_{\mathrm{eff}}
+=\frac{1}{\Delta t}\int_{t_0}^{t_1}\mu(t)\,dt,
+\qquad
+\sigma_{\mathrm{eff}}
+=\sqrt{\frac{1}{\Delta t}\int_{t_0}^{t_1}\sigma^2(t)\,dt}.
+$$
+
+线性段端点为 $a,b$ 时，drift 的区间平均是 $(a+b)/2$，volatility 的区间
+RMS 是 $\sqrt{(a^2+ab+b^2)/3}$。跨节点或跨周末的区间会在节点处拆分并按完整
+日历区间积分。因此 Aug 3 到 Aug 4 的 drift 若从 `0.070` 线性走到 `0.055`，
+传给 QuantLib 的 $\mu_{\mathrm{eff}}$ 为 `0.0625`；volatility 若从 `0.22`
+走到 `0.26`，则 $\sigma_{\mathrm{eff}}$ 约为 `0.240277617`。
+
+当前实现由项目代码完成 piecewise-linear 插值与精确积分，再把每个区间的等效参数
+分别放入 QuantLib `FlatForward` 和 `BlackConstantVol`，最后调用
+`BlackScholesMertonProcess.evolve`。这与 deterministic time-inhomogeneous GBM
+在观测网格上的 exact transition 对齐：
+
+$$
+\log\frac{S_{t_1}}{S_{t_0}}
+=\int_{t_0}^{t_1}\left(\mu(t)-\frac12\sigma^2(t)\right)dt
++\sqrt{\int_{t_0}^{t_1}\sigma^2(t)dt}\,Z.
+$$
+
+对应实现位置：
+
+- [config.py](src/synthetic_derivatives/authoring/config.py)：配置解析、节点验证、线性插值、drift 积分与 volatility RMS；
+- [generator.py](src/synthetic_derivatives/authoring/generator.py)：按真实日期区间计算等效参数并注入 QuantLib process；
+- [pipeline.py](src/synthetic_derivatives/authoring/pipeline.py)：增量生成时保留每条路径的真实 previous date，保证一次生成和 append 的结果一致；
+- [公开测试](tests/public/test_authoring_template.py)与[单元测试](tests/unit/test_authoring_config.py)：覆盖每日参数变化、精确积分、append invariance、配置校验与函数定义不可变性。
+
+`market.underlyings.physical_drift` 和 `physical_volatility` 为兼容现有 schema，保存
+函数在 `day_offset = 0` 的值。完整函数、当日实际使用的有效参数、区间起止日期和
+reduction method 写入 `market.pricing_metadata.physical_dynamics`。这一扩展只改变
+underlying 的 physical dynamics；期权 Q-measure 定价仍使用原有的
+risk-free/dividend curves 和 deterministic $K,T$ smile。
+
+可以直接检查每天实际使用的 interval-equivalent 参数：
+
+```sql
+SELECT
+    valuation_date,
+    underlying_id,
+    CAST(json_extract_string(physical_dynamics, '$.drift') AS DOUBLE)
+        AS effective_drift,
+    CAST(json_extract_string(physical_dynamics, '$.volatility') AS DOUBLE)
+        AS effective_volatility,
+    json_extract_string(physical_dynamics, '$.interval_start') AS interval_start,
+    json_extract_string(physical_dynamics, '$.interval_end') AS interval_end
+FROM market.pricing_metadata
+ORDER BY underlying_id, valuation_date;
+```
+
+常用的只读 DuckDB 查询集中保存在
+[`snapshots/public/sql_query/`](snapshots/public/sql_query/README.md)，包括 snapshot 摘要、
+underlying 时间序列、option chain、moneyness、pricing context 和 authoring audit。
+每个 SQL 文件都在顶部提供可编辑的 `parameters` CTE，并显式固定结果排序。
+
 ## 仓库结构
 
 ```text
@@ -93,6 +203,7 @@ make append-day
 ├── scripts/                       # venv、生成、校验和数据集构建入口脚本
 ├── snapshots/
 │   └── public/                    # 小型、可公开且带 logical hash 的 DRAFT/FROZEN 快照
+│       └── sql_query/             # 可复用、只读且显式排序的常用 DuckDB 查询
 ├── src/
 │   └── synthetic_derivatives/
 │       ├── authoring/             # 市场快照生成与冻结实现
@@ -134,12 +245,11 @@ make append-day
 
 ### `snapshots/`
 
-保存生成后不可变的市场快照。`public/` 仅提交小型 demo；批量快照与私有快照不进入 Git。每个快照预计包含：
+保存生成后冻结的市场快照。`public/` 仅提交小型 demo；批量快照与私有快照不进入 Git。当前 public demo 使用 DuckDB，配套内容包括：
 
-- `underlying_daily.csv`
-- `option_daily.csv`
-- `pricing_metadata.json`
-- snapshot manifest 与 SHA-256 hash
+- `quantlib_bsm_smoke_v1.duckdb`：market、metadata 和 solver-visible views；
+- `quantlib_bsm_smoke_v1.manifest.json`：revision、行数与 logical SHA-256；
+- `sql_query/`：只读查询模板，不包含 canonical answer 或 hidden oracle。
 
 IV、Greeks、smile、surface、VaR 和 ES 是从统一快照派生的任务结果，不在这里维护彼此独立的 truth tables。
 
