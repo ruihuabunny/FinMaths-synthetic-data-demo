@@ -3,6 +3,10 @@ WITH parameters(snapshot_id) AS (
     VALUES ('DERIVATIVES-METALS-LIQUID-BSM-v1')
 )
 SELECT
+    snapshot.snapshot_id,
+    snapshot.schema_version,
+    snapshot.status AS snapshot_status,
+    snapshot.current_revision,
     run.run_id,
     run.operation,
     run.status,
@@ -13,9 +17,18 @@ SELECT
     run.table_stats,
     run.error_message,
     revision.revision,
+    revision.underlying_count,
+    revision.option_contract_count,
+    revision.underlying_daily_count,
+    revision.option_daily_count,
+    revision.pricing_metadata_count,
+    revision.underlying_dependence_count,
+    revision.option_chain_spec_count,
     CAST(run.started_at AS VARCHAR) AS started_at,
     CAST(run.completed_at AS VARCHAR) AS completed_at
 FROM metadata.generation_runs AS run
+JOIN metadata.snapshots AS snapshot
+  ON snapshot.snapshot_id = run.snapshot_id
 LEFT JOIN metadata.snapshot_revisions AS revision
   ON revision.snapshot_id = run.snapshot_id
  AND revision.run_id = run.run_id

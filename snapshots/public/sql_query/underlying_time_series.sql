@@ -3,6 +3,7 @@ WITH parameters(snapshot_id, underlying_id) AS (
     VALUES ('DERIVATIVES-METALS-LIQUID-BSM-v1', 'SYNTH-METAL-GOLD')
 )
 SELECT
+    daily.snapshot_id,
     daily.date,
     daily.underlying_id,
     daily.spot_open,

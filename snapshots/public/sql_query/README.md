@@ -14,6 +14,8 @@
 | `option_spot_moneyness.sql` | 56 rows | Solver-safe | 同一 chain 加当日 spot 和 `strike / spot_close`。 |
 | `option_pricing_context.sql` | 56 rows | Solver-safe | 同一 chain 联表 spot、rate/dividend、day count、BSM model/engine。 |
 | `generation_audit.sql` | 1 row | Authoring/audit | Generation run、逐表 stats、revision 和时间戳。 |
+| `option_chain_authoring_spec.sql` | 1 row | Authoring/audit | Candidate grid、liquidity filter、quote model 和 materialized chain shape。 |
+| `underlying_dependence.sql` | 1 row | Authoring/audit | P-measure driver order、$\Lambda/D/R$、factorization 和 regime。 |
 
 “Solver-safe”表示 SQL 只读取 `solver_visible` views；“Authoring/audit”查询会读取
 `market` 或 `metadata`，用于维护和验收 snapshot，不应直接作为 Solver task 输入。
@@ -58,9 +60,11 @@ finally:
 默认 `option_chain.sql` 的 result columns 为：
 
 ```text
-date, underlying_id, option_id, call_put, strike, expiry,
+snapshot_id, date, underlying_id, option_id, call_put, strike, expiry,
+days_to_expiry,
 exercise_style, settlement_type, contract_multiplier,
-bid, mid, ask, settlement_price, volume, open_interest
+bid, mid, ask, bid_ask_spread, relative_bid_ask_spread,
+settlement_price, volume, open_interest
 ```
 
 使用其他 snapshot、日期或标的时，只修改目标 SQL 顶部的 `parameters` CTE，不要删除
@@ -74,8 +78,14 @@ bid, mid, ask, settlement_price, volume, open_interest
 - Bid/ask quote noise 只改变 half-spread，所以所有 rows 满足
   `0 <= bid <= mid <= ask`。
 - `option_pricing_context.sql` 中的 rate/dividend 是对应 underlying/date 的 flat continuous
-  inputs；pricing model/engine 应分别只有 `Black-Scholes-Merton` 和
+  inputs，并同时返回 curve JSON、pricing dynamics、input precision 和 canonicalization；
+  pricing model/engine 应分别只有 `Black-Scholes-Merton` 和
   `QuantLib.AnalyticEuropeanEngine`。
 - Private liquidity rule、candidate grid、$\Lambda/D/R$ 和 RNG lineage 不在 Solver-safe
-  queries 中；需要审计时直接查看 `market.option_chain_specs`、
-  `market.underlying_dependence` 和 `metadata.generation_runs`。
+  queries 中；分别使用 `option_chain_authoring_spec.sql`、`underlying_dependence.sql` 和
+  `generation_audit.sql` 审计。
+- 当前 `option_chain_authoring_spec.sql` 应显示 22 个 underlyings、4 个 selected expiries、
+  7 个 selected listing-moneyness levels 和 1,232 个 materialized contracts；candidate
+  arrays 仍保留完整的 6 expiries 与 11 moneyness levels。
+- 当前 `underlying_dependence.sql` 应显示 `measure=P`、22 个 drivers、
+  `factor_loading` formulation 和 `factor_loading_direct` construction。

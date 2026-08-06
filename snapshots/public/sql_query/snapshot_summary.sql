@@ -13,7 +13,11 @@ underlying_stats AS (
     GROUP BY snapshot_id
 ),
 option_stats AS (
-    SELECT snapshot_id, count(*) AS option_daily_count
+    SELECT
+        snapshot_id,
+        count(DISTINCT date) AS option_business_date_count,
+        count(DISTINCT option_id) AS quoted_option_count,
+        count(*) AS option_daily_count
     FROM market.option_daily
     GROUP BY snapshot_id
 ),
@@ -53,6 +57,8 @@ SELECT
         WHERE snapshot_id = snapshot.snapshot_id
     ) AS option_chain_spec_count,
     underlying_stats.underlying_daily_count,
+    option_stats.option_business_date_count,
+    option_stats.quoted_option_count,
     option_stats.option_daily_count,
     metadata_stats.pricing_metadata_count
 FROM metadata.snapshots AS snapshot
