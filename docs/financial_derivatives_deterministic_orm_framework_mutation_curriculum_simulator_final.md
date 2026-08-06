@@ -1,30 +1,30 @@
 # 金融数学与衍生品市场的确定性 ORM、Task Mutation 与 Curriculum 框架
 
-**六维 Task Grammar、受约束 Mutation、Adaptive Curriculum、冻结市场快照与 Pytest Hard Verification**
+**六维 Task Grammar、受约束 Mutation、同币种联合市场模拟、Adaptive Curriculum、冻结市场快照与 Pytest Hard Verification**
 
 *A Deterministic ORM Hard-Verifier Framework for Financial Mathematics and Derivatives Markets*
 
 - 作者：Ruihua Luo
 - 日期：August 2026
-- 版本：`Mutation + curriculum extension`
+- 版本：`Mutation + curriculum + same-currency joint-simulator extension`
 
 ---
 
 ## 摘要
 
-本文给出金融数学与衍生品市场任务的独立数据方案。与普通统计/数据科学领域不同，出题端以固定版本的 QuantLib 作为统一市场数据生成器：在固定 generator configuration、seed 与 RNG 下生成 underlying daily panel、完整 option daily chain 及 pricing metadata，materialize 后立即冻结为只读 market snapshot。Greeks、implied volatility、smile/surface、VaR 与 ES 不再分别造数据，而是从同一快照派生 task variants。随后固定定价模型、day-count、Greek convention、IV 求根算法、smile/surface 拟合方法、VaR/ES 定义、dtype、操作/归约顺序与 canonical output schema，使 solver 与 verifier 在同一 method contract 下生成逐字段唯一的规范答案。
+本文给出金融数学与衍生品市场任务的独立数据方案。与普通统计/数据科学领域不同，出题端以固定版本的 QuantLib 作为统一市场数据生成器：在固定 generator configuration、seed 与 RNG 下生成 underlying daily panel、完整 option daily chain 及 pricing metadata，materialize 后立即冻结为只读 market snapshot。Greeks、implied volatility、smile/surface、VaR 与 ES 不再分别造数据，而是从同一快照派生 task variants。对于同币种多资产市场，所有资产定义在共同风险中性测度 $\mathbb Q$、共同 numeraire 与共享利率路径下；每个资产的完整 option surface 由一个合法且内部一致的边际 pricing model 生成，再以对称、单位对角且半正定的相关矩阵对其随机驱动进行联合耦合。随后固定定价模型、联合相关结构、day-count、Greek convention、IV 求根算法、smile/surface 拟合方法、VaR/ES 定义、dtype、操作/归约顺序与 canonical output schema，使 solver 与 verifier 在同一 method contract 下生成逐字段唯一的规范答案。
 
 Solver 的核心训练目标是自己实现 Greeks、implied volatility 与 volatility smile/surface 计算。其执行环境不得调用 QuantLib、py_vollib、mibian、rateslib 等现成衍生品定价接口，也不得用封装好的 IV/Greek/smile API 绕过推导；允许的基础数值原语由 task contract 明确列出。Trusted verifier 不受这一限制：它直接以 `pytest` 调用固定版本且与题目方法一致的权威数值/金融包复算标准答案，再强制转换为题目指定 dtype 并按 canonical schema 序列化。Hard verifier 不设置绝对或相对 tolerance，而是逐字段执行 exact equality；全部测试通过时 outcome reward 为 $1$，否则为 $0$。
 
-在此基础上，本文进一步把任务表示为六维坐标 $\tau=(L,P,M,A,D,R)$：推理复杂度、产品族、模型假设、数值方法、数据/工具环境与风险输出。Task-space registry 规定合法组合，mutation engine 沿一个或少数坐标生成带 lineage 的受控变体，curriculum scheduler 再根据 rollout 的分项通过率与错误类型调整采样分布。六维坐标同时充当难度描述、task mutation grammar 与能力归因工具；最终 reward 仍由逐字段 all-pass hard verifier 给出，不因 curriculum 引入主观软分。
+在此基础上，本文进一步把任务表示为六维坐标 $\tau=(L,P,M,A,D,R)$：推理复杂度、产品族、模型假设、数值方法、数据/工具环境与风险输出。Task-space registry 规定合法组合，mutation engine 沿一个或少数坐标以及联合依赖配置生成带 lineage 的受控变体，curriculum scheduler 再根据 rollout 的分项通过率与错误类型调整采样分布。六维坐标同时充当难度描述、task mutation grammar 与能力归因工具；最终 reward 仍由逐字段 all-pass hard verifier 给出，不因 curriculum 引入主观软分。本阶段明确排除 FX、quanto、cross-currency derivatives、多币种利率与 numeraire conversion。
 
-**关键词：** financial derivatives；task grammar；task mutation；curriculum learning；Greeks；implied volatility；volatility smile；synthetic market data；pytest；outcome reward model；hard verifier
+**关键词：** financial derivatives；multi-asset simulator；correlation matrix；risk-neutral measure；task grammar；task mutation；curriculum learning；Greeks；implied volatility；volatility smile；synthetic market data；pytest；outcome reward model；hard verifier
 
 ## 最终设计结论
 
 #### 最终方案
 
-金融衍生品市场单独建域：authoring 端用 pinned QuantLib 统一生成 underlying daily prices、option daily prices 与定价元数据；每个 variant 固定 generator、seed 与全部市场约定，生成后冻结 snapshot；Greeks/IV/smile/surface/VaR/ES 都从该快照派生。每个任务再注册为六维坐标 $\tau=(L,P,M,A,D,R)$。Task-space registry 定义各级含义与 compatibility constraints；mutation engine 产生可追踪变体；curriculum scheduler 根据模型 mastery 选择训练分布。Task contract 同时约束 solver 与 verifier 的公式/算法、dtype、操作顺序和输出 schema；solver 禁止调用现成 Greeks/IV/smile 包，trusted verifier 用 `pytest` 调固定版本、同方法的金融包复算并以 `==` 精确验收。全部 tests pass 才有 $R_{\mathrm{ORM}}=1$。
+金融衍生品市场单独建域：authoring 端用 pinned QuantLib 统一生成 underlying daily prices、option daily prices 与定价元数据；每个 variant 固定 generator、seed 与全部市场约定，生成后冻结 snapshot；Greeks/IV/smile/surface/VaR/ES 都从该快照派生。同币种多资产 snapshot 使用共同 $\mathbb Q$、共同 numeraire、共享利率路径与合法边际模型，并以合法相关矩阵耦合随机驱动。每个任务再注册为六维坐标 $\tau=(L,P,M,A,D,R)$。Task-space registry 定义各级含义与 compatibility constraints；mutation engine 产生可追踪变体；curriculum scheduler 根据模型 mastery 选择训练分布。Task contract 同时约束 solver 与 verifier 的公式/算法、dtype、操作顺序和输出 schema；solver 禁止调用现成 Greeks/IV/smile 包，trusted verifier 用 `pytest` 调固定版本、同方法的金融包复算并以 `==` 精确验收。全部 tests pass 才有 $R_{\mathrm{ORM}}=1$。
 
 ### 为什么金融子域允许造数据
 
@@ -90,7 +90,7 @@ $$
 $$
 S_0,\; r,\; q,\; T,\; K,\; \sigma,\;
 \text{curve parameters},\; \text{skew},\; \text{curvature},\;
-\text{quote-noise model}.
+\text{quote-noise model},\; \text{numeraire},\; \mathbb Q,\; R_t.
 $$
 
 生成后保存 snapshot id 与 revision。若
@@ -104,34 +104,107 @@ $$
 \quad \text{for every solver step } t.
 $$
 
-### QuantLib 统一生成器与三表合同
+### QuantLib 统一生成器与联合快照合同
 
 生产 authoring job 将 $G_{\mathrm{mkt}}$ 实现为 pinned QuantLib pipeline，而不是只使用单一 GBM 公式。模型 registry 可以包含 GBM/BSM baseline、Heston、jump diffusion/Bates、local volatility，以及 SVI/SABR smile/surface；每个 variant 必须保存实际使用的 QuantLib version、Python binding、process class、pricing engine、参数、离散化方法与 engine id。GBM 只作为解析基线，不作为唯一 generator。
 
-统一 snapshot 至少由以下三类对象组成：
+统一 snapshot 至少由以下四类对象组成：
 
 | 对象 | 必需字段 |
 |:---|:---|
 | `underlying_daily` | `date, underlying_id, spot_open, spot_high, spot_low, spot_close, adjusted_close, volume, dividend, corporate_action`；若某字段不由当前模型生成，必须固定为明确的 `null`/常数规则。 |
 | `option_daily` | `date, underlying_id, option_id, call_put, strike, expiry, exercise_style, settlement_type, contract_multiplier, bid, ask, mid, settlement_price, volume, open_interest`。 |
-| `pricing_metadata` | `valuation_timestamp, currency, discount_curve/risk_free_rate, dividend_curve/dividend_yield, borrow_or_carry_rate, calendar, day_count, physical_dynamics, pricing_dynamics, pricing_model, pricing_engine, generator_version, seed, RNG, input_precision, canonicalization`。 |
+| `pricing_metadata` | `valuation_timestamp, market_id, currency, numeraire, risk_neutral_measure_id, rate_path_id, discount_curve/risk_free_rate, dividend_curve/dividend_yield, borrow_or_carry_rate, calendar, day_count, physical_dynamics, pricing_dynamics, pricing_model, pricing_engine, generator_version, seed, RNG, input_precision, canonicalization`。 |
+| `joint_dependence` | `dependence_spec_id, driver_order, formulation, factor_loading_matrix, idiosyncratic_diagonal, correlation_matrix, matrix_dtype, factorization_method, factorization_order, time_grid, regime_id`；单资产任务也必须给出退化的一维单位矩阵或明确的 `not_applicable` 规则。 |
 
-`underlying_daily` 中用于历史收益、VaR/ES 的路径属于物理测度 $P$；`option_daily` 的定价属于风险中性测度 $Q$。两者可共享当日 spot、variance state 与市场日期，但 drift、风险溢价及模型参数必须分别保存为 `physical_dynamics` 与 `pricing_dynamics`。如果某题只需 flat rate/dividend，可以把完整 curves 简化为固定 $r,q$，但简化规则本身仍是合同字段。
+`underlying_daily` 中用于历史收益、VaR/ES 的路径属于物理测度 $\mathbb P$；`option_daily` 的定价属于风险中性测度 $\mathbb Q$。两者可共享当日 spot、variance state 与市场日期，但 drift、风险溢价及模型参数必须分别保存为 `physical_dynamics` 与 `pricing_dynamics`。如果某题只需 flat rate/dividend，可以把完整 curves 简化为固定 $r,q$，但简化规则本身仍是合同字段。
 
-Authoring pipeline 固定为：QuantLib 先生成 underlying path/state，再对每个 valuation date 和 strike--maturity grid $\mathcal{K}\times\mathcal{T}$ 用指定 QuantLib pricing engine 生成 option chain，最后按题面精度量化并冻结。题目的 IV 真值必须从 solver 实际可见的、已量化 option price 按指定求根法重新反解，不能直接拿 QuantLib 内部未公开的 latent volatility 作答案。这样一套数据即可派生 Greeks、IV、smile/surface、underlying VaR/ES 与 option-portfolio VaR/ES variants；不需要维护彼此不一致的独立“Greeks 数据表”或“VaR 数据表”。
+Authoring pipeline 固定为：QuantLib 先在共同时间网格上生成全部 underlying path/state，再对每个 valuation date、underlying 与 strike--maturity grid $\mathcal{K}\times\mathcal{T}$ 用指定 QuantLib pricing engine 生成 option chain，最后按题面精度量化并冻结。题目的 IV 真值必须从 solver 实际可见的、已量化 option price 按指定求根法重新反解，不能直接拿 QuantLib 内部未公开的 latent volatility 作答案。这样一套数据即可派生 Greeks、IV、smile/surface、underlying VaR/ES、option-portfolio VaR/ES 以及同一联合过程下的 basket/index/spread variants；不需要维护彼此不一致的独立“Greeks 数据表”或“VaR 数据表”。
+
+### 同币种 Conditional-Independent Baseline 与相关矩阵扰动
+
+本阶段只考虑同一币种、同一 numeraire 与同一市场计价体系。所有资产共享同一条利率路径 $r_{0:T}$，并定义在共同风险中性测度 $\mathbb Q$ 与联合 filtration 下；暂不考虑 FX、quanto、cross-currency derivatives、多币种利率或 numeraire conversion。
+
+第 $i$ 个资产在 $\mathbb Q$ 下使用一个合法且内部一致的边际 pricing model。以下写法仅展示其 spot driver；Heston、stochastic-rate 或 hybrid model 的 volatility/rate drivers 也必须按固定 `driver_order` 纳入完整 block dependence specification：
+
+$$
+\frac{dS_{i,t}}{S_{i,t}}
+=
+(r_t-q_{i,t})\,dt
++
+\sigma_i(t,S_{i,t},V_{i,t},\ldots)\,dW^{\mathbb Q}_{i,t}.
+$$
+
+不同资产可以使用不同的合法模型，例如 BSM、CEV、Heston、local volatility 或 mixture dynamics；但同一资产的全部 strike、maturity 与合约变体必须由同一个 coherent model snapshot 一致生成。这里的“合法边际 pricing model”是能够产生完整一致价格面的动态/定价模型，而不是对每个 quote 独立拟合的点态公式。
+
+生成器先构造 baseline：给定共享利率路径 $r_{0:T}$ 后，各资产的 idiosyncratic drivers 相互独立。随后用相关矩阵 $R_t$ 对基础冲击进行 perturbation/coupling：
+
+$$
+R_t=R_t^\top,
+\qquad
+\operatorname{diag}(R_t)=\mathbf 1,
+\qquad
+R_t\succeq 0,
+\qquad
+-1<R_{ij,t}<1\quad(i\ne j).
+$$
+
+若允许完全共线或完全反向的退化结构，可将最后一个条件放宽为 $-1\le R_{ij,t}\le1$。PSD 已足以定义联合高斯冲击；本文默认直接使用下述 factor-loading construction。若某个变体改用普通 Cholesky decomposition，则要求 $R_t\succ0$，或必须在合同中指定支持半正定矩阵的确定性 factorization。
+
+为避免与 money-market numeraire 常用的 $B_t$ 混淆，factor-loading matrix 统一记为 $\Lambda_t$。设其第 $i$ 行为 $\lambda_{i,t}^{\top}$，并定义
+
+$$
+D_t=\operatorname{diag}\!\left(
+1-\lVert\lambda_{1,t}\rVert^2,\ldots,
+1-\lVert\lambda_{n,t}\rVert^2
+\right)\succeq0,
+\qquad
+R_t=\Lambda_t\Lambda_t^\top+D_t.
+$$
+
+合法样本冻结 $\Lambda_t$ 与 $D_t$，再由 verifier 按相同 dtype、driver order 与 canonicalization 精确重放 $R_t$。因此 symmetry、单位对角与 PSD 都由生成构造保证，不依赖带数值容差的事后 eigenvalue 判定。故意生成的非 PSD 样本则保存其唯一 violation type 与构造 lineage。
+
+给定相互独立的共同 factor shock $\eta_t\sim N(0,I_k)$ 与 idiosyncratic shock $\varepsilon_t\sim N(0,I_n)$，联合冲击生成规则为
+
+$$
+Z_t=\Lambda_t\eta_t+D_t^{1/2}\varepsilon_t,
+\qquad
+d\langle W_i^{\mathbb Q},W_j^{\mathbb Q}\rangle_t
+=R_{ij,t}\,dt.
+$$
+
+因此，`conditional independence given the shared interest-rate path` 描述的是相关扰动前的 baseline。只要 $R_t$ 存在非零非对角元，最终资产在仅给定利率路径后便是 conditionally correlated，而不是 conditionally independent。若要在最终模型中保留条件独立表述，则必须进一步给定产生相关性的共同 factor paths；本文默认采用更直接的“conditional-independent baseline + PSD correlation perturbation”表述。
+
+相关矩阵只负责耦合随机驱动，不改变任何资产的边际 pricing model、边际参数或完整 option surface。对 stochastic-vol/hybrid models，cross-asset perturbation 还必须保持各资产既有的 spot--vol/rate marginal driver block 不变。因此，single-asset no-arbitrage consistency 直接继承自合法边际模型，而不是在 generator 中另外逐项施加 put--call parity、strike monotonicity、convexity 与 calendar constraints。这些性质只在 authoring/verifier 中作为防止实现错误的 sanity checks。
+
+联合市场的充分构造条件概括为
+
+$$
+\boxed{
+\text{valid coherent marginal models}
++\text{common }\mathbb Q
++\text{shared rate path and numeraire}
++\text{PSD joint correlation structure}
++\text{consistent joint pricing}
+}.
+$$
+
+所有 basket、index、spread 或其他多资产 payoff 必须使用同一个 joint process、同一相关矩阵 snapshot 与同一组联合状态定价，不能先分别生成边际价格再事后拼接。相关矩阵本身不会修复非法边际模型，也不能替代共同 $\mathbb Q$ 与一致联合定价。
 
 ### 最低有效性门控
 
-即使数据可以合成，也必须先保证任务有定义：
+即使数据可以合成，也必须先保证任务有定义。对于普通合法样本，single-asset no-arbitrage 由 coherent marginal pricing model 内生保证；authoring 端只需验证模型配置与实现没有破坏这种继承关系。其余 task-specific 门控包括：
 
 - $S_0>0,K>0,T>0,\sigma>0$；
 - option quote 位于模型和合约约定允许的界内；
 - IV 任务存在且只有一个声明区间内的根；
 - rate/dividend、discounting、calendar 与 day-count 明确；
 - surface task 的 grid、缺失 pattern 与 extrapolation policy 明确；
-- 若目标是无套利 smile/surface，则额外执行 monotonicity、convexity 与 calendar checks。
+- 多资产任务的共同 $\mathbb Q$、numeraire、rate path id、driver order 与 dependence spec 完整；
+- $R_t$ 对称、单位对角且 PSD，固定 factorization method 与输出顺序；
+- 联合衍生品全部来自同一 joint process，而不是独立边际价格的事后拼接。
 
-如果题目故意要求识别 arbitrage violation，则违规本身可被合成，但必须作为 task truth 明确记录，而不能意外混入普通 IV/Greek 题。
+Put--call parity、strike monotonicity/convexity 与 calendar consistency 可以作为 QC sanity checks 运行，但不重复充当 generator 的独立构造假设。如果题目故意要求识别 arbitrage violation，则违规本身可被合成，但必须作为 task truth 明确记录，而不能意外混入普通 IV/Greek 题。
 
 ## Task Variant 与唯一方法合同
 
@@ -158,18 +231,19 @@ $O_v$ 是 output contract，$V_v$ 是 verifier contract，$S_v$ 是 target skill
 
 | 字段                 | 内容                                                                                                                       |
 |:---------------------|:---------------------------------------------------------------------------------------------------------------------------|
-| Instrument           | call/put、European/American、exercise、payoff、notional、currency。                                                        |
+| Instrument           | call/put、European/American、exercise、payoff、notional、共同 currency；本阶段禁止 cross-currency/quanto/FX。            |
 | Generator backend    | QuantLib version/Python binding、process class、pricing engine、model parameters、generator config id。                    |
-| Physical dynamics    | 生成 underlying history 的 $P$-measure process、drift/risk premium、discretization、time grid 与 path state。              |
-| Pricing dynamics     | 生成 option chain 的 $Q$-measure model/parameters、engine 与 calibration policy；不得与 $P$-measure 隐式混用。             |
-| Snapshot schema      | `underlying_daily`、`option_daily`、`pricing_metadata` 的字段、类型、主键、null policy、单位与可见性。                      |
-| Market state         | spot/forward、strike、maturity、rate、dividend、curve 与 quote definition。                                                |
+| Physical dynamics    | 生成 underlying history 的 $\mathbb P$-measure process、drift/risk premium、discretization、time grid 与 path state。     |
+| Pricing dynamics     | 共同 $\mathbb Q$、numeraire、共享 rate path，以及各资产 coherent marginal model/parameters、engine 与 calibration policy；不得与 $\mathbb P$-measure 隐式混用。 |
+| Joint dependence     | dependence spec id、driver order、$\Lambda_t$、$D_t$、$R_t$、PSD/PD policy、factorization、matrix dtype、time/regime policy 与联合定价规则。 |
+| Snapshot schema      | `underlying_daily`、`option_daily`、`pricing_metadata`、`joint_dependence` 的字段、类型、主键、null policy、单位与可见性。  |
+| Market state         | asset/underlying id、spot/forward、strike、maturity、共享 rate path、dividend、curve 与 quote definition。                 |
 | Clock convention     | valuation date、calendar、business-day adjustment、day-count、time-to-expiry。                                             |
 | Pricing model/method | Black–Scholes–Merton、Black-76、tree、PDE、Monte Carlo 等唯一模型与唯一 engine/method。                                    |
 | Greek definition     | spot/forward Greek、holding-what-fixed、analytic/finite-difference/MC estimator、bump/stencil 与 scaling。                 |
 | IV method            | objective price、vol bracket、algorithm id、initial state、固定迭代次数或确定性停止规则、fallback 与 failure output。      |
 | Smile/surface method | moneyness coordinate、basis、weights、fit objective、linear-algebra routine、regularization、interpolation/extrapolation。 |
-| Randomness           | generator seed、RNG、noise draw order；MC 还需冻结 shocks/path order、variance reduction 与 reduction order。              |
+| Randomness           | generator seed、RNG、independent draw order、correlation factorization/order；MC 还需冻结 shocks/path order、variance reduction 与 reduction order。 |
 | Numerics             | dtype、运算与归约顺序、工作精度、必要的显式 cast checkpoints 与 non-convergence output。                                    |
 | Submission           | JSON/table fields、row order、units、目标 dtype、canonical representation 与 serialization order。                         |
 
@@ -219,7 +293,7 @@ $$
 | P5 | 非对称复杂组合 | ratio spread、backspread、seagull、collar |
 | P6 | Barrier / touch | in/out、one-touch、no-touch、double barrier |
 | P7 | Path-dependent | Asian、lookback、cliquet、forward-start |
-| P8 | Portfolio / structured book | 多产品、多期限、多模型 position book |
+| P8 | Multi-asset / structured book | basket、index、spread、best/worst-of、多产品多期限 position book |
 
 P1 的 ANO/CNO 可加入双重验证。例如 call payoff 满足
 
@@ -302,6 +376,7 @@ CIR 通常描述短利率而非 equity spot。任务必须分别声明 spot、vo
 | Heston vanilla | 半解析 | 校准 | 强 | 强 | 可用 |
 | Barrier | 部分模型可用 | — | 较少使用 | 强 | 强 |
 | Asian/lookback | 少量特例 | — | 部分可用 | 可用 | 强 |
+| Same-currency basket/index/spread | 少量特例 | 校准可选 | 依模型 | 可用 | 强 |
 | Hybrid stochastic-rate | 很少 | 校准 | 部分可用 | 强 | 强 |
 
 Generator 只从 registry 采样合法组合。故意违反 compatibility 时，target 必须改成 method/model mismatch classification 或 pipeline repair，不能把伪任务当成数值定价题。
@@ -322,6 +397,19 @@ $$
 - **多轴组合：** 构造后期 curriculum 的完整 workflow；
 - **错误定向 mutation：** 根据 rollout 的 sign、convention、calibration、tool-use 等错误生成 adversarial variants；
 - **不兼容 mutation：** 故意制造 product--model--method mismatch，目标是识别并拒绝错误设定。
+
+对于联合市场，mutation engine 还可以在不改变六维坐标编号的情况下，对 `joint_dependence` 子合同执行受约束 mutation：
+
+- 资产数量、driver order 与边际模型组合；
+- identity、full、block 或 factor-implied correlation structure；
+- normal、stress、crisis correlation regime；
+- 在每个时间点均保持 PSD 的 time-varying $R_t$；
+- asset--asset、spot--volatility 与 asset--rate driver correlation；
+- index/basket weights 与 constituent dependence；
+- 单轴反事实：固定全部 marginal snapshots，只改变一个合法 correlation entry 或 $\Lambda_t$ factor loading；
+- adversarial mutation：边际 option surfaces 全部合法，但完整相关矩阵非 PSD，或联合衍生品价格来自不一致的 dependence snapshot。
+
+合法 mutation 必须保持共同 $\mathbb Q$、numeraire、共享 rate path 和所有 marginal model snapshots 不变，除非 operator 明确声明这些字段也是 mutation target。非法样本必须记录被破坏的唯一约束，避免同时制造多个无法归因的错误。
 
 每个 child task 必须保存：
 
@@ -351,7 +439,7 @@ $$
 | 3 IV/smile/期限结构 | L3 × P0--P4 × M0--M3 × A1/A7 × D2--D4 × R1/R7 | IV inversion、smile/surface、calendar |
 | 4 非 BS dynamics | L3--L4 × P0--P5 × M1--M6 × A3--A7 × D2--D4 × R4/R7/R8 | model--product--method matching、校准、model risk |
 | 5 Exotic/path-dependent | L3--L5 × P6--P7 × M0--M6 × A4--A6 × D3--D5 × R4--R8 | barrier、monitoring、path construction |
-| 6 随机利率/hybrid | L4--L5 × P0--P8 × M7--M8 × A5--A8 × D3--D7 × R4--R9 | 多状态变量、相关结构、joint calibration |
+| 6 随机利率/同币种多资产/hybrid | L4--L5 × P0--P8 × M0--M8 × A3--A8 × D3--D7 × R4--R9 | 共享利率路径、PSD 相关结构、联合定价、joint calibration |
 | 7 Agentic risk workflow | L5--L6 × P0--P8 × M0--M9 × A0--A8 × D4--D8 × R5--R9 | DuckDB→识别→校准→定价→风险→artifact |
 
 Stage 4 的推荐内部顺序为：
@@ -381,7 +469,7 @@ $$
 | B0 | BS vanilla，单价格/Greek | 验证 generator 与 hard verifier |
 | B1 | BS + IV + complete Greeks | 测试逆问题与多字段 all-pass |
 | B2 | straddle/spread/butterfly/CNO/ANO | 测试结构识别、聚合与静态复制 |
-| B3 | option chain + mixture/Heston + DuckDB | 展示完整 agentic workflow |
+| B3 | multi-asset option chains + mixture/Heston + PSD correlation + DuckDB | 展示联合市场与完整 agentic workflow |
 
 冻结基础模型即可先评估 `pass@1`、`pass@N`、verifier-guided retry、分层成功率、失败类型、固定 seed 重跑一致性与 verifier mutation-test 拦截率。若中间难度存在 rollout variance 且 retry 明显提升，就说明该环境具有可探索、可验证的 reward landscape。
 
@@ -426,6 +514,8 @@ $$
 | Implied volatility        | 指定 Newton/bisection/Brent、bracket、初值与迭代规则                          | package pricing function 加同一 root algorithm，或调用算法完全匹配的 pinned solver。        |
 | Smile fit                 | 指定坐标、design matrix、OLS/WLS/regularization 与线性代数例程                | NumPy/SciPy/statsmodels 中同一 routine、参数、row 与 coefficient order。                    |
 | Multi-leg portfolios      | straddle/spread/butterfly/condor/CNO/ANO 的 legs、方向、payoff 与 Greeks 聚合 | 各腿同方法 oracle 加权求和，并检查静态复制、breakeven 与 payoff identity。                  |
+| Joint multi-asset pricing | 读取共同 $\mathbb Q$/rate path、按固定 $R_t$ 构造联合 shocks、计算 basket/index/spread payoff | 同一 joint process、driver order、factorization 与冻结 paths 下的 package/reference oracle。 |
+| Joint-consistency detection | 检查矩阵 symmetry/diagonal/PSD、dependence id 与联合定价来源；定位唯一违规约束 | pytest 精确检查 eigen/factorization contract、lineage 与 joint-pricing provenance。          |
 | Exotic/path-dependent     | barrier/touch/Asian 等指定 monitoring、path 与 boundary 逻辑                  | QuantLib 同模型同 engine，或同一冻结 path/grid 的 reference implementation。                |
 | Model calibration/risk    | CEV/mixture/Heston/local-vol 参数校准、跨模型 repricing                       | 同 objective、initialisation、optimizer 与 method 的 pinned calibration pipeline。          |
 | Monte Carlo price/Greeks  | 指定 RNG/shocks、path construction、estimator、variance reduction 与归约顺序  | pytest 使用同一冻结 paths 与 estimator；不得改用 analytic/PDE oracle。                      |
@@ -453,9 +543,9 @@ $$
 
 | 字段                   | 金融衍生品含义                                                                                           |
 |:-----------------------|:---------------------------------------------------------------------------------------------------------|
-| Problem                | instrument、冻结 market snapshot 与 price/Greek/IV/smile 目标。                                          |
-| Context                | 六维坐标、model、day-count、rate/dividend、Greek units、method、seed、允许/禁止 package。                 |
-| Assumptions            | 模型假设、quote validity、root existence、smoothness 与 no-arbitrage scope。                             |
+| Problem                | instrument、冻结 market snapshot、joint-dependence snapshot 与 price/Greek/IV/smile 目标。              |
+| Context                | 六维坐标、共同 $\mathbb Q$/numeraire/rate path、marginal models、$R_t$、day-count、method、seed 与 package policy。 |
+| Assumptions            | coherent marginal models、合法或故意破坏的 joint structure、quote validity、root existence 与 no-arbitrage scope。 |
 | Skills                 | derive formula、identify structure/model、root solve、differentiate、calibrate、query tools、check invariants。 |
 | Evidence               | 输入 snapshot、真实 tool output、iteration trace、residuals 与 fitted artifacts。                        |
 | Intermediate Reasoning | state–action–observation–next-state trajectory，不包含 hidden oracle。                                   |
@@ -492,7 +582,8 @@ $$
 \begin{gathered}
 (\texttt{task coordinates},\texttt{lineage ids},\texttt{backend package},\\
 \texttt{package version},\texttt{function/engine},\texttt{method id},\\
-\texttt{market conventions},\texttt{dtype/operation order},\\
+\texttt{market conventions},\texttt{joint dependence spec},\\
+\texttt{dtype/operation order},\\
 \texttt{decimal places},\texttt{rounding mode},\texttt{canonical schema},\\
 \texttt{banned imports},\texttt{test ids}).
 \end{gathered}
@@ -518,6 +609,8 @@ $$
 |:---------------------|:--------------------------------------------------------------------------------------------|
 | Submission schema    | 必需字段、row/strike/maturity 顺序、单位、无 NaN/Inf。                                      |
 | Snapshot identity    | market snapshot id/revision、seed、generator version 一致。                                 |
+| Joint-market identity | 共同 $\mathbb Q$/numeraire/rate path id、driver order、dependence spec 与 marginal snapshot ids 一致。 |
+| Correlation validity | $D_t\succeq0$ 且为对角矩阵，$R_t=\Lambda_t\Lambda_t^\top+D_t$，并精确满足 symmetry、单位对角、元素界与 PSD/PD policy。 |
 | Import compliance    | 无禁止库、无隐藏文件访问、无动态安装/网络加载。                                             |
 | Method identity      | solver 声明的 method id、关键 method artifacts 与 verifier contract 精确一致。              |
 | Difficulty identity  | $(L,P,M,A,D,R)$ 坐标、compatibility decision 与 task-family id 精确一致。                 |
@@ -526,7 +619,8 @@ $$
 | Greeks               | method、definition、scaling 与 canonical value 逐字段完全相等。                             |
 | Implied volatility   | 同一 root method 产生的 canonical IV、status 与 iteration contract 完全相等。               |
 | Smile/surface        | coordinate、basis、weights、routine、coefficient order 与 canonical coefficients 完全相等。 |
-| Financial invariants | put–call parity、bounds、sign、monotonicity/convexity 或任务指定性质。                      |
+| Financial invariants | 合法边际模型继承的 put–call parity、bounds、monotonicity/convexity 等实现层 sanity checks，或任务指定性质。 |
+| Joint pricing        | basket/index/spread 等使用同一 joint process、correlation snapshot 与联合状态，provenance 完整。 |
 | Portfolio identities | leg aggregation、straddle/spread/butterfly、ANO/CNO 等静态复制关系。                        |
 | Artifact contract    | SQL/code/JSON/table/report 等要求的文件存在且 schema/version 正确。                        |
 | Edge cases           | deep ITM/OTM、short maturity、low vega、root failure 的指定行为。                           |
@@ -583,11 +677,16 @@ Package oracle 本身不自动解决语义和方法错配。Authoring 时必须�
 5.  拒绝落在舍入边界附近或跨目标平台不能稳定 canonicalize 的样本；
 6.  将任一 canonical 字段最后一位改变 $1$，确认 exact-equality test 失败；
 7.  检查 solver 容器确实无法 import 被禁 packages；
-8.  将 package lock、wrapper version 与 test manifest 纳入 verifier id。
+8.  将 package lock、wrapper version 与 test manifest 纳入 verifier id；
 9.  对 mutation child 检查 compatibility、parent/child ids、单轴不变量与可重放 lineage；
 10. 用故意错误的数值、方法、schema、坐标和 lineage 做 verifier robustness mutation tests；
 11. 冻结模型重复评估 `pass@1`、`pass@N`、repair gain、难度 cell 成功率与 fixed-seed consistency；
-12. 检查 curriculum scheduler 只改变采样权重，不修改 frozen task 或 hard reward 定义。
+12. 检查 curriculum scheduler 只改变采样权重，不修改 frozen task 或 hard reward 定义；
+13. 对同币种多资产 snapshot 检查共同 $\mathbb Q$、numeraire、rate path id、driver order 与 marginal snapshot ids；
+14. 检查 $D_t\succeq0$ 且为对角矩阵、$R_t=\Lambda_t\Lambda_t^\top+D_t$、单位对角与 PSD/PD policy，并固定 matrix dtype、driver order 与输出顺序；
+15. 固定全部 marginal inputs，只切换 identity matrix 与合法非对角 $R_t$，确认每个单资产边际 price/surface 保持不变；
+16. 将一个非对角相关项或联合定价 dependence id 故意改错，确认 joint-consistency test 拒绝样本；
+17. 把 put--call parity、strike monotonicity/convexity 与 calendar consistency 作为边际模型实现的 sanity checks，而不是重复的 generator 构造约束。
 
 ### 发布门槛
 
@@ -596,17 +695,19 @@ Package oracle 本身不自动解决语义和方法错配。Authoring 时必须�
 - generator/seed/RNG/config 完整且 snapshot 已冻结；
 - 六维坐标、task-family id、compatibility decision 与 mutation lineage 完整；
 - instrument、model、calendar、day-count 与 Greek/IV/smile conventions 无歧义；
+- 同币种 scope、共同 $\mathbb Q$/numeraire/rate path、coherent marginal models 与 joint-dependence contract 无歧义；
+- 相关矩阵合法，且所有多资产 payoff 由同一 joint process 与 dependence snapshot 定价；
 - solver allowlist/denylist 可由环境强制执行；
 - package-backed pytest 能以同一方法复算全部 canonical outputs；
 - 每个字段的精度、舍入、canonical representation 与 edge-case failure behavior 已指定；
 - verifier manifest 不含数值 tolerance，全部数值字段使用 exact equality；
 - hidden tests 与 package oracle 不对 solver 可见；
-- tests 全通过才记录 $R_{\mathrm{ORM}}=1$。
+- tests 全通过才记录 $R_{\mathrm{ORM}}=1$；
 - curriculum state 与 verifier diagnostics 可复现，但不泄露 hidden oracle，也不改变二值 reward。
 
 #### 一句话总结
 
-金融衍生品市场：**出题端用 pinned QuantLib 统一生成并冻结 underlying/option snapshot；以 $\tau=(L,P,M,A,D,R)$ 定义 task grammar；通过 compatibility-constrained mutation 扩题，通过 adaptive curriculum 按 mastery 采样；LLM 必须手搓规定方法，pytest 以相同模型、方法、dtype、操作顺序和 schema 复算并 exact equality 验收。最终 reward 始终是 all-pass 的二值 ORM；六维 diagnostics 只用于能力归因、task mutation 与 curriculum 调度，不引入 verifier tolerance。**
+金融衍生品市场：**出题端用 pinned QuantLib 统一生成并冻结 underlying/option snapshot；同币种多资产市场由 coherent marginal pricing models、共同 $\mathbb Q$/numeraire、共享利率路径与 PSD correlation perturbation 组成，single-asset consistency 由边际模型继承，多资产 payoff 必须由同一 joint process 定价；以 $\tau=(L,P,M,A,D,R)$ 定义 task grammar；通过 compatibility-constrained mutation 扩题，通过 adaptive curriculum 按 mastery 采样；LLM 必须手搓规定方法，pytest 以相同模型、相关结构、方法、dtype、操作顺序和 schema 复算并 exact equality 验收。最终 reward 始终是 all-pass 的二值 ORM；六维 diagnostics 只用于能力归因、task mutation 与 curriculum 调度，不引入 verifier tolerance。本阶段不考虑 FX、quanto 或 cross-currency derivatives。**
 
 ## 参考资料
 
