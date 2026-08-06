@@ -22,7 +22,6 @@ from synthetic_derivatives.authoring.generator_common import (
     canonical_json,
     py_date,
     ql_date,
-    quantize_price,
 )
 
 
@@ -77,11 +76,11 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
                 else None
             ),
             canonical_json(chain.call_put),
-            quantize_price(chain.strike_increment),
+            self.quantize_price(chain.strike_increment),
             chain.strike_rounding,
             chain.exercise_style,
             chain.settlement_type,
-            quantize_price(chain.contract_multiplier),
+            self.quantize_price(chain.contract_multiplier),
             (
                 canonical_json(chain.liquidity_filter.as_dict())
                 if chain.liquidity_filter is not None
@@ -124,13 +123,13 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         if template.chain_id is None:
             if template.strike_moneyness is None:
                 raise ValueError("legacy template requires strike_moneyness")
-            strike = quantize_price(
+            strike = self.quantize_price(
                 underlying.initial_spot * template.strike_moneyness
             )
         else:
             if self.config.option_chain is None:
                 raise ValueError("chain template requires option_chain config")
-            strike = quantize_price(
+            strike = self.quantize_price(
                 OptionChainBuilder(self.config.option_chain).absolute_strike(
                     underlying.initial_spot,
                     template.strike_moneyness,
@@ -156,12 +155,12 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
             expiry,
             template.exercise_style,
             template.settlement_type,
-            quantize_price(template.contract_multiplier),
+            self.quantize_price(template.contract_multiplier),
             template.chain_id,
             listing_date,
-            quantize_price(underlying.initial_spot),
+            self.quantize_price(underlying.initial_spot),
             (
-                quantize_price(template.strike_moneyness)
+                self.quantize_price(template.strike_moneyness)
                 if template.strike_moneyness is not None
                 else None
             ),
@@ -247,7 +246,7 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         # Analytic engines can return a tiny negative floating-point artifact for
         # a mathematically zero deep-OTM value. The observable option price obeys
         # the non-negative payoff bound before decimal canonicalization.
-        mid = quantize_price(max(0.0, theoretical_price))
+        mid = self.quantize_price(max(0.0, theoretical_price))
         half_spread = max(
             Decimal(str(self.config.quote_model["minimum_half_spread"])),
             mid * Decimal(str(self.config.quote_model["relative_half_spread"])),
@@ -261,8 +260,8 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         # Side-specific noise widens/narrows only executable quotes.  Flooring
         # bid at zero and keeping both spreads non-negative preserves
         # bid <= BSM mid <= ask by construction.
-        bid = quantize_price(max(Decimal("0"), mid - bid_half_spread))
-        ask = quantize_price(mid + ask_half_spread)
+        bid = self.quantize_price(max(Decimal("0"), mid - bid_half_spread))
+        ask = self.quantize_price(mid + ask_half_spread)
         activity = self._uniform("option-activity", option_identifier, market_date)
         volume = int(25 + activity * 475)
         open_interest = int(500 + activity * 4_500)

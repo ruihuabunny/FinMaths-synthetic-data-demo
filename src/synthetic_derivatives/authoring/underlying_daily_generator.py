@@ -14,7 +14,6 @@ from synthetic_derivatives.authoring.generator_common import (
     QuantLibGeneratorBase,
     canonical_json,
     ql_date,
-    quantize_price,
 )
 
 
@@ -41,7 +40,7 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
             underlying.underlying_id,
             self.config.currency,
             "synthetic_equity",
-            quantize_price(underlying.initial_spot),
+            self.quantize_price(underlying.initial_spot),
             underlying.physical_drift,
             underlying.physical_volatility,
             underlying.risk_free_rate,
@@ -139,20 +138,20 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
         range_shock = abs(
             self._gaussian("underlying-range", underlying.underlying_id, market_date)
         )
-        close = quantize_price(
+        close = self.quantize_price(
             process.evolve(0.0, float(previous_close), dt, close_shock)
         )
         # Persisted precision is part of the path law: an append run restarts
-        # from this eight-decimal close, exactly as a one-shot run advances from
-        # the preceding in-memory row.
-        open_price = quantize_price(previous_close)
+        # from this configured-precision close, exactly as a one-shot run advances
+        # from the preceding in-memory row.
+        open_price = self.quantize_price(previous_close)
         range_fraction = effective_volatility * math.sqrt(dt) * range_shock * 0.25
-        high = quantize_price(
+        high = self.quantize_price(
             max(open_price, close) * Decimal(str(1.0 + range_fraction))
         )
-        low = quantize_price(
+        low = self.quantize_price(
             max(
-                Decimal("0.00000001"),
+                self.price_quantum,
                 min(open_price, close)
                 * Decimal(str(max(0.0, 1.0 - range_fraction))),
             )
@@ -181,7 +180,7 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
     ) -> tuple[Any, ...]:
         """Materialize ``S(start_date)=initial_spot`` without a fake transition."""
 
-        initial_spot = quantize_price(underlying.initial_spot)
+        initial_spot = self.quantize_price(underlying.initial_spot)
         volume_uniform = self._uniform(
             "underlying-volume", underlying.underlying_id, self.config.start_date
         )
@@ -322,7 +321,10 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
             {"type": "flat_continuous", "yield": underlying.dividend_yield}
         )
         input_precision = canonical_json(
-            {"dtype": "float64", "market_quote_decimal_places": 8}
+            {
+                "dtype": "float64",
+                "market_quote_decimal_places": self.config.quote_decimal_places,
+            }
         )
         canonicalization = canonical_json(
             {

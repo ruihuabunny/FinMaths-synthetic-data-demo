@@ -385,9 +385,9 @@ class OptionChainBuilder:
     ) -> Decimal:
         """Freeze one moneyness or absolute-strike input to its listed strike.
 
-        Rounding occurs in units of ``strike_increment`` before the database's
-        eight-decimal price canonicalization.  This method is called while the
-        contract master is built, never once per valuation date.
+        Rounding occurs in units of ``strike_increment`` before the configured
+        price canonicalization.  This method is called while the contract master
+        is built, never once per valuation date.
         """
 
         if (moneyness is None) == (absolute_strike is None):
@@ -517,6 +517,26 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
     }:
         raise ValueError("unsupported generator config schema_version")
 
+    supported_runtime_fields = {
+        "calendar": "WeekendsOnly",
+        "day_count": "Actual365Fixed",
+        "pricing_model": "Black-Scholes-Merton",
+        "pricing_engine": "QuantLib.AnalyticEuropeanEngine",
+        "physical_process": "QuantLib.BlackScholesMertonProcess",
+    }
+    for field_name, supported_value in supported_runtime_fields.items():
+        if raw.get(field_name) != supported_value:
+            raise ValueError(
+                f"{field_name} must be {supported_value} for the current generator"
+            )
+    quote_decimal_places = raw.get("quote_decimal_places")
+    if (
+        isinstance(quote_decimal_places, bool)
+        or not isinstance(quote_decimal_places, int)
+        or not 1 <= quote_decimal_places <= 8
+    ):
+        raise ValueError("quote_decimal_places must be an integer between 1 and 8")
+
     underlyings_list: list[UnderlyingConfig] = []
     for item in raw["underlyings"]:
         if schema_version == "1.0.0" and any(
@@ -597,6 +617,17 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
                 "1.4.0 or 1.5.0"
             )
         underlying_simulation = None
+    expected_rng = (
+        "QuantLib.BoxMullerMersenneTwisterGaussianRng/"
+        "underlying-factor-idiosyncratic-sha256-v1"
+        if underlying_simulation is not None
+        else "QuantLib.BoxMullerMersenneTwisterGaussianRng/partitioned-sha256-seed-v1"
+    )
+    if raw.get("rng") != expected_rng:
+        raise ValueError(
+            "rng must match the configured underlying simulation and current "
+            f"generator: {expected_rng}"
+        )
     if schema_version == "1.5.0":
         if "smile" in raw:
             raise ValueError(
@@ -629,7 +660,7 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
         pricing_engine=raw["pricing_engine"],
         physical_process=raw["physical_process"],
         currency=raw["currency"],
-        quote_decimal_places=int(raw["quote_decimal_places"]),
+        quote_decimal_places=quote_decimal_places,
         underlyings=underlyings,
         option_templates=templates,
         smile=smile,

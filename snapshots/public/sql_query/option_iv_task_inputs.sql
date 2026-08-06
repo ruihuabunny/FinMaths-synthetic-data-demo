@@ -1,4 +1,4 @@
--- Edit snapshot_id, market_date and underlying_id for the desired pricing slice.
+-- Solver-safe IV task inputs. The private IV audit table is intentionally excluded.
 WITH parameters(snapshot_id, market_date, underlying_id) AS (
     VALUES (
         'DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3',
@@ -8,7 +8,10 @@ WITH parameters(snapshot_id, market_date, underlying_id) AS (
 )
 SELECT
     quote.snapshot_id,
-    quote.date,
+    quote.date AS valuation_date,
+    CAST(
+        pricing.valuation_timestamp AT TIME ZONE 'UTC' AS VARCHAR
+    ) AS valuation_timestamp_utc,
     quote.underlying_id,
     quote.option_id,
     underlying.spot_close,
@@ -18,23 +21,23 @@ SELECT
     date_diff('day', quote.date, quote.expiry) AS days_to_expiry,
     CAST(date_diff('day', quote.date, quote.expiry) AS DOUBLE) / 365.0
         AS time_to_expiry_years_actual_365_fixed,
-    quote.bid,
-    quote.mid,
-    quote.ask,
-    quote.settlement_price,
-    CAST(
-        pricing.valuation_timestamp AT TIME ZONE 'UTC' AS VARCHAR
-    ) AS valuation_timestamp_utc,
+    quote.exercise_style,
+    quote.settlement_type,
+    quote.contract_multiplier,
     pricing.currency,
     pricing.risk_free_rate,
-    pricing.discount_curve,
     pricing.dividend_yield,
-    pricing.dividend_curve,
     pricing.borrow_or_carry_rate,
     pricing.calendar,
     pricing.day_count,
     pricing.pricing_model,
-    pricing.pricing_engine,
+    json_extract_string(
+        pricing.pricing_dynamics,
+        '$.q_pricing.implied_volatility_solver.target_quote'
+    ) AS target_quote,
+    quote.mid AS target_option_price,
+    quote.bid,
+    quote.ask,
     json_extract_string(
         pricing.pricing_dynamics,
         '$.q_pricing.risk_neutral_measure_id'
@@ -49,10 +52,6 @@ SELECT
     ) AS rate_path_id,
     json_extract_string(
         pricing.pricing_dynamics,
-        '$.risk_neutral_drift'
-    ) AS risk_neutral_drift,
-    json_extract_string(
-        pricing.pricing_dynamics,
         '$.q_pricing.measure_change'
     ) AS measure_change,
     json_extract_string(
@@ -61,8 +60,24 @@ SELECT
     ) AS volatility_mapping,
     json_extract_string(
         pricing.pricing_dynamics,
-        '$.quote_iv_source'
-    ) AS quote_iv_source,
+        '$.q_pricing.implied_volatility_solver.method'
+    ) AS iv_method_contract,
+    CAST(json_extract_string(
+        pricing.pricing_dynamics,
+        '$.q_pricing.implied_volatility_solver.accuracy'
+    ) AS DOUBLE) AS iv_accuracy,
+    CAST(json_extract_string(
+        pricing.pricing_dynamics,
+        '$.q_pricing.implied_volatility_solver.max_evaluations'
+    ) AS INTEGER) AS iv_max_evaluations,
+    CAST(json_extract_string(
+        pricing.pricing_dynamics,
+        '$.q_pricing.implied_volatility_solver.minimum_volatility'
+    ) AS DOUBLE) AS iv_minimum_volatility,
+    CAST(json_extract_string(
+        pricing.pricing_dynamics,
+        '$.q_pricing.implied_volatility_solver.maximum_volatility'
+    ) AS DOUBLE) AS iv_maximum_volatility,
     pricing.input_precision,
     pricing.canonicalization
 FROM solver_visible.option_daily AS quote

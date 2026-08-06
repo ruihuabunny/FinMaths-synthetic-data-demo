@@ -25,6 +25,16 @@ metadata_stats AS (
     SELECT snapshot_id, count(*) AS pricing_metadata_count
     FROM market.pricing_metadata
     GROUP BY snapshot_id
+),
+iv_audit_stats AS (
+    SELECT
+        snapshot_id,
+        count(*) AS option_pricing_audit_count,
+        count(*) FILTER (WHERE iv_status = 'CONVERGED') AS converged_iv_count,
+        count(*) FILTER (WHERE iv_status = 'NO_FINITE_IV')
+            AS no_finite_iv_count
+    FROM market.option_pricing_audit
+    GROUP BY snapshot_id
 )
 SELECT
     snapshot.snapshot_id,
@@ -33,6 +43,10 @@ SELECT
     snapshot.current_revision,
     snapshot.generator_config_id,
     snapshot.generator_version,
+    snapshot.quantlib_version,
+    snapshot.duckdb_version,
+    snapshot.seed,
+    snapshot.rng,
     underlying_stats.date_min,
     underlying_stats.date_max,
     underlying_stats.business_date_count,
@@ -61,11 +75,9 @@ SELECT
     option_stats.quoted_option_count,
     option_stats.option_daily_count,
     metadata_stats.pricing_metadata_count,
-    (
-        SELECT count(*)
-        FROM market.option_pricing_audit
-        WHERE snapshot_id = snapshot.snapshot_id
-    ) AS option_pricing_audit_count
+    iv_audit_stats.option_pricing_audit_count,
+    iv_audit_stats.converged_iv_count,
+    iv_audit_stats.no_finite_iv_count
 FROM metadata.snapshots AS snapshot
 JOIN parameters
   ON parameters.snapshot_id = snapshot.snapshot_id
@@ -75,4 +87,6 @@ JOIN option_stats
   ON option_stats.snapshot_id = snapshot.snapshot_id
 JOIN metadata_stats
   ON metadata_stats.snapshot_id = snapshot.snapshot_id
+JOIN iv_audit_stats
+  ON iv_audit_stats.snapshot_id = snapshot.snapshot_id
 ORDER BY snapshot.snapshot_id;

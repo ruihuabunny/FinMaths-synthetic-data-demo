@@ -36,6 +36,10 @@ def _factor_config(
             "generator_version": "0.3.0",
             "snapshot_id": "DERIVATIVES-UNDERLYING-FACTOR-v1",
             "business_days": business_days,
+            "rng": (
+                "QuantLib.BoxMullerMersenneTwisterGaussianRng/"
+                "underlying-factor-idiosyncratic-sha256-v1"
+            ),
         }
     )
     raw["underlyings"] = raw["underlyings"][:2]

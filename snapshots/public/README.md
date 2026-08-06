@@ -180,7 +180,10 @@ chain、spot moneyness、pricing context 和 generation audit 查询。默认返
 | `option_chain.sql` | 56 | Solver-safe |
 | `option_spot_moneyness.sql` | 56 | Solver-safe |
 | `option_pricing_context.sql` | 56 | Solver-safe |
+| `option_iv_task_inputs.sql` | 56 | Solver-safe |
+| `option_iv_authoring_answers.sql` | 56 | Authoring/trusted |
 | `generation_audit.sql` | 1 | Authoring/audit |
+| `underlying_dynamics_authoring_audit.sql` | 22 | Authoring/audit |
 
 示例：
 

@@ -14,7 +14,6 @@ from synthetic_derivatives.authoring.config import GeneratorConfig
 
 
 PINNED_QUANTLIB_VERSION = "1.39"
-PRICE_QUANTUM = Decimal("0.00000001")
 
 
 def canonical_json(value: Any) -> str:
@@ -23,10 +22,20 @@ def canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def quantize_price(value: float | Decimal) -> Decimal:
+def price_quantum(decimal_places: int) -> Decimal:
+    """Return the decimal quantum declared by generator configuration."""
+
+    return Decimal(1).scaleb(-decimal_places)
+
+
+def quantize_price(
+    value: float | Decimal, *, decimal_places: int = 8
+) -> Decimal:
     """Canonicalize one market decimal and remove signed zero."""
 
-    result = Decimal(str(value)).quantize(PRICE_QUANTUM, rounding=ROUND_HALF_EVEN)
+    result = Decimal(str(value)).quantize(
+        price_quantum(decimal_places), rounding=ROUND_HALF_EVEN
+    )
     return abs(result) if result == 0 else result
 
 
@@ -63,6 +72,14 @@ class QuantLibGeneratorBase:
         self.config = config
         self.calendar = ql.WeekendsOnly()
         self.day_count = ql.Actual365Fixed()
+        self.price_quantum = price_quantum(config.quote_decimal_places)
+
+    def quantize_price(self, value: float | Decimal) -> Decimal:
+        """Quantize a published value using the JSON precision contract."""
+
+        return quantize_price(
+            value, decimal_places=self.config.quote_decimal_places
+        )
 
     def business_dates(self, start: date, count: int) -> list[date]:
         """Return ``count`` business dates beginning at adjusted ``start``."""

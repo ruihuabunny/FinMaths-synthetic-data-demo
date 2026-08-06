@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import duckdb
 
 from synthetic_derivatives.authoring.config import load_generator_config
 from synthetic_derivatives.authoring.pipeline import AuthoringPipeline
+from synthetic_derivatives.authoring.schema import TABLE_SPECS
 
 
 EXPECTED_UNDERLYING_FIELDS = {
@@ -189,7 +191,51 @@ def test_checked_in_snapshot_is_the_22_metal_liquid_bsm_profile(
             SELECT count(*) FROM market.option_pricing_audit
             WHERE iv_status = 'CONVERGED'
             """
-        ).fetchone()[0] == 59_860
+        ).fetchone()[0] == 59_836
+    finally:
+        connection.close()
+
+
+def test_checked_in_snapshot_replays_from_current_generator_config(
+    tmp_path: Path, repository_root: Path
+) -> None:
+    public_database = (
+        repository_root / "snapshots/public/quantlib_bsm_smoke_v1.duckdb"
+    )
+    config = load_generator_config(
+        repository_root
+        / "configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json"
+    )
+    replay_config = replace(
+        config,
+        business_days=2,
+        option_templates=config.option_templates[:2],
+    )
+    replay_database = tmp_path / "public-snapshot-replay.duckdb"
+    with AuthoringPipeline(replay_database, replay_config) as pipeline:
+        pipeline.create_smoke_snapshot()
+
+    connection = duckdb.connect()
+    try:
+        public_path = str(public_database).replace("'", "''")
+        replay_path = str(replay_database).replace("'", "''")
+        connection.execute(
+            f"ATTACH '{public_path}' AS public_snapshot (READ_ONLY)"
+        )
+        connection.execute(f"ATTACH '{replay_path}' AS replay (READ_ONLY)")
+        for table_name, spec in TABLE_SPECS.items():
+            logical_columns = ", ".join(spec.columns[:-1])
+            missing_rows = connection.execute(
+                f"""
+                SELECT count(*)
+                FROM (
+                    SELECT {logical_columns} FROM replay.{spec.name}
+                    EXCEPT ALL
+                    SELECT {logical_columns} FROM public_snapshot.{spec.name}
+                )
+                """
+            ).fetchone()[0]
+            assert missing_rows == 0, table_name
     finally:
         connection.close()
 
