@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Mapping
 
 
+# This order is part of the serialized task identity and deterministic child IDs.
 AXES = ("L", "P", "M", "A", "D", "R")
 
 
@@ -27,6 +28,8 @@ class TaskCoordinates:
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "TaskCoordinates":
+        """Parse a mapping that contains every axis exactly once."""
+
         keys = set(value)
         if keys != set(AXES):
             missing = sorted(set(AXES) - keys)
@@ -35,12 +38,18 @@ class TaskCoordinates:
         return cls(**{axis: value[axis] for axis in AXES})
 
     def to_dict(self) -> dict[str, int]:
+        """Serialize coordinates in canonical ``AXES`` order."""
+
         return {axis: getattr(self, axis) for axis in AXES}
 
     def changed_axes(self, other: "TaskCoordinates") -> tuple[str, ...]:
+        """Return changed axis names in canonical order."""
+
         return tuple(axis for axis in AXES if getattr(self, axis) != getattr(other, axis))
 
     def with_changes(self, changes: Mapping[str, int]) -> "TaskCoordinates":
+        """Return a validated copy with the requested coordinate replacements."""
+
         unknown = set(changes) - set(AXES)
         if unknown:
             raise ValueError(f"unknown coordinate axes: {sorted(unknown)}")
@@ -74,6 +83,8 @@ class TaskSpec:
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "TaskSpec":
+        """Construct one task from its public JSON representation."""
+
         return cls(
             task_id=value["task_id"],
             task_family_id=value["task_family_id"],
@@ -85,6 +96,8 @@ class TaskSpec:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the stable public representation used by configs and lineage."""
+
         return {
             "task_id": self.task_id,
             "task_family_id": self.task_family_id,

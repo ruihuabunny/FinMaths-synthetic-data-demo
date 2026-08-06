@@ -13,6 +13,12 @@ from synthetic_derivatives.authoring.pipeline import AuthoringPipeline
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the supported snapshot-editing command contract.
+
+    Defaults target a disposable ``/tmp`` database so an unqualified command
+    cannot mutate the checked-in FROZEN public snapshot.
+    """
+
     parser = argparse.ArgumentParser(
         prog="edit-derivatives-snapshot",
         description="Incrementally generate and edit a deterministic DuckDB snapshot.",
@@ -20,18 +26,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--database",
         type=Path,
-        default=Path("snapshots/public/quantlib_bsm_smoke_v1.duckdb"),
+        default=Path("/tmp/metals-liquid-tdgbm-q-v2.duckdb"),
         help="DuckDB file to create or edit",
     )
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("configs/generators/quantlib_bsm_smoke_v1.json"),
-        help="additive generator configuration",
+        default=Path(
+            "configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json"
+        ),
+        help="versioned generator configuration",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser(
-        "create-smoke", help="create or idempotently sync the configured five-day smoke data"
+        "create-smoke",
+        help="create or idempotently sync the config's complete business-date horizon",
     )
     append_parser = subparsers.add_parser(
         "append-dates", help="append new business dates without regenerating old rows"
@@ -54,6 +63,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Parse one command, execute it in a managed pipeline, and print JSON."""
+
     args = build_parser().parse_args(argv)
     config = load_generator_config(args.config)
     with AuthoringPipeline(args.database, config) as pipeline:

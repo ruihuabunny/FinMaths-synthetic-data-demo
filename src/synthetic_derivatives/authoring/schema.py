@@ -8,7 +8,11 @@ from typing import Any, Sequence
 import duckdb
 
 
-SCHEMA_VERSION = "2.0.0"
+SCHEMA_VERSION = "2.4.0"
+# The 2.1--2.4 changes are additive: private dependence, chain and quote-pricing
+# provenance plus nullable contract/filter/quote metadata are added without
+# rewriting existing market observations.
+MIGRATABLE_SCHEMA_VERSIONS = {"2.0.0", "2.1.0", "2.2.0", "2.3.0"}
 
 SCHEMA_BOOTSTRAP = r"""
 CREATE SCHEMA IF NOT EXISTS metadata;
@@ -62,6 +66,9 @@ CREATE TABLE IF NOT EXISTS metadata.snapshot_revisions (
     underlying_daily_count BIGINT NOT NULL,
     option_daily_count BIGINT NOT NULL,
     pricing_metadata_count BIGINT NOT NULL,
+    underlying_dependence_count BIGINT NOT NULL DEFAULT 0,
+    option_chain_spec_count BIGINT NOT NULL DEFAULT 0,
+    option_pricing_audit_count BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     PRIMARY KEY (snapshot_id, revision)
 );
@@ -76,10 +83,68 @@ CREATE TABLE IF NOT EXISTS market.underlyings (
     physical_volatility DOUBLE NOT NULL CHECK (physical_volatility > 0),
     risk_free_rate DOUBLE NOT NULL,
     dividend_yield DOUBLE NOT NULL,
-    base_implied_volatility DOUBLE NOT NULL CHECK (base_implied_volatility > 0),
+    -- Deprecated latent input for config <=1.4. Config 1.5 derives quote IV from
+    -- the canonical price and leaves this private legacy column NULL.
+    base_implied_volatility DOUBLE CHECK (
+        base_implied_volatility IS NULL OR base_implied_volatility > 0
+    ),
     generator_config_id VARCHAR NOT NULL,
     created_run_id VARCHAR NOT NULL,
     PRIMARY KEY (snapshot_id, underlying_id)
+);
+
+-- Private P-measure DGP.  Deliberately omitted from solver_visible views.
+CREATE TABLE IF NOT EXISTS market.underlying_dependence (
+    snapshot_id VARCHAR NOT NULL,
+    dependence_spec_id VARCHAR NOT NULL,
+    measure VARCHAR NOT NULL CHECK (measure = 'P'),
+    driver_order JSON NOT NULL,
+    formulation VARCHAR NOT NULL CHECK (formulation = 'factor_loading'),
+    factor_loading_matrix JSON NOT NULL,
+    idiosyncratic_diagonal JSON NOT NULL,
+    correlation_matrix JSON NOT NULL,
+    matrix_dtype VARCHAR NOT NULL CHECK (matrix_dtype = 'float64'),
+    factorization_method VARCHAR NOT NULL
+        CHECK (factorization_method = 'factor_loading_direct'),
+    factorization_order VARCHAR NOT NULL
+        CHECK (factorization_order = 'declared_driver_order'),
+    time_grid VARCHAR NOT NULL CHECK (time_grid = 'business_daily'),
+    regime_id VARCHAR NOT NULL,
+    generator_config_id VARCHAR NOT NULL,
+    created_run_id VARCHAR NOT NULL,
+    PRIMARY KEY (snapshot_id, dependence_spec_id)
+);
+
+-- Private option-chain authoring rules. Deliberately omitted from solver views.
+-- Exactly one grid JSON is populated; moneyness is an authoring input rather
+-- than a rule for recomputing strikes on each valuation date.
+CREATE TABLE IF NOT EXISTS market.option_chain_specs (
+    snapshot_id VARCHAR NOT NULL,
+    chain_id VARCHAR NOT NULL,
+    listing_rule VARCHAR NOT NULL CHECK (listing_rule = 'snapshot_start'),
+    listing_date DATE NOT NULL,
+    roll_rule VARCHAR NOT NULL CHECK (roll_rule = 'static'),
+    grid_type VARCHAR NOT NULL CHECK (grid_type IN ('moneyness', 'strike')),
+    expiry_days JSON NOT NULL,
+    moneyness_grid JSON,
+    strike_grid JSON,
+    call_put JSON NOT NULL,
+    strike_increment DECIMAL(24, 8) NOT NULL CHECK (strike_increment > 0),
+    strike_rounding VARCHAR NOT NULL CHECK (strike_rounding = 'ROUND_HALF_EVEN'),
+    exercise_style VARCHAR NOT NULL,
+    settlement_type VARCHAR NOT NULL,
+    contract_multiplier DECIMAL(24, 8) NOT NULL CHECK (contract_multiplier > 0),
+    -- Nullable for migrated 2.2 rows. Config 1.4 stores the candidate-grid
+    -- selection rule and complete BSM spread/noise contract here.
+    liquidity_filter JSON,
+    quote_model JSON,
+    generator_config_id VARCHAR NOT NULL,
+    created_run_id VARCHAR NOT NULL,
+    CHECK (
+        (grid_type = 'moneyness' AND moneyness_grid IS NOT NULL AND strike_grid IS NULL)
+        OR (grid_type = 'strike' AND strike_grid IS NOT NULL AND moneyness_grid IS NULL)
+    ),
+    PRIMARY KEY (snapshot_id, chain_id)
 );
 
 CREATE TABLE IF NOT EXISTS market.option_contracts (
@@ -93,6 +158,12 @@ CREATE TABLE IF NOT EXISTS market.option_contracts (
     exercise_style VARCHAR NOT NULL,
     settlement_type VARCHAR NOT NULL,
     contract_multiplier DECIMAL(24, 8) NOT NULL CHECK (contract_multiplier > 0),
+    -- Nullable for migrated legacy rows. Chain rows persist the listing inputs
+    -- for audit, while `strike` above remains the immutable economic term.
+    chain_id VARCHAR,
+    listing_date DATE,
+    listing_spot DECIMAL(24, 8),
+    strike_moneyness DECIMAL(24, 8),
     created_run_id VARCHAR NOT NULL,
     PRIMARY KEY (snapshot_id, option_id)
 );
@@ -135,6 +206,37 @@ CREATE TABLE IF NOT EXISTS market.option_daily (
     open_interest BIGINT NOT NULL CHECK (open_interest >= 0),
     generated_run_id VARCHAR NOT NULL,
     PRIMARY KEY (snapshot_id, date, option_id)
+);
+
+-- Private authoring audit. The derived quote IV is intentionally absent from
+-- solver_visible.option_daily and can be reconstructed from its canonical mid.
+CREATE TABLE IF NOT EXISTS market.option_pricing_audit (
+    snapshot_id VARCHAR NOT NULL,
+    date DATE NOT NULL,
+    option_id VARCHAR NOT NULL,
+    risk_neutral_measure_id VARCHAR NOT NULL,
+    numeraire_id VARCHAR NOT NULL,
+    rate_path_id VARCHAR NOT NULL,
+    measure_change VARCHAR NOT NULL CHECK (measure_change = 'girsanov_drift_only'),
+    volatility_mapping VARCHAR NOT NULL CHECK (
+        volatility_mapping = 'same_deterministic_diffusion'
+    ),
+    q_effective_volatility DOUBLE NOT NULL CHECK (q_effective_volatility > 0),
+    -- Raw QuantLib NPV is retained for diagnostics and can contain a tiny
+    -- negative floating-point artifact when the mathematical price is zero.
+    theoretical_price DOUBLE NOT NULL,
+    canonical_mid DECIMAL(24, 8) NOT NULL CHECK (canonical_mid >= 0),
+    implied_volatility DOUBLE,
+    iv_status VARCHAR NOT NULL CHECK (iv_status IN ('CONVERGED', 'NO_FINITE_IV')),
+    iv_error VARCHAR,
+    iv_solver JSON NOT NULL,
+    generated_run_id VARCHAR NOT NULL,
+    PRIMARY KEY (snapshot_id, date, option_id),
+    CHECK (
+        (iv_status = 'CONVERGED' AND implied_volatility > 0 AND iv_error IS NULL)
+        OR
+        (iv_status = 'NO_FINITE_IV' AND implied_volatility IS NULL AND iv_error IS NOT NULL)
+    )
 );
 
 CREATE TABLE IF NOT EXISTS market.pricing_metadata (
@@ -189,12 +291,37 @@ FROM market.pricing_metadata;
 
 @dataclass(frozen=True)
 class TableSpec:
+    """Ordered table contract used by deterministic staging and MERGE calls."""
+
     name: str
     columns: tuple[str, ...]
     keys: tuple[str, ...]
 
 
 TABLE_SPECS = {
+    "underlying_dependence": TableSpec(
+        "market.underlying_dependence",
+        (
+            "snapshot_id", "dependence_spec_id", "measure", "driver_order",
+            "formulation", "factor_loading_matrix",
+            "idiosyncratic_diagonal", "correlation_matrix", "matrix_dtype",
+            "factorization_method", "factorization_order", "time_grid",
+            "regime_id", "generator_config_id", "created_run_id",
+        ),
+        ("snapshot_id", "dependence_spec_id"),
+    ),
+    "option_chain_specs": TableSpec(
+        "market.option_chain_specs",
+        (
+            "snapshot_id", "chain_id", "listing_rule", "listing_date",
+            "roll_rule", "grid_type", "expiry_days", "moneyness_grid",
+            "strike_grid", "call_put", "strike_increment", "strike_rounding",
+            "exercise_style", "settlement_type", "contract_multiplier",
+            "liquidity_filter", "quote_model",
+            "generator_config_id", "created_run_id",
+        ),
+        ("snapshot_id", "chain_id"),
+    ),
     "underlyings": TableSpec(
         "market.underlyings",
         (
@@ -211,6 +338,7 @@ TABLE_SPECS = {
             "snapshot_id", "option_id", "underlying_id", "template_id",
             "call_put", "strike", "expiry", "exercise_style",
             "settlement_type", "contract_multiplier",
+            "chain_id", "listing_date", "listing_spot", "strike_moneyness",
             "created_run_id",
         ),
         ("snapshot_id", "option_id"),
@@ -234,6 +362,17 @@ TABLE_SPECS = {
         ),
         ("snapshot_id", "date", "option_id"),
     ),
+    "option_pricing_audit": TableSpec(
+        "market.option_pricing_audit",
+        (
+            "snapshot_id", "date", "option_id", "risk_neutral_measure_id",
+            "numeraire_id", "rate_path_id", "measure_change",
+            "volatility_mapping", "q_effective_volatility",
+            "theoretical_price", "canonical_mid", "implied_volatility",
+            "iv_status", "iv_error", "iv_solver", "generated_run_id",
+        ),
+        ("snapshot_id", "date", "option_id"),
+    ),
     "pricing_metadata": TableSpec(
         "market.pricing_metadata",
         (
@@ -250,18 +389,79 @@ TABLE_SPECS = {
 
 
 def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
+    """Create the current schema or apply the supported additive migration.
+
+    Existing 2.0--2.3 snapshots keep every market row unchanged. Migration
+    creates private provenance tables as needed, adds nullable option-contract,
+    liquidity and quote metadata plus revision counters, then advances metadata
+    to schema 2.4.
+    """
+
     connection.execute(SCHEMA_BOOTSTRAP)
     current_version = connection.execute(
         """
         SELECT schema_version FROM metadata.schema_versions
-        ORDER BY applied_at DESC LIMIT 1
+        ORDER BY applied_at DESC, schema_version DESC LIMIT 1
         """
     ).fetchone()
-    if current_version and current_version[0] != SCHEMA_VERSION:
+    if (
+        current_version
+        and current_version[0] != SCHEMA_VERSION
+        and current_version[0] not in MIGRATABLE_SCHEMA_VERSIONS
+    ):
         raise RuntimeError(
             f"unsupported DuckDB schema version: {current_version[0]}"
         )
     connection.execute(DDL)
+    connection.execute(
+        """
+        ALTER TABLE metadata.snapshot_revisions
+        ADD COLUMN IF NOT EXISTS underlying_dependence_count BIGINT
+        DEFAULT 0
+        """
+    )
+    connection.execute(
+        """
+        ALTER TABLE metadata.snapshot_revisions
+        ADD COLUMN IF NOT EXISTS option_chain_spec_count BIGINT
+        DEFAULT 0
+        """
+    )
+    connection.execute(
+        """
+        ALTER TABLE metadata.snapshot_revisions
+        ADD COLUMN IF NOT EXISTS option_pricing_audit_count BIGINT
+        DEFAULT 0
+        """
+    )
+    connection.execute(
+        """
+        ALTER TABLE market.underlyings
+        ALTER COLUMN base_implied_volatility DROP NOT NULL
+        """
+    )
+    for column_definition in (
+        "chain_id VARCHAR",
+        "listing_date DATE",
+        "listing_spot DECIMAL(24, 8)",
+        "strike_moneyness DECIMAL(24, 8)",
+    ):
+        connection.execute(
+            f"""
+            ALTER TABLE market.option_contracts
+            ADD COLUMN IF NOT EXISTS {column_definition}
+            """
+        )
+    for column_definition in (
+        "liquidity_filter JSON",
+        "quote_model JSON",
+    ):
+        connection.execute(
+            f"""
+            ALTER TABLE market.option_chain_specs
+            ADD COLUMN IF NOT EXISTS {column_definition}
+            """
+        )
     connection.execute(
         """
         INSERT INTO metadata.schema_versions (schema_version)
@@ -269,6 +469,15 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
         """,
         [SCHEMA_VERSION],
     )
+    if current_version and current_version[0] != SCHEMA_VERSION:
+        connection.execute(
+            """
+            UPDATE metadata.snapshots
+            SET schema_version = ?
+            WHERE schema_version = ?
+            """,
+            [SCHEMA_VERSION, current_version[0]],
+        )
 
 
 def merge_rows(
@@ -276,7 +485,13 @@ def merge_rows(
     spec: TableSpec,
     rows: Sequence[Sequence[Any]],
 ) -> dict[str, int]:
-    """Insert rows whose primary IDs do not already exist."""
+    """Insert rows whose business keys do not already exist.
+
+    A temporary table inherits the destination column types, then DuckDB MERGE
+    inserts only unmatched keys.  Existing rows are deliberately never updated:
+    economic compatibility is checked by the pipeline before this primitive is
+    called.  The returned counts drive NOOP detection and revision creation.
+    """
 
     if not rows:
         return {"requested": 0, "inserted": 0, "unchanged": 0}
@@ -302,7 +517,11 @@ def merge_rows(
             RETURNING merge_action
             """
         ).fetchall()
-    finally:
+    except Exception:
+        # A failed DuckDB statement aborts the surrounding transaction. The
+        # caller rolls it back, which also removes the temporary stage table.
+        raise
+    else:
         connection.execute(f"DROP TABLE {stage_name}")
 
     inserted = sum(action[0] == "INSERT" for action in actions)
@@ -314,4 +533,6 @@ def merge_rows(
 
 
 def table_columns(connection: duckdb.DuckDBPyConnection, table: str) -> list[str]:
+    """Return DuckDB column names in physical table order for schema tests."""
+
     return [row[1] for row in connection.execute(f"PRAGMA table_info('{table}')").fetchall()]

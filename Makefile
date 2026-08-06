@@ -1,8 +1,9 @@
 VENV := .venv
 PYTHON := $(VENV)/bin/python
 EDITOR := $(PYTHON) scripts/edit_snapshot.py
-CONFIG := configs/generators/quantlib_bsm_smoke_v1.json
-DATABASE := snapshots/public/quantlib_bsm_smoke_v1.duckdb
+CONFIG := configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json
+DATABASE ?= /tmp/metals-liquid-tdgbm-q-v2.duckdb
+PUBLIC_DATABASE := snapshots/public/quantlib_bsm_smoke_v1.duckdb
 
 .PHONY: venv install smoke append-day snapshot-summary test
 
@@ -20,7 +21,7 @@ append-day:
 	$(EDITOR) --database $(DATABASE) --config $(CONFIG) append-dates --days 1
 
 snapshot-summary:
-	$(EDITOR) --database $(DATABASE) --config $(CONFIG) summary
+	$(EDITOR) --database $(PUBLIC_DATABASE) --config $(CONFIG) summary
 
 test:
 	$(PYTHON) -m pytest

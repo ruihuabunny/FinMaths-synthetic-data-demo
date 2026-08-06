@@ -11,6 +11,9 @@ from synthetic_derivatives.authoring.config import (
     DeterministicFunctionNode,
     load_generator_config,
 )
+from synthetic_derivatives.authoring.underlying_daily_generator import (
+    UnderlyingDailyGenerator,
+)
 
 
 def test_piecewise_linear_function_reduces_exactly_over_an_interval() -> None:
@@ -79,3 +82,67 @@ def test_time_function_rejects_nonpositive_volatility_node(
 
     with pytest.raises(ValueError, match="volatility must be positive"):
         load_generator_config(config_path)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    [
+        ("calendar", "TARGET"),
+        ("day_count", "Actual360"),
+        ("pricing_model", "Heston"),
+        ("pricing_engine", "QuantLib.BinomialVanillaEngine"),
+        ("physical_process", "QuantLib.HestonProcess"),
+    ],
+)
+def test_runtime_labels_must_match_the_implemented_generator(
+    tmp_path: Path,
+    smoke_config_path: Path,
+    field_name: str,
+    invalid_value: str,
+) -> None:
+    raw = json.loads(smoke_config_path.read_text(encoding="utf-8"))
+    raw[field_name] = invalid_value
+    config_path = tmp_path / f"invalid-{field_name}.json"
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=field_name):
+        load_generator_config(config_path)
+
+
+def test_rng_label_must_match_the_implemented_stream_partition(
+    tmp_path: Path, smoke_config_path: Path
+) -> None:
+    raw = json.loads(smoke_config_path.read_text(encoding="utf-8"))
+    raw["rng"] = (
+        "QuantLib.BoxMullerMersenneTwisterGaussianRng/"
+        "underlying-factor-idiosyncratic-sha256-v1"
+    )
+    config_path = tmp_path / "invalid-rng.json"
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="rng must match"):
+        load_generator_config(config_path)
+
+
+def test_quote_precision_controls_generated_values_and_metadata(
+    tmp_path: Path, smoke_config_path: Path
+) -> None:
+    raw = json.loads(smoke_config_path.read_text(encoding="utf-8"))
+    raw["quote_decimal_places"] = 4
+    config_path = tmp_path / "four-decimal-quotes.json"
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+    config = load_generator_config(config_path)
+    generator = UnderlyingDailyGenerator(config)
+
+    initial_row = generator.initial_underlying_daily_row(
+        config.underlyings[0], "precision-test"
+    )
+    metadata_row = generator.pricing_metadata_row(
+        config.underlyings[0], config.start_date, None, "precision-test"
+    )
+
+    assert initial_row[3].as_tuple().exponent == -4
+    assert json.loads(metadata_row[19]) == {
+        "dtype": "float64",
+        "market_quote_decimal_places": 4,
+    }

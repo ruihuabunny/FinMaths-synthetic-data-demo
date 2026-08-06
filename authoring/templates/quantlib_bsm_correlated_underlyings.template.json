@@ -1,0 +1,82 @@
+{
+  "schema_version": "1.2.0",
+  "generator_config_id": "quantlib-bsm-correlated-underlyings-example-v1",
+  "generator_version": "0.3.0",
+  "snapshot_id": "DERIVATIVES-CORRELATED-UNDERLYINGS-EXAMPLE-v1",
+  "seed": 20260806,
+  "rng": "QuantLib.BoxMullerMersenneTwisterGaussianRng/underlying-factor-idiosyncratic-sha256-v1",
+  "start_date": "2026-08-03",
+  "business_days": 5,
+  "calendar": "WeekendsOnly",
+  "day_count": "Actual365Fixed",
+  "valuation_time_utc": "16:00:00",
+  "pricing_model": "Black-Scholes-Merton",
+  "pricing_engine": "QuantLib.AnalyticEuropeanEngine",
+  "physical_process": "QuantLib.BlackScholesMertonProcess",
+  "currency": "USD",
+  "quote_decimal_places": 8,
+  "underlyings": [
+    {
+      "underlying_id": "SYNTH-FACTOR-U01",
+      "initial_spot": 100.0,
+      "physical_drift": 0.07,
+      "physical_volatility": 0.22,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.23
+    },
+    {
+      "underlying_id": "SYNTH-FACTOR-U02",
+      "initial_spot": 120.0,
+      "physical_drift": 0.055,
+      "physical_volatility": 0.18,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.005,
+      "base_implied_volatility": 0.2
+    }
+  ],
+  "underlying_simulation": {
+    "dependence_spec_id": "SYNTH-P-SPOT-FACTOR-v1",
+    "measure": "P",
+    "driver_order": ["SYNTH-FACTOR-U01", "SYNTH-FACTOR-U02"],
+    "formulation": "factor_loading",
+    "factor_loading_matrix": [[0.65], [0.35]],
+    "idiosyncratic_diagonal": "derive_from_row_norms",
+    "matrix_dtype": "float64",
+    "factorization_method": "factor_loading_direct",
+    "factorization_order": "declared_driver_order",
+    "time_grid": "business_daily",
+    "regime_id": "constant"
+  },
+  "option_templates": [
+    {
+      "template_id": "CALL-100-090D",
+      "call_put": "call",
+      "strike_moneyness": 1.0,
+      "expiry_days": 90,
+      "exercise_style": "european",
+      "settlement_type": "cash",
+      "contract_multiplier": 100
+    },
+    {
+      "template_id": "PUT-100-090D",
+      "call_put": "put",
+      "strike_moneyness": 1.0,
+      "expiry_days": 90,
+      "exercise_style": "european",
+      "settlement_type": "cash",
+      "contract_multiplier": 100
+    }
+  ],
+  "smile": {
+    "skew": -0.08,
+    "curvature": 0.35,
+    "term_slope": 0.01,
+    "minimum_volatility": 0.05
+  },
+  "quote_model": {
+    "relative_half_spread": 0.0025,
+    "minimum_half_spread": 0.005,
+    "null_policy": "no-null-for-required-snapshot-fields"
+  }
+}

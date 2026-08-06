@@ -1,563 +1,253 @@
-# Public DuckDB snapshot 查询与管理说明
+# Public metals snapshot
 
-本目录保存可以公开读取的 DuckDB market snapshot。当前示例文件为：
+本目录提交一个已冻结、可只读重放的 DuckDB 市场快照。数据库文件名沿用早期
+`quantlib_bsm_smoke_v1` 以保持路径兼容；当前逻辑世界由 manifest 和数据库内
+`snapshot_id` 标识，不再是旧的 5-underlying smoke。
 
-```text
-quantlib_bsm_smoke_v1.duckdb
-quantlib_bsm_smoke_v1.manifest.json
-```
+## Snapshot identity
 
-DuckDB 文件保存市场数据和生成审计信息，manifest 保存 snapshot 当前 revision、
-配置版本和各表行数。日常分析或 Solver 输入应优先读取
-`solver_visible` views；只有 authoring 排查和审计才需要读取完整的 `market`、
-`metadata` schemas。
-
-本 README 只描述 market snapshot 的查询、生命周期和边界。六维 task 定义、
-mutation lineage 与 curriculum state 不写入 DuckDB，分别由仓库中的 task manifest、
-声明式配置和独立 Python 模块管理。
-
-## 当前基准 snapshot
-
-当前提交的 smoke snapshot 为：
-
-| 属性 | 值 |
+| 字段 | 值 |
 |:---|:---|
-| `snapshot_id` | `DERIVATIVES-QUANTLIB-SMOKE-v1` |
-| 状态 | `DRAFT` |
-| Revision | `1` |
-| 日期范围 | `2026-08-03` 至 `2026-08-07` |
-| Underlyings | 5 |
-| Option contracts | 25 |
-| Underlying daily rows | 25 |
-| Option daily rows | 125 |
-| Pricing metadata rows | 25 |
+| Database | `quantlib_bsm_smoke_v1.duckdb` |
+| Manifest | `quantlib_bsm_smoke_v1.manifest.json` |
+| `snapshot_id` | `DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3` |
+| Status / revision | `FROZEN` / `1` |
+| Authoring schema | `2.4.0` |
+| Generator config | `quantlib-randomized-tdgbm-metals-liquid-option-chain-v3` |
+| Generator version | `0.7.0` |
+| QuantLib / DuckDB | `1.39` / `1.5.5` |
+| Seed | `20260806` |
+| Business-date range | `2026-08-03` through `2026-10-30` |
 
-这些数值描述当前提交的基准文件。运行增量 authoring 命令后，应以同名
-manifest 或 `metadata.snapshots` 中的最新结果为准。
+对应的可重放配置是
+[`configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json`](../../configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json)。
 
-当前 snapshot 仍为 `DRAFT`。与它配套的 smoke task manifest 是
-[`datasets/manifests/tasks/quantlib_bsm_smoke_price_v1.json`](../../datasets/manifests/tasks/quantlib_bsm_smoke_price_v1.json)，
-同样标记为 `DRAFT` 和 `publication_eligible: false`。该 task 使用六维坐标：
+## Logical size
 
-```json
-{"L": 0, "P": 0, "M": 0, "A": 0, "D": 0, "R": 0}
+| 对象 | 行数 |
+|:---|---:|
+| `market.underlyings` | 22 |
+| `market.underlying_dependence` | 1 |
+| `market.option_chain_specs` | 1 |
+| `market.option_contracts` | 1,232 |
+| `market.underlying_daily` | 1,430 |
+| `market.option_daily` | 60,368 |
+| `market.pricing_metadata` | 1,430 |
+| `market.option_pricing_audit` | 60,368 |
+
+65 个 business dates × 22 个 underlyings 得到 1,430 条 underlying/metadata rows。
+Option quotes 只生成到 expiry 前，因此不是 `1,232 × 65`：
+
+| Expiry | 合约数 | 有报价日期数 | Quote rows |
+|:---|---:|---:|---:|
+| `2026-09-02` | 308 | 22 | 6,776 |
+| `2026-10-02` | 308 | 44 | 13,552 |
+| `2026-11-02` | 308 | 65 | 20,020 |
+| `2027-02-01` | 308 | 65 | 20,020 |
+
+## Database layout
+
+DuckDB 包含三个 SQL schemas：
+
+| Schema / object | 可见性 | 主键或粒度 | 说明 |
+|:---|:---|:---|:---|
+| `solver_visible.underlying_daily` | Solver-safe | snapshot/date/underlying | 65 日 OHLCV、adjusted close、dividend、corporate action。 |
+| `solver_visible.option_daily` | Solver-safe | snapshot/date/option | 未到期合约的 bid/ask/mid、静态 terms、volume/open interest。 |
+| `solver_visible.pricing_metadata` | Solver-safe（过渡合同） | snapshot/timestamp/underlying | Curves、rate/dividend、calendar/day count 和 pricing context。 |
+| `market.underlyings` | Authoring | snapshot/underlying | 22 个 underlying master definitions。 |
+| `market.option_contracts` | Authoring | snapshot/option | 1,232 个 frozen listed contracts 与 listing provenance。 |
+| `market.underlying_dependence` | Private provenance | snapshot/dependence spec | P-measure $\Lambda/D/R$ 及 driver order。 |
+| `market.option_chain_specs` | Private provenance | snapshot/chain | Candidate grid、liquidity filter、quote model 与 listing/roll rules。 |
+| `market.option_pricing_audit` | Private provenance | snapshot/date/option | Q identity/mapping、effective volatility、未舍入理论价、canonical mid 和 QuantLib IV 反解状态。 |
+| `metadata.snapshots` | Audit | snapshot | Schema/config/generator version、status、seed 和 revision。 |
+| `metadata.generation_runs` | Audit | run | Operation、date range、table stats、status 和 error。 |
+| `metadata.snapshot_revisions` | Audit | snapshot/revision | 每个 revision 的逻辑 row counts。 |
+
+“Private provenance”表示没有对应的 `solver_visible` view；由于这是单文件 demo，拥有完整
+DuckDB 文件的 maintainer 仍可读取 `market`/`metadata`。生产任务应导出 solver views 或用
+数据库权限真正隔离 authoring provenance。
+
+## Underlyings and dependence
+
+22 个 synthetic metal underlyings 包括 aluminum、copper、zinc、lead、nickel、tin、
+gold、silver、platinum、palladium、cobalt、molybdenum、iron ore、steel rebar、
+lithium、uranium、rhodium、magnesium、manganese、chromium、vanadium 和 tungsten。
+
+Physical close paths 使用 config `1.5.0` 继承的 P-measure factor-loading contract：
+
+$$
+D=\operatorname{diag}(1-\lVert\lambda_i\rVert^2),
+\qquad R=\Lambda\Lambda^\top+D.
+$$
+
+`driver_order` 恰好只含这 22 个 underlying IDs。`market.underlying_dependence` 保存
+$\Lambda/D/R$，不建立 solver-visible view；1,232 个 option contracts 不进入相关矩阵。
+
+每个 underlying 的 annualized instantaneous `physical_drift` 和
+`physical_volatility` 都是 calendar-day-offset piecewise-linear functions。脚本先用记录的
+parameter-generator seed `20260806` 在 `[1, 4294967295]` 内抽得 global sampling seed
+`2504254580`，再按 underlying ID 分区，为 22 个 underlying 分别抽取互不相同的
+per-underlying seed、node-offset grid、drift phi/std 和 log-vol phi/std。首 offset 固定为
+0；五个内部 offset 从 `[14, 181]` 无放回抽样，末 offset 从 `[182, 365]` 抽样。
+
+[`scripts/sample_physical_dynamics.py`](../../scripts/sample_physical_dynamics.py) 对每个 phi/std
+也声明 continuous-uniform hard bounds；realized values、bounds、offsets 和 per-underlying
+seed 全部保存在对应 underlying 的 `physical_sampling_parameters`。Drift value bound 仍为
+`[-0.05, 0.15]`，volatility value bound 仍为 `[0.05, 0.80]`。所有参数只抽样一次并冻结；
+snapshot replay 只读取 frozen nodes，不会重新抽样。
+
+`2026-08-03` 的 OHLC 是精确 initial condition $S(t_0)=S_0$；没有从虚构的前一日先走一步。
+之后每个 observation interval 对 drift 精确积分取平均，对 variance 精确积分取 RMS，再
+调用 QuantLib 的 flat-coefficient GBM exact transition。周末跨度按 Actual/365 calendar
+time 处理。
+
+## Liquid option chain
+
+Authoring config 声明 6 × 11 × 2 的 candidate grid：
+
+- expiry offsets: `30, 60, 90, 180, 270, 365` calendar days；
+- listing moneyness: `0.70, 0.80, 0.85, ..., 1.15, 1.20, 1.30`；
+- paired European call/put。
+
+Private `liquidity_filter` 使用 inclusive rules：
+
+- `max_expiry_days = 180`；
+- `0.85 <= listing_moneyness <= 1.15`。
+
+因此每个 underlying 只挂牌 `4 expiries × 7 strikes × 2 call/put = 56` 个合约。
+270/365 日和 moneyness band 外的 candidates 不进入 contract master，也不会生成 quote。
+90/180 日到期日按 `WeekendsOnly/Following` 调整，故实际日期分别比原始 offset 多 1/2
+个日历日。
+
+Moneyness 只在 listing date 用 initial spot 转换一次，并以 0.5 strike increment 和
+`ROUND_HALF_EVEN` 冻结 absolute strike。后续 spot 变化不会重新定 strike，也不会让
+合约动态进出 liquidity band。
+
+## Q-measure BSM pricing, IV audit, and quote noise
+
+全部 option mid 使用：
+
+- `QuantLib.BlackScholesMertonProcess`；
+- flat continuous risk-free/dividend yields；
+- snapshot-wide `USD-MONEY-MARKET-Q-v1` 与 money-market-account numeraire；
+- drift-only Girsanov mapping：Q drift 为 $r-q$，且在这个明确的 baseline 假设下
+  $\sigma_Q(t)=\sigma_P(t)$；
+- valuation-to-expiry integrated variance 对应的 constant-equivalent RMS volatility；
+- `QuantLib.AnalyticEuropeanEngine`；
+- 8-decimal `ROUND_HALF_EVEN` canonicalization。
+
+对 deterministic $\sigma_Q(t)$，使用
+$\sigma_{Q,\mathrm{eff}}=\sqrt{(T-t)^{-1}\int_t^T\sigma_Q^2(u)du}$ 在 European BSM 中
+与原 time-inhomogeneous diffusion 具有相同 terminal distribution，因此不是 endpoint-vol
+近似。QuantLib NPV 量化后保存为 `mid = settlement_price`。Baseline half-spread 是
+`max(0.005, mid × 0.0025)`；bid 和 ask 使用独立、可重放的 Gaussian multipliers，clip
+到 `[0.5, 1.5]`。Noise 只作用于 half-spread，不修改 BSM mid、volatility、discounting
+或 underlying path，且所有 rows 满足 `0 <= bid <= mid <= ask`。
+
+每条 quote 都在 private `market.option_pricing_audit` 中保存未舍入理论价，并用
+`QuantLib.VanillaOption.impliedVolatility` 对实际 canonical mid 反解 IV（bracket
+`[1e-6, 4.0]`，accuracy `1e-12`，最多 1,000 evaluations）。59,860 条为 `CONVERGED`；
+508 条临近到期、深度价内 quote 因 8 位 mid 落在所声明有限-vol bracket 的可达价格区间
+之外而记为 `NO_FINITE_IV`，不会用 hidden pricing volatility 填充假答案。该 audit table
+没有 solver-visible view。
+
+当前验收结果：put-call parity 最大绝对误差约 `1.0e-8`（来自 8 位价格量化），贴现
+European call/put bounds 无违规。这里的 no-arbitrage 来自合法 BSM pricing model、共同
+valuation convention 和 discounting；P-measure correlation matrix 本身不是
+no-arbitrage 条件。
+
+## Visibility boundary
+
+Solver 可读 views：
+
+- `solver_visible.underlying_daily`
+- `solver_visible.option_daily`
+- `solver_visible.pricing_metadata`
+
+Private authoring/audit tables（包括 dependence、candidate-grid liquidity rule、quote-noise
+contract、Q pricing/IV audit、run lineage）没有对应 solver view。当前 `pricing_metadata` 仍是项目早期的
+过渡公开合同；更严格的 public/private pricing metadata split 属于后续阶段。
+
+## Read-only queries
+
+[`sql_query/`](sql_query/README.md) 提供 snapshot summary、Gold time series、Gold option
+chain、spot moneyness、pricing context 和 generation audit 查询。默认返回规模：
+
+| Query | Rows | 读取范围 |
+|:---|---:|:---|
+| `snapshot_summary.sql` | 1 | Authoring/audit |
+| `underlying_time_series.sql` | 65 | Solver-safe |
+| `option_chain.sql` | 56 | Solver-safe |
+| `option_spot_moneyness.sql` | 56 | Solver-safe |
+| `option_pricing_context.sql` | 56 | Solver-safe |
+| `option_iv_task_inputs.sql` | 56 | Solver-safe |
+| `option_iv_authoring_answers.sql` | 56 | Authoring/trusted |
+| `generation_audit.sql` | 1 | Authoring/audit |
+| `underlying_dynamics_authoring_audit.sql` | 22 | Authoring/audit |
+
+示例：
+
+```python
+from pathlib import Path
+
+import duckdb
+
+database = "snapshots/public/quantlib_bsm_smoke_v1.duckdb"
+query = Path("snapshots/public/sql_query/option_chain.sql").read_text()
+connection = duckdb.connect(database, read_only=True)
+try:
+    rows = connection.execute(query).fetchall()
+finally:
+    connection.close()
 ```
 
-这里表示单一 BSM vanilla analytic price、参数直接给出的基础任务。Task manifest
-通过以下两个字段引用本 snapshot，而不是复制数据或 oracle：
+所有 SQL 顶部都有 `parameters` CTE。修改日期或 underlying 时应保留原有 `ORDER BY`；
+非 business date、snapshot 范围外日期或已到期 option slice 会自然返回较少 rows 或空集。
+`option_spot_moneyness.sql` 展示的是当日 `strike / spot_close`，不是用于挂牌筛选的 listing
+moneyness；static contract 不会因为 spot 移动而重新进入或退出 chain。
 
-```json
-{
-  "snapshot_id": "DERIVATIVES-QUANTLIB-SMOKE-v1",
-  "snapshot_revision": 1
-}
-```
-
-若 DRAFT snapshot 发生逻辑变化，revision 会递增，引用旧 revision 的 task
-保持指向原版本。已发布 task 不允许改指向；应使用新的 snapshot id/revision、
-task id 和 lineage 记录创建 child task。
-
-## Snapshot、Task Mutation 与 Curriculum 边界
-
-四个模块通过显式 id/revision 衔接，职责不混用：
-
-| 模块 | 保存什么 | 是否写本 DuckDB |
-|:---|:---|:---:|
-| `authoring` | market rows、revision、generation audit | 是 |
-| `task_space` | $L/P/M/A/D/R$ 坐标、task family、compatibility decision | 否 |
-| `mutation` | parent/child、engine、operator、seed、before/after | 否 |
-| `curriculum` | stage、`pass@1` diagnostics、sampling weights | 否 |
-
-边界流程为：
-
-```text
-Generator config
-  -> Authoring DuckDB + snapshot manifest
-  -> Task manifest (snapshot_id + snapshot_revision + L/P/M/A/D/R)
-  -> Compatibility-constrained mutation + lineage
-  -> Curriculum sampling
-  -> Solver rollout
-  -> Hard verifier binary outcome
-```
-
-Mutation 是否可以复用当前 DuckDB 取决于变更内容：
-
-- 只改变 reasoning、output 或读取方式，且可见市场输入不变时，可以继续引用同一
-  `snapshot_id`/`snapshot_revision`；
-- 改变 market state、generator、seed、模型参数或可见报价时，必须通过 authoring
-  创建新的 snapshot，不能原地更新当前 task 所引用的数据；
-- 改变数值方法轴 `A` 时必须同时给出新的 `method_id`；
-- child task 必须先通过 compatibility registry，curriculum 只能改变采样权重，
-  不能修改 snapshot、task contract 或 hard-verifier reward。
-
-相关配置入口：
-
-- [`configs/task_space/derivatives_v1.json`](../../configs/task_space/derivatives_v1.json)
-- [`configs/mutations/deterministic_v1.json`](../../configs/mutations/deterministic_v1.json)
-- [`configs/curricula/adaptive_v1.json`](../../configs/curricula/adaptive_v1.json)
-
-## Schema 分层
-
-数据库使用三个 SQL schema：
-
-| Schema | 用途 |
-|:---|:---|
-| `market` | 完整业务表，以及 authoring 使用的生成血缘。 |
-| `metadata` | Snapshot 状态、revision、生成批次和数据库 schema 版本。 |
-| `solver_visible` | 去掉 authoring 内部字段的只读 views，供分析和 Solver 使用。 |
-
-查看数据库中的表和 view：
+快速核对 manifest 对应的数据库 identity：
 
 ```sql
-SELECT
-    table_schema,
-    table_name,
-    table_type
-FROM information_schema.tables
-WHERE table_schema IN ('market', 'metadata', 'solver_visible')
-ORDER BY table_schema, table_name;
-```
-
-查看具体字段：
-
-```sql
-DESCRIBE market.option_daily;
-DESCRIBE solver_visible.option_daily;
-```
-
-## Market 表关系
-
-五张业务表的逻辑关系如下：
-
-```text
-market.underlyings
-├── market.underlying_daily
-├── market.option_contracts
-│   └── market.option_daily
-└── market.pricing_metadata
-```
-
-所有主键和跨表关联都包含 `snapshot_id`。当前使用方式通常是一份 DuckDB 文件
-对应一个 snapshot，但表结构仍通过 `snapshot_id` 显式隔离数据。
-
-### `market.underlyings`
-
-Underlying 主表。一行代表一个标的的固定生成和定价参数。
-
-业务主键：
-
-```text
-(snapshot_id, underlying_id)
-```
-
-主要字段包括 `initial_spot`、`physical_drift`、`physical_volatility`、
-`risk_free_rate`、`dividend_yield` 和 `base_implied_volatility`。
-
-```sql
-SELECT
-    underlying_id,
-    initial_spot,
-    physical_drift,
-    physical_volatility,
-    risk_free_rate,
-    dividend_yield,
-    base_implied_volatility
-FROM market.underlyings
-WHERE snapshot_id = 'DERIVATIVES-QUANTLIB-SMOKE-v1'
-ORDER BY underlying_id;
-```
-
-### `market.option_contracts`
-
-Option contract 主表。一行代表一个静态期权合约。
-
-业务主键：
-
-```text
-(snapshot_id, option_id)
-```
-
-每个 option template 会实例化到每个 underlying，稳定 ID 为：
-
-```text
-option_id = underlying_id + "-" + template_id
-```
-
-例如 `SYNTH-U01-CALL-100-090D`。当前 5 个 underlying 与 5 个 template
-形成 25 个 contracts。
-
-```sql
-SELECT
-    option_id,
-    underlying_id,
-    template_id,
-    call_put,
-    strike,
-    expiry,
-    exercise_style,
-    settlement_type,
-    contract_multiplier
-FROM market.option_contracts
-WHERE snapshot_id = 'DERIVATIVES-QUANTLIB-SMOKE-v1'
-  AND underlying_id = 'SYNTH-U03'
-ORDER BY expiry, call_put, strike;
-```
-
-### `market.underlying_daily`
-
-Underlying 日行情表。一行表示某个交易日、某个 underlying 的 OHLCV 数据。
-
-业务主键：
-
-```text
-(snapshot_id, date, underlying_id)
-```
-
-查询一个 underlying 的完整时间序列：
-
-```sql
-SELECT
-    date,
-    underlying_id,
-    spot_open,
-    spot_high,
-    spot_low,
-    spot_close,
-    adjusted_close,
-    volume
-FROM solver_visible.underlying_daily
-WHERE snapshot_id = 'DERIVATIVES-QUANTLIB-SMOKE-v1'
-  AND underlying_id = 'SYNTH-U03'
-ORDER BY date;
-```
-
-查询某天全部 underlyings：
-
-```sql
-SELECT *
-FROM solver_visible.underlying_daily
-WHERE snapshot_id = 'DERIVATIVES-QUANTLIB-SMOKE-v1'
-  AND date = DATE '2026-08-03'
-ORDER BY underlying_id;
-```
-
-### `market.option_daily`
-
-Option 日报价表。一行表示某个交易日、某个期权合约的报价和交易活动。
-
-业务主键：
-
-```text
-(snapshot_id, date, option_id)
-```
-
-主要价格字段是 `bid`、`mid`、`ask` 和 `settlement_price`。静态字段
-`call_put`、`strike`、`expiry` 等也被保留在 daily 表中，使 Solver 可以直接查询
-option chain，而不必先 join `option_contracts`。
-
-查询某天、某个 underlying 的 option chain：
-
-```sql
-SELECT
-    option_id,
-    call_put,
-    strike,
-    expiry,
-    bid,
-    mid,
-    ask,
-    volume,
-    open_interest
-FROM solver_visible.option_daily
-WHERE snapshot_id = 'DERIVATIVES-QUANTLIB-SMOKE-v1'
-  AND date = DATE '2026-08-03'
-  AND underlying_id = 'SYNTH-U03'
-ORDER BY expiry, call_put, strike;
-```
-
-查询一个 option 的报价时间序列：
-
-```sql
-SELECT
-    date,
-    bid,
-    mid,
-    ask,
-    volume,
-    open_interest
-FROM solver_visible.option_daily
-WHERE snapshot_id = 'DERIVATIVES-QUANTLIB-SMOKE-v1'
-  AND option_id = 'SYNTH-U03-CALL-100-090D'
-ORDER BY date;
-```
-
-### `market.pricing_metadata`
-
-每行代表某个 valuation date、某个 underlying 的定价环境。
-
-业务主键：
-
-```text
-(snapshot_id, valuation_timestamp, underlying_id)
-```
-
-主要内容包括：
-
-- Risk-free 和 dividend curves；
-- P-measure physical dynamics；
-- Q-measure pricing dynamics；
-- Pricing model 和 QuantLib engine；
-- Seed、RNG、输入精度和舍入规则。
-
-完整 `market` 表额外提供 `valuation_date`，方便与 daily 表关联：
-
-```sql
-SELECT
-    valuation_date,
-    valuation_timestamp,
-    underlying_id,
-    risk_free_rate,
-    dividend_yield,
-    borrow_or_carry_rate,
-    pricing_model,
-    pricing_engine,
-    pricing_dynamics
-FROM market.pricing_metadata
-WHERE snapshot_id = 'DERIVATIVES-QUANTLIB-SMOKE-v1'
-  AND underlying_id = 'SYNTH-U03'
-ORDER BY valuation_timestamp;
-```
-
-## 可复用 SQL Query 文件
-
-本页下方保留了主要查询示例；可直接执行和修改的版本统一放在
-[`sql_query/`](sql_query/README.md)：
-
-```text
-sql_query/
-├── snapshot_summary.sql
-├── underlying_time_series.sql
-├── option_chain.sql
-├── option_spot_moneyness.sql
-├── option_pricing_context.sql
-└── generation_audit.sql
-```
-
-这些文件都只读取 `market`、`metadata` 或 `solver_visible`，不执行 DDL/DML。
-查询参数集中在文件顶部的 `parameters` CTE；结果排序显式写入 SQL。涉及
-`TIMESTAMP WITH TIME ZONE` 的查询会先按 UTC 解释 valuation date，再将输出
-timestamp 转为字符串，从而不依赖调用端的本地时区或额外 Python timezone 包。
-
-## 常用关联查询
-
-### Option、spot 与 moneyness
-
-```sql
-SELECT
-    q.date,
-    q.underlying_id,
-    q.option_id,
-    u.spot_close,
-    q.call_put,
-    q.strike,
-    q.expiry,
-    q.bid,
-    q.mid,
-    q.ask,
-    q.strike / u.spot_close AS spot_moneyness
-FROM solver_visible.option_daily AS q
-JOIN solver_visible.underlying_daily AS u
-  ON u.snapshot_id = q.snapshot_id
- AND u.date = q.date
- AND u.underlying_id = q.underlying_id
-WHERE q.snapshot_id = 'DERIVATIVES-QUANTLIB-SMOKE-v1'
-  AND q.date = DATE '2026-08-03'
-  AND q.underlying_id = 'SYNTH-U03'
-ORDER BY q.expiry, q.call_put, q.strike;
-```
-
-### Option、spot 与 pricing metadata
-
-Authoring 侧可以使用 `market.pricing_metadata.valuation_date` 做精确的日期关联：
-
-```sql
-SELECT
-    q.date,
-    q.option_id,
-    u.spot_close,
-    q.strike,
-    q.expiry,
-    q.mid,
-    p.risk_free_rate,
-    p.dividend_yield,
-    p.day_count,
-    p.pricing_model
-FROM market.option_daily AS q
-JOIN market.underlying_daily AS u
-  ON u.snapshot_id = q.snapshot_id
- AND u.date = q.date
- AND u.underlying_id = q.underlying_id
-JOIN market.pricing_metadata AS p
-  ON p.snapshot_id = q.snapshot_id
- AND p.valuation_date = q.date
- AND p.underlying_id = q.underlying_id
-WHERE q.snapshot_id = 'DERIVATIVES-QUANTLIB-SMOKE-v1'
-  AND q.date = DATE '2026-08-03'
-  AND q.underlying_id = 'SYNTH-U03'
-ORDER BY q.expiry, q.call_put, q.strike;
-```
-
-## Metadata 管理表
-
-### `metadata.snapshots`
-
-保存 snapshot 当前的总体状态：
-
-```sql
-SELECT
-    snapshot_id,
-    status,
-    current_revision,
-    generator_config_id,
-    generator_version,
-    seed,
-    rng,
-    created_at,
-    updated_at,
-    frozen_at
+SELECT snapshot_id, schema_version, status, current_revision,
+       generator_config_id, generator_version
 FROM metadata.snapshots;
 ```
 
-- `DRAFT` 可以继续追加数据；
-- `FROZEN` 拒绝后续增量写入；
-- `current_revision` 只在逻辑内容实际变化时增加。
-
-### `metadata.generation_runs`
-
-每次 pipeline 操作对应一条运行记录：
+快速核对 effective liquid chain：
 
 ```sql
 SELECT
-    run_id,
-    operation,
-    status,
-    requested_start_date,
-    requested_end_date,
-    table_stats,
-    error_message,
-    started_at,
-    completed_at
-FROM metadata.generation_runs
-ORDER BY started_at;
+    count(*) AS contract_count,
+    count(DISTINCT underlying_id) AS underlying_count,
+    count(DISTINCT expiry) AS expiry_count,
+    count(DISTINCT strike_moneyness) AS listing_moneyness_count,
+    min(strike_moneyness) AS min_listing_moneyness,
+    max(strike_moneyness) AS max_listing_moneyness
+FROM market.option_contracts;
 ```
 
-状态含义：
+预期结果是 `1232, 22, 4, 7, 0.85, 1.15`。Candidate grid 和被 filter 排除的
+expiry/moneyness 只保存在 `market.option_chain_specs`，不会作为空壳 contracts 出现在
+master table。
 
-- `COMPLETED`：生成了新的逻辑数据；
-- `NOOP`：幂等重跑，没有数据变化；
-- `FAILED`：生成、约束或质量检查失败。
+## Rebuild without mutating the public file
 
-`table_stats` 是 JSON，包含各表的 `requested`、`inserted` 和 `unchanged` 数量。
-
-### `metadata.snapshot_revisions`
-
-只有 snapshot 内容实际变化时才记录新 revision：
-
-```sql
-SELECT
-    revision,
-    run_id,
-    underlying_count,
-    option_contract_count,
-    underlying_daily_count,
-    option_daily_count,
-    pricing_metadata_count,
-    created_at
-FROM metadata.snapshot_revisions
-WHERE snapshot_id = 'DERIVATIVES-QUANTLIB-SMOKE-v1'
-ORDER BY revision;
-```
-
-### `metadata.schema_versions`
-
-保存 DuckDB schema version。
-
-## Solver-visible views
-
-供下游查询的 views 包括：
-
-```text
-solver_visible.underlying_daily
-solver_visible.option_daily
-solver_visible.pricing_metadata
-```
-
-这些 views 保留业务字段，但不暴露以下 authoring 内部字段：
-
-- `generated_run_id`；
-- `created_run_id`。
-
-一般的 IV、Greeks、smile 或数据浏览应从这些 views 开始。
-
-Solver 实际可见的日期、underlying、option rows、字段顺序和 `ORDER BY` 必须由
-task contract 固定；不能仅凭 DuckDB 中“有哪些数据”推断题目范围。DuckDB 也不保存
-canonical answer、hidden oracle、verifier output 或 curriculum mastery state。
-
-## 行排序规则
-
-DuckDB 表没有可以依赖的天然行顺序。即使两次执行同一条 `SELECT *`，也不应假设
-返回顺序固定。所有依赖顺序的查询都必须显式使用 `ORDER BY`。
-
-推荐顺序：
-
-| 查询内容 | 推荐 `ORDER BY` |
-|:---|:---|
-| Underlying panel | `date, underlying_id` |
-| 单个 underlying 时间序列 | `date` |
-| Option chain | `expiry, call_put, strike` |
-| Option quote panel | `date, underlying_id, expiry, call_put, strike` |
-| 单个 option 时间序列 | `date` |
-| Snapshot revisions | `revision` |
-| Generation runs | `started_at` |
-
-## Authoring 写入管理
-
-不要直接使用手工 `INSERT`、`UPDATE` 或 `DELETE` 修改这些表。Authoring pipeline
-按以下流程管理写入：
-
-```text
-Generator config
-  -> 生成增量 rows
-  -> 写入临时 staging tables
-  -> 按业务主键 MERGE
-  -> 执行跨表 quality gates
-  -> 更新 revision
-  -> transaction commit
-  -> 原子更新 manifest
-```
-
-管理规则包括：
-
-- 同一业务主键的记录保持不变；
-- 已存在的 underlying 和 option contract 由 ID 与 generator version 标识；
-- DRAFT 配置可以追加新的 underlying 或 option template；
-- 不允许回填 underlying 历史路径中间的日期缺口；
-- 任一步骤失败都会 rollback 整个批次；
-- `FROZEN` snapshot 不允许继续写入；
-- 表中不声明数据库级 foreign keys，跨表完整性由 pipeline quality gates 检查。
-
-查看当前摘要也可以使用仓库命令：
+Public snapshot 已冻结。重放时写到新路径：
 
 ```bash
 .venv/bin/python scripts/edit_snapshot.py \
-  --database snapshots/public/quantlib_bsm_smoke_v1.duckdb \
-  --config configs/generators/quantlib_bsm_smoke_v1.json \
-  summary
+  --database /tmp/metals-liquid-tdgbm-q-v2.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json \
+  create-smoke
+
+.venv/bin/python scripts/edit_snapshot.py \
+  --database /tmp/metals-liquid-tdgbm-q-v2.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json \
+  freeze
 ```
 
-数据库 DDL 定义见
-[`src/synthetic_derivatives/authoring/schema.py`](../../src/synthetic_derivatives/authoring/schema.py)，
-增量和 snapshot 生命周期逻辑见
-[`src/synthetic_derivatives/authoring/pipeline.py`](../../src/synthetic_derivatives/authoring/pipeline.py)。
-Task mutation 与 curriculum 的最新整体规范见
-[`docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum.md`](../../docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum.md)。
+固定 config、seed 和 RNG namespace 会重放相同 solver-visible market rows。若修改
+underlyings、physical function nodes、P-to-Q mapping、$\Lambda$、liquidity rule、quote
+model 或已挂牌合约，必须使用新的
+`snapshot_id`，不能在现有逻辑 snapshot 内改写。

@@ -12,11 +12,15 @@ from synthetic_derivatives.task_space import AXES, TaskCoordinates, TaskSpec
 
 @dataclass(frozen=True)
 class CurriculumStage:
+    """One ordered curriculum stage described by axis selectors."""
+
     index: int
     stage_id: str
     coordinates: dict[str, frozenset[int]]
 
     def matches(self, coordinates: TaskCoordinates) -> bool:
+        """Return whether all non-empty selectors admit ``coordinates``."""
+
         return all(
             not allowed or getattr(coordinates, axis) in allowed
             for axis, allowed in self.coordinates.items()
@@ -25,6 +29,8 @@ class CurriculumStage:
 
 @dataclass(frozen=True)
 class MasteryBand:
+    """Pass-rate interval and sampling multiplier for tasks in that interval."""
+
     minimum: float
     maximum: float
     action: str
@@ -35,6 +41,8 @@ class AdaptiveCurriculumScheduler:
     """Compute replay/current/exploration weights without editing task specs."""
 
     def __init__(self, raw: Mapping[str, Any]):
+        """Validate stages, bucket mixture, and mastery intervals."""
+
         if raw.get("schema_version") != "1.0.0":
             raise ValueError("unsupported curriculum schema_version")
         self.curriculum_id = str(raw["curriculum_id"])
@@ -65,6 +73,8 @@ class AdaptiveCurriculumScheduler:
 
     @classmethod
     def from_path(cls, path: str | Path) -> "AdaptiveCurriculumScheduler":
+        """Load a UTF-8 JSON curriculum config from ``path``."""
+
         with Path(path).open(encoding="utf-8") as handle:
             raw = json.load(handle)
         if not isinstance(raw, dict):
@@ -73,6 +83,8 @@ class AdaptiveCurriculumScheduler:
 
     @staticmethod
     def _parse_stage(raw: Mapping[str, Any]) -> CurriculumStage:
+        """Normalize omitted selectors to wildcard sets for one stage."""
+
         selectors = raw["coordinates"]
         unknown = set(selectors) - set(AXES)
         if unknown:
@@ -87,6 +99,8 @@ class AdaptiveCurriculumScheduler:
         )
 
     def _validate_bands(self) -> None:
+        """Require contiguous mastery coverage of the full probability range."""
+
         if not self.mastery_bands:
             raise ValueError("curriculum requires mastery bands")
         expected_minimum = 0.0
@@ -100,12 +114,16 @@ class AdaptiveCurriculumScheduler:
             raise ValueError("mastery bands must cover [0, 1]")
 
     def stage_for(self, coordinates: TaskCoordinates) -> CurriculumStage:
+        """Return the first configured stage matching ``coordinates``."""
+
         for stage in self.stages:
             if stage.matches(coordinates):
                 return stage
         raise ValueError(f"coordinates are outside configured curriculum: {coordinates}")
 
     def mastery_band(self, pass_at_1: float) -> MasteryBand:
+        """Map a pass rate to a left-closed band; the final band includes 1.0."""
+
         if not 0.0 <= pass_at_1 <= 1.0:
             raise ValueError("pass@1 must be in [0, 1]")
         for band in self.mastery_bands[:-1]:
@@ -120,7 +138,13 @@ class AdaptiveCurriculumScheduler:
         current_stage: int,
         pass_at_1: Mapping[str, float],
     ) -> dict[str, float]:
-        """Return normalized adaptive weights for replay/current/next-stage tasks."""
+        """Return normalized weights for replay/current/next-stage tasks.
+
+        Empty buckets surrender their configured mass proportionally to the
+        remaining buckets.  Within each bucket, mastery multipliers redistribute
+        that mass across tasks; missing pass rates are treated as zero.  Tasks
+        beyond the next stage are intentionally ineligible.
+        """
 
         if current_stage < 0 or current_stage >= len(self.stages):
             raise ValueError("current_stage is outside configured stages")
