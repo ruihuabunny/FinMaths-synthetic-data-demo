@@ -5,8 +5,9 @@
 > `1.2.0` 可以用 $\Lambda/D/R$ 相关结构生成物理测度 $\mathbb P$ 下的多个
 > underlying path；config `1.3.0` 生成 expiry × listing-moneyness × call/put 完整网格，
 > 并冻结挂牌 strike；config `1.4.0` 从 candidate grid 只挂牌近月、近价合约，并以
-> deterministic quote noise 扰动 BSM bid/ask；authoring schema `2.3.0` 保存
-> dependence、chain、liquidity 和 quote 合同。
+> deterministic quote noise 扰动 BSM bid/ask；config `1.5.0` 使用 sampled-and-frozen
+> piecewise-linear physical functions、显式 drift-only Girsanov Q mapping，并从 canonical
+> mid 调用 QuantLib 反解 IV；authoring schema `2.4.0` 另保存 private option pricing audit。
 > Option/derivative pricing 不读取 underlying 相关矩阵，原有 v1/v1.1/v1.2 pipeline
 > 保持兼容。
 
@@ -39,11 +40,11 @@ underlying 生成器，同时保持确定性重放、事务写入、snapshot 不
 - correlation matrix 的 driver 是按 `driver_order` 排列的 underlying spot processes，
   不是 option contract、Greek 或其他 derivative risk units。
 - `option_daily_row()` 不接收 dependence spec，也不生成 correlated derivative shocks。
-  Option quote 仍由当日可见 spot、原有风险中性参数和 QuantLib engine 计算；固定 spot
+  Option quote 仍由当日可见 spot、声明的风险中性参数和 QuantLib engine 计算；固定 spot
   与定价参数时，切换 underlying correlation 不得改变该 option quote。
-- 本阶段仍保留每个 underlying 的现有 risk-free/dividend 和 pricing 配置；共同
-  $\mathbb Q$、numeraire、共享利率路径及更复杂合法边际模型属于后续独立改造，不与
-  本次 underlying path correlation 混装。
+- Config `1.5.0` 已为 single-asset vanilla margins 声明共同 $\mathbb Q$/numeraire/rate-path
+  identity 与 P-to-Q diffusion mapping；更复杂合法边际模型和 Q-measure multi-asset
+  dependence 仍属于后续独立改造，不与 P-measure path correlation 混装。
 - money-market numeraire 继续记为 $B_t$；factor-loading matrix 只记为 $\Lambda_t$。
 - v1/v1.1 配置不声明 `underlying_simulation`，继续使用原来的逐 entity 独立 close
   stream，已有固定 seed 结果不改变。
@@ -195,8 +196,9 @@ option engine 不读取该结构；snapshot 冻结和不可变规则继续成立
 
 ## OptionChainBuilder 第一阶段
 
-本阶段落实 README 的阶段 1，只改变 option contract construction，不改变现有
-deterministic-smile BSM 报价公式，也不提前引入 common-$\mathbb Q$ pricing context。
+Config `1.3.0/1.4.0` 落实 README 的阶段 1，只改变 option contract construction 和
+spread microstructure；config `1.5.0` 在不改变 frozen chain identity 的前提下替换旧的
+latent-smile volatility 输入，并引入明确的 single-asset common-$\mathbb Q$ contract。
 
 ### Config `1.3.0`
 
@@ -240,14 +242,15 @@ deterministic-smile BSM 报价公式，也不提前引入 common-$\mathbb Q$ pri
 
 ### Schema、增量与边界
 
-Option-chain provenance 首次由 schema `2.2.0` 引入；当前 schema `2.3.0` 支持从
-`2.0.0/2.1.0/2.2.0` additive migration：
+Option-chain provenance 首次由 schema `2.2.0` 引入；当前 schema `2.4.0` 支持从
+`2.0.0/2.1.0/2.2.0/2.3.0` additive migration：
 
 | 对象 | 作用 |
 |:---|:---|
 | `market.option_chain_specs` | 私有保存 chain candidate grid、listing/roll、strike rounding、合约约定、liquidity/quote model 与 lineage；无 solver view。 |
 | `market.option_contracts` | 新增 nullable `chain_id, listing_date, listing_spot, strike_moneyness`；legacy 已有行不改写。 |
-| `metadata.snapshot_revisions` / manifest | 新增 `option_chain_spec_count`。 |
+| `market.option_pricing_audit` | 私有保存 Q identity/mapping、effective volatility、未舍入理论价、canonical mid、derived IV/状态和 solver contract；无 solver view。 |
+| `metadata.snapshot_revisions` / manifest | 保存 `option_chain_spec_count` 与 `option_pricing_audit_count`。 |
 
 一个 `1.3.0` snapshot 将 chain spec、underlying 集合和全部已挂牌 contracts 视为不可变
 整体。one-shot、append 与 `sync-config` 每次重建相同 expected contract rows，再与数据库
@@ -293,10 +296,11 @@ discounting 或 underlying simulation。完整 filter 与 quote model 均写入 
 |:---|:---|
 | `configs/generators/quantlib_bsm_smoke_v1.json` | 固定 seed、模型、underlyings、option templates 与 quote rules。 |
 | `authoring/templates/quantlib_bsm_correlated_underlyings.template.json` | 可运行的 config `1.2.0` correlated-underlying 示例。 |
-| `configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json` | config `1.4.0` 的 22-underlying、1,232-contract、65-day public profile。 |
+| `configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json` | config `1.5.0` 的 22-underlying、sampled physical functions、Q pricing/IV audit、1,232-contract、65-day public profile。 |
 | `snapshots/public/quantlib_bsm_smoke_v1.duckdb` | 已冻结的 metals public snapshot；文件路径为向后兼容保留名。 |
 | `snapshots/public/quantlib_bsm_smoke_v1.manifest.json` | 当前 logical revision、版本标识和行数。 |
 | `scripts/edit_snapshot.py` | 仓库本地 `.venv` 使用的编辑入口。 |
+| `scripts/sample_physical_dynamics.py` | 从声明分布可重放地抽样 physical drift/volatility nodes，并将 realized nodes 冻结到 config。 |
 | `src/synthetic_derivatives/authoring/generator_common.py` | 两个 generator 共享的 pinned QuantLib、calendar/day-count、decimal canonicalization 与 deterministic RNG。 |
 | `src/synthetic_derivatives/authoring/underlying_daily_generator.py` | Underlying master/dependence、P path 与 pricing metadata；唯一消费 $\Lambda/D/R$ 的 generator。 |
 | `src/synthetic_derivatives/authoring/option_daily_generator.py` | Option chain spec、frozen contracts 与 daily quotes；只接收 realized spot，不提供 underlying dependence API。 |
@@ -320,6 +324,7 @@ discounting 或 underlying simulation。完整 filter 与 quote model 均写入 
 | `market.underlying_daily` | `(snapshot_id, date, underlying_id)` | Framework 要求的 underlying daily panel。 |
 | `market.option_daily` | `(snapshot_id, date, option_id)` | Framework 要求的 option daily quotes。 |
 | `market.pricing_metadata` | `(snapshot_id, valuation_timestamp, underlying_id)` | 每个 valuation slice 的 P/Q dynamics、curves、engine、seed、RNG 和 canonicalization。 |
+| `market.option_pricing_audit` | `(snapshot_id, valuation_date, option_id)` | Private Q pricing inputs、raw/canonical prices、QuantLib IV result/status 与 solver contract。 |
 
 daily/metadata 表包含 framework 指定的全部字段。内部表额外保存 run id，用于 lineage
 和审计；幂等写入直接依赖业务主键。
@@ -361,6 +366,14 @@ root-mean-square；得到的 interval-equivalent 参数交给 QuantLib 的 exact
 transition。物理 drift/volatility function 与风险中性定价参数分开保存，完整函数
 和当日有效参数写入 `pricing_metadata.physical_dynamics`。
 
+`start_date` 行只 materialize $S(t_0)=S_0$，OHLC 均为 `initial_spot`，不抽取从虚构前一日
+到 $t_0$ 的 transition。后续行才从 preceding materialized state 按真实 calendar interval
+演化。当前 metals config 由 [`sample_physical_dynamics.py`](../scripts/sample_physical_dynamics.py)
+按 underlying ID 分区随机流，分别抽取互不相同的 per-underlying seed、7-node offset grid、
+drift phi/std、log-vol phi/std 和有界均值回归 Gaussian/lognormal nodes。Global seed、
+per-underlying seeds、每个参数的 hard bounds 和 realized values 全部冻结；路径生成只消费
+realized nodes。
+
 随机流不是一个依赖循环顺序的全局 stream。v1/v1.1 使用以下 tuple 派生 32-bit seed：
 
 ```text
@@ -374,19 +387,22 @@ transition 的 $Z_t$；range、volume 与 option activity 仍使用各自的稳�
 
 ### Option quotes
 
-`1.3.0+` 先由 `OptionChainBuilder` 生成 frozen contract grid；`1.4.0` 在 materialization
-前应用 liquidity filter。每个 valuation date 对已挂牌合约继续使用：
+`1.3.0+` 先由 `OptionChainBuilder` 生成 frozen contract grid；`1.4.0+` 在 materialization
+前应用 liquidity filter。当前 public config `1.5.0` 每个 valuation date 对已挂牌合约使用：
 
 - `QuantLib.BlackScholesMertonProcess`
 - flat continuous risk-free/dividend curves
-- deterministic quadratic log-forward-moneyness smile
+- money-market-numeraire Q drift $r-q$
+- drift-only Girsanov mapping 下的 $\sigma_Q(t)=\sigma_P(t)$
+- valuation-to-expiry integrated-variance RMS volatility
 - `QuantLib.AnalyticEuropeanEngine`
 - European call/put payoff
 
 QuantLib NPV 先按 `ROUND_HALF_EVEN` 量化到 8 位小数，作为
-`mid = settlement_price`；config `1.4.0` 的 side-specific deterministic noise 只改变
-bid/ask half-spread。Latent volatility 不被当成下游 IV 答案；后续任务必须从 Solver
-可见的已量化 mid 重新反解。
+`mid = settlement_price`；side-specific deterministic noise 只改变 bid/ask half-spread。
+随后调用 `QuantLib.VanillaOption.impliedVolatility` 对同一个 canonical mid 反解；输入 Q
+volatility、raw NPV、derived IV 或 `NO_FINITE_IV` 状态写入 private
+`market.option_pricing_audit`。Pricing volatility 不被当成下游 IV 答案。
 
 ## 增量写入语义（当前实现）
 
@@ -416,6 +432,8 @@ validate DRAFT/config
   缺失 daily rows，不能改变 listing strike 或 contract identity。
 - config `1.4.0` 的 liquidity filter 与 quote model 同属 immutable chain provenance；
   修改边界、spread 或 noise namespace 必须使用新的 `snapshot_id`。
+- config `1.5.0` 的 sampled physical nodes、sampling provenance、Q identity/mapping 与 IV
+  solver contract 都属于 snapshot identity；修改任一项必须使用新的 `snapshot_id`。
 
 ## 命令
 
@@ -470,17 +488,19 @@ validate DRAFT/config
 
 ```bash
 .venv/bin/python scripts/edit_snapshot.py \
-  --database /tmp/metals-liquid-bsm-v1.duckdb \
+  --database /tmp/metals-liquid-tdgbm-q-v2.duckdb \
   --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json \
   create-smoke
 ```
 
 期望规模为 22 个 underlyings、1,232 个 option contracts、65 个 business dates、1,430
-条 underlying daily、60,368 条 expiry 前 option daily 与 1,430 条 pricing metadata。
+条 underlying daily、60,368 条 expiry 前 option daily、1,430 条 pricing metadata 与
+60,368 条 private option pricing audit。
 Candidate grid 是 6 expiries × 11 moneyness × call/put，filter 实际保留 4 × 7 × 2。
 该 profile 验证规模、liquidity selection、确定性和 BSM pricing sanity，不代表真实金属
-交易所 calendar/carry/settlement profile。Smile 的 skew/curvature/term-slope 均为 0，
-因此每个 underlying 的完整 grid 使用同一个 constant-vol BSM marginal model。
+交易所 calendar/carry/settlement profile。不同 valuation/expiry 区间因 integrated variance
+不同而使用不同 effective volatility；所有 strike 仍来自同一个 coherent deterministic-
+time-varying-diffusion BSM marginal model。
 
 ## Smoke-test 验收（当前实现）
 
@@ -503,7 +523,9 @@ make test
 - chain one-shot/append/`sync-config` invariant，修改 chain spec 或 listed contract 被拒绝；
 - config `1.4.0` candidate grid 只 materialize 期限/moneyness filter 内的合约；
 - quote noise 可重放、bid/ask 独立且不改变 BSM mid；
-- 22 品种 public profile 的 1,232 contracts 与 60,368 quotes 完整生成。
+- physical node sampling 固定 seed replay，start date 保持精确 initial condition；
+- integrated Q variance reduction、canonical-mid QuantLib IV audit 与 solver visibility boundary；
+- 22 品种 public profile 的 1,232 contracts、60,368 quotes 与等量 private audits 完整生成。
 
 ## 版本与参考
 

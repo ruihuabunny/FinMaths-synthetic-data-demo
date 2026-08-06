@@ -110,21 +110,21 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
             underlying, previous_date, market_date
         )
 
-        ql.Settings.instance().evaluationDate = valuation_date
+        ql.Settings.instance().evaluationDate = previous_ql_date
         spot_quote = ql.QuoteHandle(ql.SimpleQuote(float(previous_close)))
         # BlackScholesMertonProcess uses (risk-free - dividend) as its drift.
         # Setting q=0 and the risk-free handle to effective_drift therefore
         # realizes the configured P-measure transition without mixing in the
         # Q-measure risk-free/dividend inputs used by option pricing.
         zero_dividend = ql.YieldTermStructureHandle(
-            ql.FlatForward(valuation_date, 0.0, self.day_count)
+            ql.FlatForward(previous_ql_date, 0.0, self.day_count)
         )
         physical_drift = ql.YieldTermStructureHandle(
-            ql.FlatForward(valuation_date, effective_drift, self.day_count)
+            ql.FlatForward(previous_ql_date, effective_drift, self.day_count)
         )
         volatility = ql.BlackVolTermStructureHandle(
             ql.BlackConstantVol(
-                valuation_date,
+                previous_ql_date,
                 self.calendar,
                 effective_volatility,
                 self.day_count,
@@ -176,11 +176,36 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
         ]
         return (*logical, run_id)
 
+    def initial_underlying_daily_row(
+        self, underlying: UnderlyingConfig, run_id: str
+    ) -> tuple[Any, ...]:
+        """Materialize ``S(start_date)=initial_spot`` without a fake transition."""
+
+        initial_spot = quantize_price(underlying.initial_spot)
+        volume_uniform = self._uniform(
+            "underlying-volume", underlying.underlying_id, self.config.start_date
+        )
+        volume = 750_000 + int(volume_uniform * 500_000)
+        logical = [
+            self.config.snapshot_id,
+            self.config.start_date,
+            underlying.underlying_id,
+            initial_spot,
+            initial_spot,
+            initial_spot,
+            initial_spot,
+            initial_spot,
+            volume,
+            Decimal("0.00000000"),
+            "none",
+        ]
+        return (*logical, run_id)
+
     def pricing_metadata_row(
         self,
         underlying: UnderlyingConfig,
         market_date: date,
-        previous_date: date,
+        previous_date: date | None,
         run_id: str,
     ) -> tuple[Any, ...]:
         """Build per-underlying metadata for the realized market-date slice.
@@ -198,9 +223,14 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
         physical_dynamics_value: dict[str, Any] = {
             "measure": "P",
             "process": self.config.physical_process,
+            "state_role": (
+                "initial_condition" if previous_date is None else "interval_transition"
+            ),
             "drift": underlying.physical_drift,
             "volatility": underlying.physical_volatility,
             "increment_partition": "sha256(snapshot_id,seed,purpose,entity,date)",
+            "state_precision_contract": "published_decimal_close_is_restart_state",
+            "ohlc_model": "separate_synthetic_range-v1",
         }
         if self.config.underlying_simulation is not None:
             simulation = self.config.underlying_simulation
@@ -220,9 +250,17 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
             underlying.physical_drift_function.is_constant
             and underlying.physical_volatility_function.is_constant
         ):
-            effective_drift, effective_volatility = self.physical_interval_parameters(
-                underlying, previous_date, market_date
-            )
+            if previous_date is None:
+                effective_drift = underlying.physical_drift_function.value_at(0.0)
+                effective_volatility = (
+                    underlying.physical_volatility_function.value_at(0.0)
+                )
+            else:
+                effective_drift, effective_volatility = (
+                    self.physical_interval_parameters(
+                        underlying, previous_date, market_date
+                    )
+                )
             physical_dynamics_value.update(
                 {
                     "drift": effective_drift,
@@ -233,23 +271,50 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
                     ),
                     "time_origin": self.config.start_date.isoformat(),
                     "time_axis": "calendar_day_offset/Actual365Fixed",
-                    "interval_start": previous_date.isoformat(),
-                    "interval_end": market_date.isoformat(),
                     "interval_reduction": {
-                        "drift": "arithmetic_mean",
-                        "volatility": "root_mean_square",
+                        "drift": (
+                            "point_value_at_initial_condition"
+                            if previous_date is None
+                            else "integral_arithmetic_mean"
+                        ),
+                        "volatility": (
+                            "point_value_at_initial_condition"
+                            if previous_date is None
+                            else "integrated_variance_root_mean_square"
+                        ),
                     },
                 }
             )
+            if previous_date is not None:
+                physical_dynamics_value.update(
+                    {
+                        "interval_start": previous_date.isoformat(),
+                        "interval_end": market_date.isoformat(),
+                    }
+                )
         physical_dynamics = canonical_json(physical_dynamics_value)
-        pricing_dynamics = canonical_json(
-            {
+        if self.config.q_pricing is None:
+            pricing_dynamics_value = {
                 "measure": "Q",
                 "process": "QuantLib.BlackScholesMertonProcess",
                 "base_implied_volatility": underlying.base_implied_volatility,
                 "smile": self.config.smile,
             }
-        )
+        else:
+            pricing_dynamics_value = {
+                "measure": "Q",
+                "process": "QuantLib.BlackScholesMertonProcess",
+                "risk_neutral_drift": "risk_free_rate-dividend_yield",
+                "q_pricing": self.config.q_pricing.as_dict(),
+                "volatility_function": (
+                    underlying.physical_volatility_function.as_dict()
+                ),
+                "volatility_measure_change": (
+                    "same deterministic diffusion coefficient under Girsanov"
+                ),
+                "quote_iv_source": "QuantLib inversion of canonical option mid",
+            }
+        pricing_dynamics = canonical_json(pricing_dynamics_value)
         discount_curve = canonical_json(
             {"type": "flat_continuous", "rate": underlying.risk_free_rate}
         )

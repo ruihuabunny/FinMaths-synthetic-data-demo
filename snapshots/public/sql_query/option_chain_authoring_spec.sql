@@ -1,6 +1,6 @@
 -- Authoring-only query: inspect the candidate grid, liquidity rule and quote model.
 WITH parameters(snapshot_id) AS (
-    VALUES ('DERIVATIVES-METALS-LIQUID-BSM-v1')
+    VALUES ('DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3')
 ),
 contract_stats AS (
     SELECT

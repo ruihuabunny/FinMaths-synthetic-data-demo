@@ -1,6 +1,6 @@
 -- Edit the snapshot_id here when querying another public snapshot.
 WITH parameters(snapshot_id) AS (
-    VALUES ('DERIVATIVES-METALS-LIQUID-BSM-v1')
+    VALUES ('DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3')
 ),
 underlying_stats AS (
     SELECT
@@ -60,7 +60,12 @@ SELECT
     option_stats.option_business_date_count,
     option_stats.quoted_option_count,
     option_stats.option_daily_count,
-    metadata_stats.pricing_metadata_count
+    metadata_stats.pricing_metadata_count,
+    (
+        SELECT count(*)
+        FROM market.option_pricing_audit
+        WHERE snapshot_id = snapshot.snapshot_id
+    ) AS option_pricing_audit_count
 FROM metadata.snapshots AS snapshot
 JOIN parameters
   ON parameters.snapshot_id = snapshot.snapshot_id

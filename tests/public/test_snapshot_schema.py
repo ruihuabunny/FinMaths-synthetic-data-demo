@@ -94,6 +94,7 @@ def test_checked_in_smoke_snapshot_matches_its_manifest(repository_root: Path) -
     manifest = json.loads(
         database.with_suffix(".manifest.json").read_text(encoding="utf-8")
     )
+    assert manifest["database_file"] == database.name
     connection = duckdb.connect(str(database), read_only=True)
     try:
         catalog = connection.execute(
@@ -113,6 +114,9 @@ def test_checked_in_smoke_snapshot_matches_its_manifest(repository_root: Path) -
         assert connection.execute(
             "SELECT count(*) FROM market.option_daily"
         ).fetchone()[0] == manifest["option_daily_count"]
+        assert connection.execute(
+            "SELECT count(*) FROM market.option_pricing_audit"
+        ).fetchone()[0] == manifest["option_pricing_audit_count"]
     finally:
         connection.close()
 
@@ -124,12 +128,15 @@ def test_checked_in_snapshot_is_the_22_metal_liquid_bsm_profile(
     manifest = json.loads(
         database.with_suffix(".manifest.json").read_text(encoding="utf-8")
     )
-    assert manifest["schema_version"] == "2.3.0"
-    assert manifest["snapshot_id"] == "DERIVATIVES-METALS-LIQUID-BSM-v1"
+    assert manifest["schema_version"] == "2.4.0"
+    assert manifest["snapshot_id"] == (
+        "DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3"
+    )
     assert manifest["business_date_count"] == 65
     assert manifest["underlying_count"] == 22
     assert manifest["option_contract_count"] == 1_232
     assert manifest["option_daily_count"] == 60_368
+    assert manifest["option_pricing_audit_count"] == 60_368
 
     connection = duckdb.connect(str(database), read_only=True)
     try:
@@ -170,6 +177,19 @@ def test_checked_in_snapshot_is_the_22_metal_liquid_bsm_profile(
         ).fetchall() == [
             ("Black-Scholes-Merton", "QuantLib.AnalyticEuropeanEngine")
         ]
+        assert connection.execute(
+            """
+            SELECT count(*) FROM information_schema.views
+            WHERE table_schema = 'solver_visible'
+              AND table_name = 'option_pricing_audit'
+            """
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            """
+            SELECT count(*) FROM market.option_pricing_audit
+            WHERE iv_status = 'CONVERGED'
+            """
+        ).fetchone()[0] == 59_860
     finally:
         connection.close()
 

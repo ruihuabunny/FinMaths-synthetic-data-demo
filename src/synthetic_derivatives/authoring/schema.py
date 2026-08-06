@@ -8,11 +8,11 @@ from typing import Any, Sequence
 import duckdb
 
 
-SCHEMA_VERSION = "2.3.0"
-# The 2.1/2.2/2.3 changes are additive: private underlying-dependence and
-# option-chain provenance plus nullable contract/filter/quote metadata are added
-# without rewriting existing market observations.
-MIGRATABLE_SCHEMA_VERSIONS = {"2.0.0", "2.1.0", "2.2.0"}
+SCHEMA_VERSION = "2.4.0"
+# The 2.1--2.4 changes are additive: private dependence, chain and quote-pricing
+# provenance plus nullable contract/filter/quote metadata are added without
+# rewriting existing market observations.
+MIGRATABLE_SCHEMA_VERSIONS = {"2.0.0", "2.1.0", "2.2.0", "2.3.0"}
 
 SCHEMA_BOOTSTRAP = r"""
 CREATE SCHEMA IF NOT EXISTS metadata;
@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS metadata.snapshot_revisions (
     pricing_metadata_count BIGINT NOT NULL,
     underlying_dependence_count BIGINT NOT NULL DEFAULT 0,
     option_chain_spec_count BIGINT NOT NULL DEFAULT 0,
+    option_pricing_audit_count BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     PRIMARY KEY (snapshot_id, revision)
 );
@@ -82,7 +83,11 @@ CREATE TABLE IF NOT EXISTS market.underlyings (
     physical_volatility DOUBLE NOT NULL CHECK (physical_volatility > 0),
     risk_free_rate DOUBLE NOT NULL,
     dividend_yield DOUBLE NOT NULL,
-    base_implied_volatility DOUBLE NOT NULL CHECK (base_implied_volatility > 0),
+    -- Deprecated latent input for config <=1.4. Config 1.5 derives quote IV from
+    -- the canonical price and leaves this private legacy column NULL.
+    base_implied_volatility DOUBLE CHECK (
+        base_implied_volatility IS NULL OR base_implied_volatility > 0
+    ),
     generator_config_id VARCHAR NOT NULL,
     created_run_id VARCHAR NOT NULL,
     PRIMARY KEY (snapshot_id, underlying_id)
@@ -201,6 +206,37 @@ CREATE TABLE IF NOT EXISTS market.option_daily (
     open_interest BIGINT NOT NULL CHECK (open_interest >= 0),
     generated_run_id VARCHAR NOT NULL,
     PRIMARY KEY (snapshot_id, date, option_id)
+);
+
+-- Private authoring audit. The derived quote IV is intentionally absent from
+-- solver_visible.option_daily and can be reconstructed from its canonical mid.
+CREATE TABLE IF NOT EXISTS market.option_pricing_audit (
+    snapshot_id VARCHAR NOT NULL,
+    date DATE NOT NULL,
+    option_id VARCHAR NOT NULL,
+    risk_neutral_measure_id VARCHAR NOT NULL,
+    numeraire_id VARCHAR NOT NULL,
+    rate_path_id VARCHAR NOT NULL,
+    measure_change VARCHAR NOT NULL CHECK (measure_change = 'girsanov_drift_only'),
+    volatility_mapping VARCHAR NOT NULL CHECK (
+        volatility_mapping = 'same_deterministic_diffusion'
+    ),
+    q_effective_volatility DOUBLE NOT NULL CHECK (q_effective_volatility > 0),
+    -- Raw QuantLib NPV is retained for diagnostics and can contain a tiny
+    -- negative floating-point artifact when the mathematical price is zero.
+    theoretical_price DOUBLE NOT NULL,
+    canonical_mid DECIMAL(24, 8) NOT NULL CHECK (canonical_mid >= 0),
+    implied_volatility DOUBLE,
+    iv_status VARCHAR NOT NULL CHECK (iv_status IN ('CONVERGED', 'NO_FINITE_IV')),
+    iv_error VARCHAR,
+    iv_solver JSON NOT NULL,
+    generated_run_id VARCHAR NOT NULL,
+    PRIMARY KEY (snapshot_id, date, option_id),
+    CHECK (
+        (iv_status = 'CONVERGED' AND implied_volatility > 0 AND iv_error IS NULL)
+        OR
+        (iv_status = 'NO_FINITE_IV' AND implied_volatility IS NULL AND iv_error IS NOT NULL)
+    )
 );
 
 CREATE TABLE IF NOT EXISTS market.pricing_metadata (
@@ -326,6 +362,17 @@ TABLE_SPECS = {
         ),
         ("snapshot_id", "date", "option_id"),
     ),
+    "option_pricing_audit": TableSpec(
+        "market.option_pricing_audit",
+        (
+            "snapshot_id", "date", "option_id", "risk_neutral_measure_id",
+            "numeraire_id", "rate_path_id", "measure_change",
+            "volatility_mapping", "q_effective_volatility",
+            "theoretical_price", "canonical_mid", "implied_volatility",
+            "iv_status", "iv_error", "iv_solver", "generated_run_id",
+        ),
+        ("snapshot_id", "date", "option_id"),
+    ),
     "pricing_metadata": TableSpec(
         "market.pricing_metadata",
         (
@@ -344,10 +391,10 @@ TABLE_SPECS = {
 def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
     """Create the current schema or apply the supported additive migration.
 
-    Existing 2.0/2.1/2.2 snapshots keep every market row unchanged.  Migration
+    Existing 2.0--2.3 snapshots keep every market row unchanged. Migration
     creates private provenance tables as needed, adds nullable option-contract,
     liquidity and quote metadata plus revision counters, then advances metadata
-    to schema 2.3.
+    to schema 2.4.
     """
 
     connection.execute(SCHEMA_BOOTSTRAP)
@@ -378,6 +425,19 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
         ALTER TABLE metadata.snapshot_revisions
         ADD COLUMN IF NOT EXISTS option_chain_spec_count BIGINT
         DEFAULT 0
+        """
+    )
+    connection.execute(
+        """
+        ALTER TABLE metadata.snapshot_revisions
+        ADD COLUMN IF NOT EXISTS option_pricing_audit_count BIGINT
+        DEFAULT 0
+        """
+    )
+    connection.execute(
+        """
+        ALTER TABLE market.underlyings
+        ALTER COLUMN base_implied_volatility DROP NOT NULL
         """
     )
     for column_definition in (
@@ -457,7 +517,11 @@ def merge_rows(
             RETURNING merge_action
             """
         ).fetchall()
-    finally:
+    except Exception:
+        # A failed DuckDB statement aborts the surrounding transaction. The
+        # caller rolls it back, which also removes the temporary stage table.
+        raise
+    else:
         connection.execute(f"DROP TABLE {stage_name}")
 
     inserted = sum(action[0] == "INSERT" for action in actions)

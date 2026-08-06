@@ -1,11 +1,11 @@
 {
-  "schema_version": "2.3.0",
-  "snapshot_id": "DERIVATIVES-METALS-LIQUID-BSM-v1",
+  "schema_version": "2.4.0",
+  "snapshot_id": "DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3",
   "status": "FROZEN",
   "revision": 1,
   "database_file": "quantlib_bsm_smoke_v1.duckdb",
-  "generator_config_id": "quantlib-bsm-metals-liquid-option-chain-v1",
-  "generator_version": "0.5.0",
+  "generator_config_id": "quantlib-randomized-tdgbm-metals-liquid-option-chain-v3",
+  "generator_version": "0.7.0",
   "quantlib_version": "1.39",
   "duckdb_version": "1.5.5",
   "seed": 20260806,
@@ -19,5 +19,6 @@
   "option_daily_count": 60368,
   "pricing_metadata_count": 1430,
   "underlying_dependence_count": 1,
-  "option_chain_spec_count": 1
+  "option_chain_spec_count": 1,
+  "option_pricing_audit_count": 60368
 }

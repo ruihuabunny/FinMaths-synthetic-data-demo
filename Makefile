@@ -2,7 +2,7 @@ VENV := .venv
 PYTHON := $(VENV)/bin/python
 EDITOR := $(PYTHON) scripts/edit_snapshot.py
 CONFIG := configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json
-DATABASE ?= /tmp/metals-liquid-bsm-v1.duckdb
+DATABASE ?= /tmp/metals-liquid-tdgbm-q-v2.duckdb
 PUBLIC_DATABASE := snapshots/public/quantlib_bsm_smoke_v1.duckdb
 
 .PHONY: venv install smoke append-day snapshot-summary test

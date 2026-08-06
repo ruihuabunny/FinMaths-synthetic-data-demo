@@ -26,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--database",
         type=Path,
-        default=Path("/tmp/metals-liquid-bsm-v1.duckdb"),
+        default=Path("/tmp/metals-liquid-tdgbm-q-v2.duckdb"),
         help="DuckDB file to create or edit",
     )
     parser.add_argument(

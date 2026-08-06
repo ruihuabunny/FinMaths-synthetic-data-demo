@@ -1,6 +1,6 @@
 # 常用 DuckDB SQL Query
 
-本目录保存针对 `DERIVATIVES-METALS-LIQUID-BSM-v1` public snapshot 的可复用只读
+本目录保存针对 `DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3` public snapshot 的可复用只读
 查询。每个 `.sql` 文件只包含一条 query，并在文件开头使用 `parameters` CTE 集中声明
 可编辑参数。所有结果都显式指定 `ORDER BY`，避免依赖 DuckDB 未定义的天然行顺序。
 
@@ -30,7 +30,7 @@ business date，或不在 `2026-08-03` 至 `2026-10-30` 范围内，查询会返
 
 | 参数 | 当前值/范围 | 说明 |
 |:---|:---|:---|
-| `snapshot_id` | `DERIVATIVES-METALS-LIQUID-BSM-v1` | 逻辑 snapshot ID，不是 DuckDB 文件名。 |
+| `snapshot_id` | `DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3` | 逻辑 snapshot ID，不是 DuckDB 文件名。 |
 | `market_date` | 65 个 business dates | Option rows 还要求 `market_date < expiry`。 |
 | `underlying_id` | 22 个 `SYNTH-METAL-*` IDs | 示例统一使用 `SYNTH-METAL-GOLD`。 |
 
@@ -84,6 +84,9 @@ settlement_price, volume, open_interest
 - Private liquidity rule、candidate grid、$\Lambda/D/R$ 和 RNG lineage 不在 Solver-safe
   queries 中；分别使用 `option_chain_authoring_spec.sql`、`underlying_dependence.sql` 和
   `generation_audit.sql` 审计。
+- `snapshot_summary.sql` 和 `generation_audit.sql` 的 `option_pricing_audit_count` 应为
+  60,368；具体 raw price、Q effective volatility 和 derived IV 只在 private
+  `market.option_pricing_audit` 中维护，不进入 Solver-safe query。
 - 当前 `option_chain_authoring_spec.sql` 应显示 22 个 underlyings、4 个 selected expiries、
   7 个 selected listing-moneyness levels 和 1,232 个 materialized contracts；candidate
   arrays 仍保留完整的 6 expiries 与 11 moneyness levels。

@@ -340,7 +340,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
 
         underlying_daily_rows: list[tuple[Any, ...]] = []
         requested_dates = set(dates)
-        previous_date_by_key: dict[tuple[date, str], date] = {}
+        previous_date_by_key: dict[tuple[date, str], date | None] = {}
         # Each underlying path advances chronologically from its last persisted,
         # quantized close. Filling a gap before a later close would invalidate
         # all subsequent Markov transitions and is therefore rejected.
@@ -376,13 +376,16 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                             f"new underlying {underlying.underlying_id} must be generated "
                             f"from configured start_date {self.config.start_date}"
                         )
-                    previous_date = (
-                        self.underlying_generator.previous_business_date(market_date)
-                    )
+                    previous_date = None
                     previous_close = underlying.initial_spot
-                row = self.underlying_generator.underlying_daily_row(
-                    underlying, market_date, previous_date, previous_close, run_id
-                )
+                if previous_date is None:
+                    row = self.underlying_generator.initial_underlying_daily_row(
+                        underlying, run_id
+                    )
+                else:
+                    row = self.underlying_generator.underlying_daily_row(
+                        underlying, market_date, previous_date, previous_close, run_id
+                    )
                 underlying_daily_rows.append(row)
                 # Column 6 is spot_close in the canonical underlying row spec.
                 existing[market_date] = row[6]
@@ -393,7 +396,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                     previous_date_by_key[(path_date, underlying.underlying_id)] = (
                         prior_path_date
                         if prior_path_date is not None
-                        else self.underlying_generator.previous_business_date(path_date)
+                        else None
                     )
                 prior_path_date = path_date
 
@@ -449,30 +452,53 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 [self.config.snapshot_id, dates[0], dates[-1]],
             ).fetchall()
         }
+        existing_option_pricing_audit = {
+            (row[0], row[1])
+            for row in self.connection.execute(
+                """
+                SELECT date, option_id
+                FROM market.option_pricing_audit
+                WHERE snapshot_id = ? AND date BETWEEN ? AND ?
+                """,
+                [self.config.snapshot_id, dates[0], dates[-1]],
+            ).fetchall()
+        }
         underlyings_by_id = {
             item.underlying_id: item for item in self.config.underlyings
         }
         option_daily_rows: list[tuple[Any, ...]] = []
+        option_pricing_audit_rows: list[tuple[Any, ...]] = []
         # Options are priced only after the realized spot slice is materialized.
         # The option generator receives no Lambda/D/R object; dependence reaches
         # it only through spot_by_key.
         for contract in option_contract_rows:
             underlying_id = contract[2]
             for market_date in dates:
-                if (market_date, contract[1]) in existing_option_daily:
+                quote_key = (market_date, contract[1])
+                quote_exists = quote_key in existing_option_daily
+                audit_exists = quote_key in existing_option_pricing_audit
+                if quote_exists and (self.config.q_pricing is None or audit_exists):
                     continue
                 spot = spot_by_key[(market_date, underlying_id)]
-                row = self.option_generator.option_daily_row(
+                result = self.option_generator.option_daily_result(
                     underlyings_by_id[underlying_id],
                     contract,
                     market_date,
                     spot,
                     run_id,
                 )
-                if row is not None:
-                    option_daily_rows.append(row)
+                if result is not None:
+                    if not quote_exists:
+                        option_daily_rows.append(result.quote_row)
+                    if result.pricing_audit_row is not None and not audit_exists:
+                        option_pricing_audit_rows.append(result.pricing_audit_row)
         stats["option_daily"] = merge_rows(
             self.connection, TABLE_SPECS["option_daily"], option_daily_rows
+        )
+        stats["option_pricing_audit"] = merge_rows(
+            self.connection,
+            TABLE_SPECS["option_pricing_audit"],
+            option_pricing_audit_rows,
         )
         return stats
 
@@ -711,6 +737,30 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 WHERE daily.snapshot_id = ? AND quote.option_id IS NULL
             """,
         }
+        if self.config.q_pricing is not None:
+            checks.update(
+                {
+                    "missing_option_pricing_audit": """
+                        SELECT count(*)
+                        FROM market.option_daily quote
+                        LEFT JOIN market.option_pricing_audit audit
+                          ON audit.snapshot_id = quote.snapshot_id
+                         AND audit.date = quote.date
+                         AND audit.option_id = quote.option_id
+                        WHERE quote.snapshot_id = ? AND audit.option_id IS NULL
+                    """,
+                    "option_pricing_audit_mid_mismatch": """
+                        SELECT count(*)
+                        FROM market.option_pricing_audit audit
+                        JOIN market.option_daily quote
+                          ON quote.snapshot_id = audit.snapshot_id
+                         AND quote.date = audit.date
+                         AND quote.option_id = audit.option_id
+                        WHERE audit.snapshot_id = ?
+                          AND audit.canonical_mid != quote.mid
+                    """,
+                }
+            )
         failures = {
             name: self.connection.execute(sql, [self.config.snapshot_id]).fetchone()[0]
             for name, sql in checks.items()
@@ -734,8 +784,9 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 snapshot_id, revision, run_id, underlying_count,
                 option_contract_count, underlying_daily_count,
                 option_daily_count, pricing_metadata_count,
-                underlying_dependence_count, option_chain_spec_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                underlying_dependence_count, option_chain_spec_count,
+                option_pricing_audit_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 self.config.snapshot_id,
@@ -748,6 +799,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 counts["pricing_metadata_count"],
                 counts["underlying_dependence_count"],
                 counts["option_chain_spec_count"],
+                counts["option_pricing_audit_count"],
             ],
         )
         self.connection.execute(
@@ -796,6 +848,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             "pricing_metadata_count": "market.pricing_metadata",
             "underlying_dependence_count": "market.underlying_dependence",
             "option_chain_spec_count": "market.option_chain_specs",
+            "option_pricing_audit_count": "market.option_pricing_audit",
         }
         return {
             name: self.connection.execute(
@@ -834,6 +887,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 "underlying_dependence_count"
             ],
             "option_chain_spec_count": summary["option_chain_spec_count"],
+            "option_pricing_audit_count": summary["option_pricing_audit_count"],
         }
         temporary_path.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",

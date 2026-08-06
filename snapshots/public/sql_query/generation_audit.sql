@@ -1,6 +1,6 @@
 -- Authoring/audit query: edit snapshot_id for another public snapshot.
 WITH parameters(snapshot_id) AS (
-    VALUES ('DERIVATIVES-METALS-LIQUID-BSM-v1')
+    VALUES ('DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3')
 )
 SELECT
     snapshot.snapshot_id,
@@ -24,6 +24,7 @@ SELECT
     revision.pricing_metadata_count,
     revision.underlying_dependence_count,
     revision.option_chain_spec_count,
+    revision.option_pricing_audit_count,
     CAST(run.started_at AS VARCHAR) AS started_at,
     CAST(run.completed_at AS VARCHAR) AS completed_at
 FROM metadata.generation_runs AS run

@@ -159,7 +159,7 @@ def test_authoring_schema_migrates_additively_from_v2(
     finally:
         connection.close()
 
-    assert current_version == SCHEMA_VERSION == "2.3.0"
+    assert current_version == SCHEMA_VERSION == "2.4.0"
     assert dependence_table_count == 1
     assert option_chain_table_count == 1
     assert "underlying_dependence_count" in revision_columns
@@ -168,6 +168,7 @@ def test_authoring_schema_migrates_additively_from_v2(
         "chain_id", "listing_date", "listing_spot", "strike_moneyness"
     } <= option_contract_columns
     assert {"liquidity_filter", "quote_model"} <= option_chain_columns
+    assert "option_pricing_audit_count" in revision_columns
 
 
 @pytest.mark.parametrize(

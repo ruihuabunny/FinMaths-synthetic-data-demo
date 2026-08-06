@@ -1,6 +1,6 @@
 -- Authoring-only query: inspect the P-measure underlying-driver dependence contract.
 WITH parameters(snapshot_id) AS (
-    VALUES ('DERIVATIVES-METALS-LIQUID-BSM-v1')
+    VALUES ('DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3')
 )
 SELECT
     dependence.snapshot_id,

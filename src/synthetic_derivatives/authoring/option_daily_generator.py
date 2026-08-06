@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
@@ -23,6 +24,14 @@ from synthetic_derivatives.authoring.generator_common import (
     ql_date,
     quantize_price,
 )
+
+
+@dataclass(frozen=True)
+class OptionDailyResult:
+    """One public quote and its optional private quote-IV audit row."""
+
+    quote_row: tuple[Any, ...]
+    pricing_audit_row: tuple[Any, ...] | None
 
 
 class OptionDailyGenerator(QuantLibGeneratorBase):
@@ -80,7 +89,7 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
             ),
             (
                 canonical_json(self.config.quote_model)
-                if self.config.schema_version == "1.4.0"
+                if self.config.schema_version in {"1.4.0", "1.5.0"}
                 else None
             ),
             self.config.generator_config_id,
@@ -167,6 +176,21 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         spot_close: Decimal,
         run_id: str,
     ) -> tuple[Any, ...] | None:
+        """Return the public quote row, retaining the legacy generator API."""
+
+        result = self.option_daily_result(
+            underlying, contract_row, market_date, spot_close, run_id
+        )
+        return result.quote_row if result is not None else None
+
+    def option_daily_result(
+        self,
+        underlying: UnderlyingConfig,
+        contract_row: tuple[Any, ...],
+        market_date: date,
+        spot_close: Decimal,
+        run_id: str,
+    ) -> OptionDailyResult | None:
         """Price one frozen contract from the realized underlying spot.
 
         ``strike`` and the remaining static terms are unpacked from the contract
@@ -174,9 +198,9 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         nor its correlation matrix: P-measure dependence affects this quote only
         indirectly through the realized ``spot_close`` supplied by the pipeline.
 
-        QuantLib's analytic BSM NPV is retained as both ``mid`` and settlement
-        price.  Optional deterministic noise independently multiplies the bid
-        and ask half-spreads; it cannot perturb the model value or invert quotes.
+        QuantLib's analytic BSM NPV is canonicalized as both ``mid`` and
+        settlement price. Optional deterministic noise independently multiplies
+        the bid and ask half-spreads; it cannot perturb the model value.
         """
 
         (
@@ -193,17 +217,8 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         expiry_date = ql_date(expiry)
         ql.Settings.instance().evaluationDate = evaluation_date
         maturity = self.day_count.yearFraction(evaluation_date, expiry_date)
-        forward = float(spot_close) * math.exp(
-            (underlying.risk_free_rate - underlying.dividend_yield) * maturity
-        )
-        log_moneyness = math.log(float(strike) / forward)
-        smile = self.config.smile
-        implied_volatility = max(
-            smile["minimum_volatility"],
-            underlying.base_implied_volatility
-            + smile["skew"] * log_moneyness
-            + smile["curvature"] * log_moneyness * log_moneyness
-            + smile["term_slope"] * maturity,
+        pricing_volatility = self._pricing_volatility(
+            underlying, market_date, expiry, spot_close, strike, maturity
         )
         spot_handle = ql.QuoteHandle(ql.SimpleQuote(float(spot_close)))
         risk_free_curve = ql.YieldTermStructureHandle(
@@ -214,7 +229,7 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         )
         vol_surface = ql.BlackVolTermStructureHandle(
             ql.BlackConstantVol(
-                evaluation_date, self.calendar, implied_volatility, self.day_count
+                evaluation_date, self.calendar, pricing_volatility, self.day_count
             )
         )
         process = ql.BlackScholesMertonProcess(
@@ -228,7 +243,11 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         option.setPricingEngine(ql.AnalyticEuropeanEngine(process))
         # Model value is canonicalized before microstructure is added.  This mid
         # remains the BSM price used by parity/bounds checks and IV tasks.
-        mid = quantize_price(option.NPV())
+        theoretical_price = float(option.NPV())
+        # Analytic engines can return a tiny negative floating-point artifact for
+        # a mathematically zero deep-OTM value. The observable option price obeys
+        # the non-negative payoff bound before decimal canonicalization.
+        mid = quantize_price(max(0.0, theoretical_price))
         half_spread = max(
             Decimal(str(self.config.quote_model["minimum_half_spread"])),
             mid * Decimal(str(self.config.quote_model["relative_half_spread"])),
@@ -265,7 +284,84 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
             volume,
             open_interest,
         ]
-        return (*logical, run_id)
+        quote_row = (*logical, run_id)
+        pricing_audit_row = None
+        q_pricing = self.config.q_pricing
+        if q_pricing is not None:
+            solver = q_pricing.implied_volatility_solver
+            try:
+                derived_implied_volatility = float(
+                    option.impliedVolatility(
+                        float(mid),
+                        process,
+                        solver.accuracy,
+                        solver.max_evaluations,
+                        solver.minimum_volatility,
+                        solver.maximum_volatility,
+                    )
+                )
+                iv_status = "CONVERGED"
+                iv_error = None
+            except RuntimeError as error:
+                derived_implied_volatility = None
+                iv_status = "NO_FINITE_IV"
+                iv_error = str(error)
+            pricing_audit_row = (
+                self.config.snapshot_id,
+                market_date,
+                option_identifier,
+                q_pricing.risk_neutral_measure_id,
+                q_pricing.numeraire_id,
+                q_pricing.rate_path_id,
+                q_pricing.measure_change,
+                q_pricing.volatility_mapping,
+                pricing_volatility,
+                theoretical_price,
+                mid,
+                derived_implied_volatility,
+                iv_status,
+                iv_error,
+                canonical_json(solver.as_dict()),
+                run_id,
+            )
+        return OptionDailyResult(
+            quote_row=quote_row,
+            pricing_audit_row=pricing_audit_row,
+        )
+
+    def _pricing_volatility(
+        self,
+        underlying: UnderlyingConfig,
+        market_date: date,
+        expiry: date,
+        spot_close: Decimal,
+        strike: Decimal,
+        maturity: float,
+    ) -> float:
+        """Return the declared Q diffusion over one option's remaining life."""
+
+        if self.config.q_pricing is not None:
+            start_offset = float((market_date - self.config.start_date).days)
+            end_offset = float((expiry - self.config.start_date).days)
+            return underlying.physical_volatility_function.interval_root_mean_square(
+                start_offset, end_offset
+            )
+
+        smile = self.config.smile
+        base_implied_volatility = underlying.base_implied_volatility
+        if smile is None or base_implied_volatility is None:
+            raise ValueError("legacy option pricing requires latent smile inputs")
+        forward = float(spot_close) * math.exp(
+            (underlying.risk_free_rate - underlying.dividend_yield) * maturity
+        )
+        log_moneyness = math.log(float(strike) / forward)
+        return max(
+            smile["minimum_volatility"],
+            base_implied_volatility
+            + smile["skew"] * log_moneyness
+            + smile["curvature"] * log_moneyness * log_moneyness
+            + smile["term_slope"] * maturity,
+        )
 
     def _half_spread_multiplier(
         self, side: str, option_identifier: str, market_date: date

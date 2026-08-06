@@ -119,7 +119,7 @@ $$
 | `option_contracts` | 稳定 `option_id`、underlying、call/put、frozen absolute strike、expiry、exercise/settlement/multiplier，以及 listing date/spot/moneyness provenance。 |
 | `option_chain_specs` | `chain_id`、candidate expiry 与 strike/moneyness grid、call/put、listing/roll rule、strike increment/rounding、liquidity filter、quote model 和合约约定；属于 private authoring provenance。 |
 
-`underlying_daily` 中用于历史收益、VaR/ES 的路径属于物理测度 $\mathbb P$；`option_daily` 的定价属于风险中性测度 $\mathbb Q$。两者可共享当日 spot、variance state 与市场日期，但 drift、风险溢价及模型参数必须分别保存为 `physical_dynamics` 与 `pricing_dynamics`。$\mathbb P$ 与 $\mathbb Q$ 下的 underlying dependence 使用 measure-qualified spec id；不得把历史相关参数无声明地复用到风险中性定价。当前 authoring simulator 第一阶段只 materialize `measure=P` 的 `underlying_dependence`；$\mathbb Q$ pricing-context/dependence 属于后续阶段。如果某题只需 flat rate/dividend，可以把完整 curves 简化为固定 $r,q$，但简化规则本身仍是合同字段。
+`underlying_daily` 中用于历史收益、VaR/ES 的路径属于物理测度 $\mathbb P$；`option_daily` 的定价属于风险中性测度 $\mathbb Q$。两者可共享当日 spot、variance state 与市场日期，但 drift、风险溢价及模型参数必须分别保存为 `physical_dynamics` 与 `pricing_dynamics`。$\mathbb P$ 与 $\mathbb Q$ 下的 underlying dependence 使用 measure-qualified spec id；不得把历史相关参数无声明地复用到风险中性定价。当前 authoring simulator materialize `measure=P` 的 cross-asset `underlying_dependence`；config `1.5.0` 已为 single-asset vanilla margins 声明共同 $\mathbb Q$/numeraire/rate-path identity 和 drift-only Girsanov diffusion mapping，而 multi-asset $\mathbb Q$ dependence 仍属于后续阶段。如果某题只需 flat rate/dividend，可以把完整 curves 简化为固定 $r,q$，但简化规则本身仍是合同字段。
 
 Authoring pipeline 固定为：QuantLib 先在共同时间网格上生成全部 underlying path/state，再对每个 valuation date、underlying 与 strike--maturity grid $\mathcal{K}\times\mathcal{T}$ 用指定 QuantLib pricing engine 生成 option chain，最后按题面精度量化并冻结。题目的 IV 真值必须从 solver 实际可见的、已量化 option price 按指定求根法重新反解，不能直接拿 QuantLib 内部未公开的 latent volatility 作答案。这样一套数据即可派生 Greeks、IV、smile/surface、underlying VaR/ES、option-portfolio VaR/ES 以及同一联合过程下的 basket/index/spread variants；不需要维护彼此不一致的独立“Greeks 数据表”或“VaR 数据表”。
 
@@ -132,11 +132,16 @@ increment 与 listing/roll rules 冻结为 private chain spec；moneyness 模式
 留给 exchange-profile 阶段。Config `1.4.0` 进一步把该网格定义为 candidate grid，并按
 listing-moneyness inclusive band 与 maximum expiry 只 materialize 流动性较好的合约；
 side-specific deterministic quote noise 只乘在 BSM bid/ask half-spread 上，不改变
-`mid = settlement_price`。当前 public profile 使用 22 个 underlying，每个实际保留
+`mid = settlement_price`。Config `1.5.0` 进一步移除 legacy `base_implied_volatility`
+与 smile：physical drift/volatility 节点从声明的概率分布抽样一次后冻结；在明确的
+drift-only Girsanov baseline 中，Q drift 改为 $r-q$ 且 deterministic diffusion 满足
+$\sigma_Q(t)=\sigma_P(t)$。每个 valuation-to-expiry interval 对 $\sigma_Q^2$ 精确积分并
+取 constant-equivalent RMS，再用 QuantLib analytic BSM 定价；最终 IV 则从实际已量化
+canonical mid 调用 QuantLib 反解并写入 private audit。当前 public profile 使用 22 个 underlying，每个实际保留
 4 expiries × 7 strikes × call/put，共 1,232 个固定合约，65 个 business dates 内生成
-60,368 条 expiry 前 quotes。Smile coefficients 设为 0，使每个 underlying 的整条链由
-同一 constant-vol BSM marginal model 生成。Option contracts 不加入 correlation matrix；
-共同 $\mathbb Q$/numeraire/rate path 仍是下一阶段。
+60,368 条 expiry 前 quotes。各期限来自同一个 deterministic-time-varying-diffusion BSM
+marginal model，而不是 `physical volatility + 0.02` 或逐 quote latent smile。Option
+contracts 不加入 correlation matrix；multi-asset Q-dependence 仍是下一阶段。
 
 ### 同币种 Conditional-Independent Baseline 与相关矩阵扰动
 

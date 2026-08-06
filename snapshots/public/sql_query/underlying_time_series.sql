@@ -1,6 +1,6 @@
 -- Edit snapshot_id and underlying_id for the desired time series.
 WITH parameters(snapshot_id, underlying_id) AS (
-    VALUES ('DERIVATIVES-METALS-LIQUID-BSM-v1', 'SYNTH-METAL-GOLD')
+    VALUES ('DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3', 'SYNTH-METAL-GOLD')
 )
 SELECT
     daily.snapshot_id,

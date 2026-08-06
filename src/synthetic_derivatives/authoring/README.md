@@ -14,7 +14,7 @@ snapshot。Solver 不应直接导入本包，也不能访问其中的 private ge
 | [`config.py`](config.py) | 解析 generator config；校验 deterministic physical functions、underlying dependence、option-chain grid 和稳定 ID；规范派生 $D$ 与 $R$。 |
 | [`generator_common.py`](generator_common.py) | 两个 generator 共享的 pinned QuantLib 检查、calendar/day-count、日期转换、8 位 decimal canonicalization，以及 namespaced deterministic RNG。 |
 | [`underlying_daily_generator.py`](underlying_daily_generator.py) | 生成 underlying master、private P-measure dependence、`underlying_daily` 和 `pricing_metadata`；这是唯一消费 $\Lambda/D/R$ 的 generator。 |
-| [`option_daily_generator.py`](option_daily_generator.py) | 生成 private option-chain spec、冻结的 option contracts，以及从 realized spot 定价得到的 `option_daily`；不提供 underlying path/dependence API。 |
+| [`option_daily_generator.py`](option_daily_generator.py) | 生成 private option-chain spec、冻结的 option contracts、Q-measure `option_daily`，并从 canonical mid 生成 private QuantLib IV audit；不提供 underlying path/dependence API。 |
 | [`pipeline.py`](pipeline.py) | 编排两个 generator、DuckDB transaction、incremental MERGE、snapshot compatibility、quality gates、revision 和 manifest。 |
 | [`schema.py`](schema.py) | DuckDB DDL、additive migration、solver-visible views、table column order 和 business-key MERGE。 |
 | [`cli.py`](cli.py) | `create-smoke`、`append-dates`、`sync-config`、`sync-range`、`summary` 和 `freeze` 命令入口。 |
@@ -35,7 +35,8 @@ validate DRAFT snapshot and immutable config
        -> per-underlying/date pricing metadata
   -> OptionDailyGenerator
        -> private option-chain spec + frozen contracts
-       -> option quotes from realized spot + frozen contract + pricing inputs
+       -> Q option quotes from realized spot + frozen contract + pricing inputs
+       -> private canonical-mid implied-volatility audit
   -> MERGE by stable business keys
   -> cross-table quality gates
   -> revision + manifest
@@ -67,6 +68,11 @@ $$
 耦合 underlying close shocks。`driver_order` 必须恰好排列 underlying IDs，不能包含
 option IDs、Greeks 或其他 derivative contracts。
 
+`start_date` materialize 的是 $S(t_0)=S_0$ initial condition，不从虚构前一日抽 shock。
+之后每个 actual-calendar interval 对 piecewise-linear $\mu_P(t)$ 精确积分取平均，并对
+$\sigma_P^2(t)$ 精确积分取 RMS；这两个 flat-equivalent coefficients 使 QuantLib GBM
+transition 与 deterministic time-inhomogeneous GBM 在 observation endpoints 上同分布。
+
 ### Option generation
 
 `OptionDailyGenerator` 只接收 pipeline 已经 materialize 的 `spot_close`。它不会读取
@@ -91,12 +97,22 @@ Config `1.4.0` 在 moneyness candidate grid 上增加 immutable `liquidity_filte
 `mid = settlement_price`，独立的 deterministic Gaussian multiplier 只扰动 bid/ask
 half-spread，并在配置边界内截断。
 
+Config `1.5.0` 删除 `base_implied_volatility` 和 legacy smile，改为 snapshot-wide
+`q_pricing` contract。当前 baseline 明确选择 drift-only Girsanov mapping：Q drift 为
+$r-q$，deterministic diffusion 保持 $\sigma_Q(t)=\sigma_P(t)$。每个 valuation/expiry
+区间使用 integrated-variance RMS 作为 QuantLib analytic BSM 的 exact constant equivalent。
+NPV 先量化为 solver 可见的 8-decimal canonical mid，再调用
+`QuantLib.VanillaOption.impliedVolatility`。输入 Q volatility、未舍入价、mid、derived IV、
+solver contract 和合法失败状态写入 private `market.option_pricing_audit`；不会把 hidden
+pricing volatility 当作 IV 发布。
+
 ### No-arbitrage
 
 Correlation matrix 不是 no-arbitrage 条件。Single-asset option consistency 来自所选合法
 pricing model、风险中性测度和 discounting convention；pipeline quality gates 只负责发现
-实现错误和 cross-table 不一致。共同 $\mathbb Q$/numeraire/rate path 与 multi-asset joint
-pricing 是独立的后续 pricing-context 阶段。
+实现错误和 cross-table 不一致。Config `1.5.0` 已冻结 single-asset vanilla margins 的共同
+$\mathbb Q$/numeraire/rate-path identity；multi-asset Q-dependence 与 joint payoff pricing
+仍是独立后续阶段。
 
 ## Config 与 schema 版本
 
@@ -107,13 +123,15 @@ pricing 是独立的后续 pricing-context 阶段。
 | `1.2.0` | 增加 immutable P-measure `underlying_simulation`。 |
 | `1.3.0` | 增加 static `option_chain`，替代逐条 `option_templates`。 |
 | `1.4.0` | 增加 candidate-grid liquidity filter 与 deterministic bid/ask spread noise。 |
+| `1.5.0` | 增加 per-underlying sampled-and-frozen physical functions（含 seeds/hard bounds）、显式 Q mapping 与 canonical-mid QuantLib IV audit。 |
 
-当前 authoring schema 为 `2.3.0`，支持从 `2.0.0/2.1.0/2.2.0` additive migration。
+当前 authoring schema 为 `2.4.0`，支持从 `2.0.0/2.1.0/2.2.0/2.3.0` additive migration。
 `market.option_chain_specs` 同时保存 liquidity filter 和完整 quote model。Private
 authoring tables 包括：
 
 - `market.underlying_dependence`
 - `market.option_chain_specs`
+- `market.option_pricing_audit`
 - 带 run lineage 的 market/master tables
 - `metadata.snapshots`、`generation_runs`、`snapshot_revisions`
 

@@ -1,7 +1,7 @@
 -- Edit snapshot_id, market_date and underlying_id for the desired chain.
 WITH parameters(snapshot_id, market_date, underlying_id) AS (
     VALUES (
-        'DERIVATIVES-METALS-LIQUID-BSM-v1',
+        'DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3',
         DATE '2026-08-03',
         'SYNTH-METAL-GOLD'
     )

@@ -413,7 +413,7 @@ def test_checked_in_metals_profile_has_22_underlying_only_drivers_and_liquid_cha
         / "configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json"
     )
 
-    assert config.schema_version == "1.4.0"
+    assert config.schema_version == "1.5.0"
     assert config.business_days == 65
     assert len(config.underlyings) == 22
     assert len(config.option_templates) == 4 * 7 * 2
@@ -429,3 +429,15 @@ def test_checked_in_metals_profile_has_22_underlying_only_drivers_and_liquid_cha
     assert config.option_chain is not None
     assert config.option_chain.liquidity_filter is not None
     assert config.bid_ask_noise is not None
+    assert config.q_pricing is not None
+    assert config.q_pricing.measure_change == "girsanov_drift_only"
+    assert config.q_pricing.volatility_mapping == "same_deterministic_diffusion"
+    assert config.smile is None
+    assert all(
+        underlying.base_implied_volatility is None
+        and underlying.physical_drift_function.function_type == "piecewise_linear"
+        and underlying.physical_volatility_function.function_type == "piecewise_linear"
+        and len(underlying.physical_drift_function.nodes) == 7
+        and len(underlying.physical_volatility_function.nodes) == 7
+        for underlying in config.underlyings
+    )

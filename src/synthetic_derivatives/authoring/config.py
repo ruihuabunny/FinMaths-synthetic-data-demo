@@ -132,8 +132,10 @@ class UnderlyingConfig:
     """Validated marginal path and BSM pricing inputs for one underlying.
 
     The scalar physical fields mirror the functions at day offset zero for
-    backward-compatible master columns.  Risk-free/dividend/implied-volatility
-    fields belong to option pricing and are not used as P-measure path drift.
+    backward-compatible master columns.  Risk-free/dividend fields belong to
+    option pricing and are not used as P-measure path drift.  Legacy configs may
+    also carry a latent base implied volatility; config 1.5 replaces it with an
+    explicit P-to-Q diffusion mapping.
     """
 
     underlying_id: str
@@ -144,7 +146,55 @@ class UnderlyingConfig:
     physical_volatility_function: DeterministicFunction
     risk_free_rate: float
     dividend_yield: float
-    base_implied_volatility: float
+    base_implied_volatility: float | None
+
+
+@dataclass(frozen=True)
+class ImpliedVolatilitySolverConfig:
+    """Frozen QuantLib inversion contract for one canonical visible mid."""
+
+    method: str
+    target_quote: str
+    accuracy: float
+    max_evaluations: int
+    minimum_volatility: float
+    maximum_volatility: float
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return the canonical JSON-ready solver contract."""
+
+        return {
+            "method": self.method,
+            "target_quote": self.target_quote,
+            "accuracy": self.accuracy,
+            "max_evaluations": self.max_evaluations,
+            "minimum_volatility": self.minimum_volatility,
+            "maximum_volatility": self.maximum_volatility,
+        }
+
+
+@dataclass(frozen=True)
+class QPricingConfig:
+    """Common same-currency Q-measure pricing contract for config 1.5."""
+
+    risk_neutral_measure_id: str
+    numeraire_id: str
+    rate_path_id: str
+    measure_change: str
+    volatility_mapping: str
+    implied_volatility_solver: ImpliedVolatilitySolverConfig
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return the canonical JSON-ready Q-measure contract."""
+
+        return {
+            "risk_neutral_measure_id": self.risk_neutral_measure_id,
+            "numeraire_id": self.numeraire_id,
+            "rate_path_id": self.rate_path_id,
+            "measure_change": self.measure_change,
+            "volatility_mapping": self.volatility_mapping,
+            "implied_volatility_solver": self.implied_volatility_solver.as_dict(),
+        }
 
 
 @dataclass(frozen=True)
@@ -435,7 +485,8 @@ class GeneratorConfig:
     quote_decimal_places: int
     underlyings: tuple[UnderlyingConfig, ...]
     option_templates: tuple[OptionTemplate, ...]
-    smile: dict[str, float]
+    smile: dict[str, float] | None
+    q_pricing: QPricingConfig | None
     quote_model: dict[str, Any]
     bid_ask_noise: BidAskNoiseConfig | None
     underlying_simulation: UnderlyingSimulationConfig | None
@@ -450,7 +501,9 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
     Version 1.3 additionally replaces individually authored option templates
     with an explicit, static ``option_chain`` Cartesian-product contract.
     Version 1.4 treats that product as a candidate grid, requires an immutable
-    liquidity filter, and adds deterministic bid/ask half-spread noise.
+    liquidity filter, and adds deterministic bid/ask half-spread noise. Version
+    1.5 replaces latent base-IV inputs with an explicit common-Q contract whose
+    deterministic diffusion coefficient is inherited through Girsanov.
     """
 
     config_path = Path(path)
@@ -459,7 +512,9 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
     if not isinstance(raw, dict):
         raise ValueError("generator config must be a JSON object")
     schema_version = raw.get("schema_version")
-    if schema_version not in {"1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0"}:
+    if schema_version not in {
+        "1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.5.0"
+    }:
         raise ValueError("unsupported generator config schema_version")
 
     underlyings_list: list[UnderlyingConfig] = []
@@ -477,6 +532,16 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
         volatility_function = _parse_deterministic_function(
             item["physical_volatility"], field_name="physical_volatility"
         )
+        if schema_version == "1.5.0" and "base_implied_volatility" in item:
+            raise ValueError(
+                "schema_version 1.5.0 derives Q volatility from the declared "
+                "diffusion and forbids base_implied_volatility"
+            )
+        base_implied_volatility = (
+            None
+            if schema_version == "1.5.0"
+            else float(item["base_implied_volatility"])
+        )
         underlyings_list.append(
             UnderlyingConfig(
                 underlying_id=item["underlying_id"],
@@ -487,11 +552,11 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
                 physical_volatility_function=volatility_function,
                 risk_free_rate=float(item["risk_free_rate"]),
                 dividend_yield=float(item["dividend_yield"]),
-                base_implied_volatility=float(item["base_implied_volatility"]),
+                base_implied_volatility=base_implied_volatility,
             )
         )
     underlyings = tuple(underlyings_list)
-    if schema_version in {"1.3.0", "1.4.0"}:
+    if schema_version in {"1.3.0", "1.4.0", "1.5.0"}:
         if "option_templates" in raw:
             raise ValueError(
                 f"schema_version {schema_version} uses option_chain, not option_templates"
@@ -505,7 +570,7 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
     else:
         if "option_chain" in raw:
             raise ValueError(
-                "option_chain requires schema_version 1.3.0 or 1.4.0"
+                "option_chain requires schema_version 1.3.0, 1.4.0 or 1.5.0"
             )
         option_chain = None
         templates = tuple(
@@ -521,16 +586,30 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
             for item in raw["option_templates"]
         )
     _validate_entities(underlyings, templates)
-    if schema_version in {"1.2.0", "1.3.0", "1.4.0"}:
+    if schema_version in {"1.2.0", "1.3.0", "1.4.0", "1.5.0"}:
         underlying_simulation = _parse_underlying_simulation(
             raw.get("underlying_simulation"), underlyings
         )
     else:
         if "underlying_simulation" in raw:
             raise ValueError(
-                "underlying_simulation requires schema_version 1.2.0, 1.3.0 or 1.4.0"
+                "underlying_simulation requires schema_version 1.2.0, 1.3.0, "
+                "1.4.0 or 1.5.0"
             )
         underlying_simulation = None
+    if schema_version == "1.5.0":
+        if "smile" in raw:
+            raise ValueError(
+                "schema_version 1.5.0 derives quote IV from canonical prices "
+                "and forbids the legacy latent smile"
+            )
+        q_pricing = _parse_q_pricing(raw.get("q_pricing"))
+        smile = None
+    else:
+        if "q_pricing" in raw:
+            raise ValueError("q_pricing requires schema_version 1.5.0")
+        q_pricing = None
+        smile = {key: float(value) for key, value in raw["smile"].items()}
     quote_model, bid_ask_noise = _parse_quote_model(
         raw.get("quote_model"), schema_version=schema_version
     )
@@ -553,7 +632,8 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
         quote_decimal_places=int(raw["quote_decimal_places"]),
         underlyings=underlyings,
         option_templates=templates,
-        smile={key: float(value) for key, value in raw["smile"].items()},
+        smile=smile,
+        q_pricing=q_pricing,
         quote_model=quote_model,
         bid_ask_noise=bid_ask_noise,
         underlying_simulation=underlying_simulation,
@@ -666,7 +746,7 @@ def _parse_option_chain(raw: Any, *, schema_version: str) -> OptionChainConfig:
     if liquidity_filter is not None:
         if moneyness_grid is None:
             raise ValueError(
-                "schema_version 1.4.0 liquidity filtering requires moneyness_grid"
+                "config liquidity filtering requires moneyness_grid"
             )
         if not any(value <= liquidity_filter.max_expiry_days for value in expiry_days):
             raise ValueError("option_chain liquidity filter selects no expiry")
@@ -697,14 +777,18 @@ def _parse_option_chain(raw: Any, *, schema_version: str) -> OptionChainConfig:
 def _parse_liquidity_filter(
     raw: Any, *, schema_version: str
 ) -> OptionLiquidityFilter | None:
-    """Parse the config-1.4 inclusive listing liquidity rule."""
+    """Parse the config-1.4+ inclusive listing liquidity rule."""
 
-    if schema_version != "1.4.0":
+    if schema_version not in {"1.4.0", "1.5.0"}:
         if raw is not None:
-            raise ValueError("option_chain.liquidity_filter requires schema_version 1.4.0")
+            raise ValueError(
+                "option_chain.liquidity_filter requires schema_version 1.4.0+"
+            )
         return None
     if not isinstance(raw, dict):
-        raise ValueError("schema_version 1.4.0 requires option_chain.liquidity_filter")
+        raise ValueError(
+            f"schema_version {schema_version} requires option_chain.liquidity_filter"
+        )
     if raw.get("type") != "listing_moneyness_band_and_max_expiry":
         raise ValueError(
             "option_chain.liquidity_filter.type must be "
@@ -747,7 +831,7 @@ def _parse_liquidity_filter(
 def _parse_quote_model(
     raw: Any, *, schema_version: str
 ) -> tuple[dict[str, Any], BidAskNoiseConfig | None]:
-    """Validate the baseline spread and optional config-1.4 noise contract."""
+    """Validate the baseline spread and optional config-1.4+ noise contract."""
 
     if not isinstance(raw, dict):
         raise ValueError("quote_model must be an object")
@@ -763,12 +847,16 @@ def _parse_quote_model(
         raise ValueError("quote_model half-spreads must be non-negative")
 
     noise_raw = raw.get("bid_ask_noise")
-    if schema_version != "1.4.0":
+    if schema_version not in {"1.4.0", "1.5.0"}:
         if noise_raw is not None:
-            raise ValueError("quote_model.bid_ask_noise requires schema_version 1.4.0")
+            raise ValueError(
+                "quote_model.bid_ask_noise requires schema_version 1.4.0+"
+            )
         return dict(raw), None
     if not isinstance(noise_raw, dict):
-        raise ValueError("schema_version 1.4.0 requires quote_model.bid_ask_noise")
+        raise ValueError(
+            f"schema_version {schema_version} requires quote_model.bid_ask_noise"
+        )
     noise_type = noise_raw.get("type")
     if noise_type != "clipped_gaussian_half_spread_multiplier":
         raise ValueError(
@@ -806,6 +894,80 @@ def _parse_quote_model(
     normalized["minimum_half_spread"] = minimum_half_spread
     normalized["bid_ask_noise"] = noise.as_dict()
     return normalized, noise
+
+
+def _parse_q_pricing(raw: Any) -> QPricingConfig:
+    """Validate the config-1.5 common-Q and quote-IV inversion contract."""
+
+    if not isinstance(raw, dict):
+        raise ValueError("schema_version 1.5.0 requires q_pricing")
+    required_identifiers = (
+        "risk_neutral_measure_id",
+        "numeraire_id",
+        "rate_path_id",
+    )
+    identifiers: dict[str, str] = {}
+    for field_name in required_identifiers:
+        value = raw.get(field_name)
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"q_pricing.{field_name} must be non-empty")
+        identifiers[field_name] = value
+    if raw.get("measure_change") != "girsanov_drift_only":
+        raise ValueError("q_pricing.measure_change must be girsanov_drift_only")
+    if raw.get("volatility_mapping") != "same_deterministic_diffusion":
+        raise ValueError(
+            "q_pricing.volatility_mapping must be same_deterministic_diffusion"
+        )
+
+    solver_raw = raw.get("implied_volatility_solver")
+    if not isinstance(solver_raw, dict):
+        raise ValueError("q_pricing.implied_volatility_solver must be an object")
+    if solver_raw.get("method") != "QuantLib.VanillaOption.impliedVolatility":
+        raise ValueError(
+            "q_pricing implied-volatility method must be "
+            "QuantLib.VanillaOption.impliedVolatility"
+        )
+    if solver_raw.get("target_quote") != "canonical_mid":
+        raise ValueError("q_pricing IV target_quote must be canonical_mid")
+    accuracy = _finite_float(
+        solver_raw.get("accuracy"),
+        field_name="q_pricing.implied_volatility_solver.accuracy",
+    )
+    max_evaluations = solver_raw.get("max_evaluations")
+    minimum_volatility = _finite_float(
+        solver_raw.get("minimum_volatility"),
+        field_name="q_pricing.implied_volatility_solver.minimum_volatility",
+    )
+    maximum_volatility = _finite_float(
+        solver_raw.get("maximum_volatility"),
+        field_name="q_pricing.implied_volatility_solver.maximum_volatility",
+    )
+    if accuracy <= 0:
+        raise ValueError("q_pricing IV solver accuracy must be positive")
+    if (
+        isinstance(max_evaluations, bool)
+        or not isinstance(max_evaluations, int)
+        or max_evaluations <= 0
+    ):
+        raise ValueError("q_pricing IV solver max_evaluations must be positive")
+    if minimum_volatility <= 0 or maximum_volatility <= minimum_volatility:
+        raise ValueError("q_pricing IV solver bracket must be positive and increasing")
+
+    return QPricingConfig(
+        risk_neutral_measure_id=identifiers["risk_neutral_measure_id"],
+        numeraire_id=identifiers["numeraire_id"],
+        rate_path_id=identifiers["rate_path_id"],
+        measure_change="girsanov_drift_only",
+        volatility_mapping="same_deterministic_diffusion",
+        implied_volatility_solver=ImpliedVolatilitySolverConfig(
+            method="QuantLib.VanillaOption.impliedVolatility",
+            target_quote="canonical_mid",
+            accuracy=accuracy,
+            max_evaluations=max_evaluations,
+            minimum_volatility=minimum_volatility,
+            maximum_volatility=maximum_volatility,
+        ),
+    )
 
 
 def _validate_chain_strikes(
@@ -1077,7 +1239,10 @@ def _validate_entities(
             raise ValueError(f"initial_spot must be positive: {item.underlying_id}")
         if (
             any(node.value <= 0 for node in item.physical_volatility_function.nodes)
-            or item.base_implied_volatility <= 0
+            or (
+                item.base_implied_volatility is not None
+                and item.base_implied_volatility <= 0
+            )
         ):
             raise ValueError(f"volatility must be positive: {item.underlying_id}")
     for item in templates:
