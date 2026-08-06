@@ -26,7 +26,17 @@ from synthetic_derivatives.authoring.underlying_daily_generator import (
 
 
 class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
+    """Coordinate deterministic generators and transactional DuckDB writes.
+
+    The pipeline owns ordering, idempotent MERGE behavior, immutable-snapshot
+    checks, revisions and manifest publication.  Financial transitions and
+    pricing remain separated in ``UnderlyingDailyGenerator`` and
+    ``OptionDailyGenerator`` respectively.
+    """
+
     def __init__(self, database: str | Path, config: GeneratorConfig):
+        """Open ``database`` and initialize/migrate it to the current schema."""
+
         self.database = Path(database)
         self.database.parent.mkdir(parents=True, exist_ok=True)
         self.config = config
@@ -36,15 +46,26 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         initialize_schema(self.connection)
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """Close the owned DuckDB connection on normal or exceptional exit."""
+
         self.connection.close()
 
     def create_smoke_snapshot(self) -> dict[str, Any]:
+        """Generate the complete business-date horizon declared by config.
+
+        The historical command name is retained for CLI compatibility; the
+        method is not limited to five days and currently authors the 65-day
+        metals profile when invoked with the public config.
+        """
+
         dates = self.underlying_generator.business_dates(
             self.config.start_date, self.config.business_days
         )
         return self.sync_range(dates[0], dates[-1], operation="CREATE_OR_SYNC")
 
     def append_business_days(self, count: int) -> dict[str, Any]:
+        """Append exactly ``count`` business dates after the persisted maximum."""
+
         if count < 1:
             raise ValueError("append count must be positive")
         last_date = self.connection.execute(
@@ -61,6 +82,13 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         return self.sync_range(dates[0], dates[-1], operation="APPEND_DATES")
 
     def sync_config(self) -> dict[str, Any]:
+        """Reconcile immutable config rows over the existing snapshot date span.
+
+        Legacy configs may add supported entities.  Config 1.2+ dependence and
+        config 1.3+ chain contracts are checked as immutable wholes before any
+        row is inserted.
+        """
+
         bounds = self.connection.execute(
             """
             SELECT min(date), max(date)
@@ -76,12 +104,20 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
     def sync_range(
         self, start_date: date, end_date: date, operation: str = "SYNC_RANGE"
     ) -> dict[str, Any]:
+        """Idempotently author one inclusive business-date range.
+
+        All market rows, quality gates, run completion and revision updates are
+        one DuckDB transaction.  On failure that transaction is rolled back;
+        a separate FAILED audit row is then recorded without partial market data.
+        """
+
         dates = self.underlying_generator.business_dates_between(start_date, end_date)
         if not dates:
             raise ValueError("requested range contains no business dates")
         run_id = str(uuid4())
         self.connection.execute("BEGIN TRANSACTION")
         try:
+            # Run immutable-contract checks before creating any market rows.
             self._ensure_snapshot_is_editable()
             self._assert_underlying_dependence_is_compatible()
             self._assert_option_chain_is_compatible()
@@ -107,6 +143,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
 
             stats = self._generate_incremental_rows(dates, run_id)
             self._assert_quality_gates()
+            # A successful idempotent rerun is a NOOP and does not create a
+            # revision merely because an audit run occurred.
             changed = sum(table_stats["inserted"] for table_stats in stats.values())
             status = "COMPLETED" if changed else "NOOP"
             if changed:
@@ -130,6 +168,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             self.connection.execute("COMMIT")
         except Exception as error:
             self.connection.execute("ROLLBACK")
+            # Failure lineage intentionally survives the rolled-back data batch.
             self._record_failed_run(run_id, operation, dates[0], dates[-1], error)
             raise
         summary = self.summary()
@@ -143,6 +182,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         }
 
     def freeze(self) -> dict[str, Any]:
+        """Run final gates and irreversibly mark the logical snapshot FROZEN."""
+
         self.connection.execute("BEGIN TRANSACTION")
         try:
             self._ensure_snapshot_is_editable()
@@ -165,6 +206,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         return summary
 
     def summary(self) -> dict[str, Any]:
+        """Return manifest-ready identity, date bounds and logical row counts."""
+
         snapshot = self.connection.execute(
             """
             SELECT status, current_revision, generator_config_id,
@@ -202,6 +245,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         }
 
     def _ensure_snapshot_is_editable(self) -> None:
+        """Create a DRAFT catalog row or validate immutable snapshot identity."""
+
         row = self.connection.execute(
             """
             SELECT status, generator_config_id, generator_version
@@ -258,6 +303,9 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             self.underlying_generator.underlying_dependence_row(run_id)
         )
         option_chain_spec_row = self.option_generator.option_chain_spec_row(run_id)
+        # Private provenance and immutable masters are always reconstructed
+        # from config. MERGE inserts them once and compatibility checks protect
+        # existing economic definitions from silent updates.
         underlying_master_rows = [
             self.underlying_generator.underlying_master_row(underlying, run_id)
             for underlying in self.config.underlyings
@@ -293,6 +341,9 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         underlying_daily_rows: list[tuple[Any, ...]] = []
         requested_dates = set(dates)
         previous_date_by_key: dict[tuple[date, str], date] = {}
+        # Each underlying path advances chronologically from its last persisted,
+        # quantized close. Filling a gap before a later close would invalidate
+        # all subsequent Markov transitions and is therefore rejected.
         for underlying in self.config.underlyings:
             existing = {
                 row[0]: row[1]
@@ -333,6 +384,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                     underlying, market_date, previous_date, previous_close, run_id
                 )
                 underlying_daily_rows.append(row)
+                # Column 6 is spot_close in the canonical underlying row spec.
                 existing[market_date] = row[6]
 
             prior_path_date: date | None = None
@@ -360,6 +412,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 [self.config.snapshot_id, dates[0], dates[-1]],
             ).fetchall()
         }
+        # Metadata must use the actual predecessor date, including multi-day
+        # weekend intervals, so deterministic drift/variance reductions replay.
         metadata_rows = [
             self.underlying_generator.pricing_metadata_row(
                 underlying,
@@ -399,6 +453,9 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             item.underlying_id: item for item in self.config.underlyings
         }
         option_daily_rows: list[tuple[Any, ...]] = []
+        # Options are priced only after the realized spot slice is materialized.
+        # The option generator receives no Lambda/D/R object; dependence reaches
+        # it only through spot_by_key.
         for contract in option_contract_rows:
             underlying_id = contract[2]
             for market_date in dates:
@@ -663,6 +720,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             raise ValueError(f"snapshot quality gates failed: {failures}")
 
     def _record_revision(self, run_id: str) -> None:
+        """Snapshot current logical counts under the next monotonic revision."""
+
         counts = self._counts()
         current_revision = self.connection.execute(
             "SELECT current_revision FROM metadata.snapshots WHERE snapshot_id = ?",
@@ -704,6 +763,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         end_date: date,
         error: Exception,
     ) -> None:
+        """Persist failure lineage after the market-data transaction rolls back."""
+
         self.connection.execute(
             """
             INSERT INTO metadata.generation_runs (
@@ -725,6 +786,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         )
 
     def _counts(self) -> dict[str, int]:
+        """Count every manifest/revision table for the configured snapshot."""
+
         tables = {
             "underlying_count": "market.underlyings",
             "option_contract_count": "market.option_contracts",

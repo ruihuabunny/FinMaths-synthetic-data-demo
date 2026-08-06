@@ -6,12 +6,12 @@ import duckdb
 
 
 EXPECTED_ROW_COUNTS = {
-    "generation_audit.sql": 2,
-    "option_chain.sql": 5,
-    "option_pricing_context.sql": 5,
-    "option_spot_moneyness.sql": 5,
+    "generation_audit.sql": 1,
+    "option_chain.sql": 56,
+    "option_pricing_context.sql": 56,
+    "option_spot_moneyness.sql": 56,
     "snapshot_summary.sql": 1,
-    "underlying_time_series.sql": 5,
+    "underlying_time_series.sql": 65,
 }
 
 

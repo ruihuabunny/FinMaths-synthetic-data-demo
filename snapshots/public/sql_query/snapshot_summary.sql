@@ -1,6 +1,6 @@
 -- Edit the snapshot_id here when querying another public snapshot.
 WITH parameters(snapshot_id) AS (
-    VALUES ('DERIVATIVES-QUANTLIB-SMOKE-v1')
+    VALUES ('DERIVATIVES-METALS-LIQUID-BSM-v1')
 ),
 underlying_stats AS (
     SELECT
@@ -24,6 +24,7 @@ metadata_stats AS (
 )
 SELECT
     snapshot.snapshot_id,
+    snapshot.schema_version,
     snapshot.status,
     snapshot.current_revision,
     snapshot.generator_config_id,
@@ -41,6 +42,16 @@ SELECT
         FROM market.option_contracts
         WHERE snapshot_id = snapshot.snapshot_id
     ) AS option_contract_count,
+    (
+        SELECT count(*)
+        FROM market.underlying_dependence
+        WHERE snapshot_id = snapshot.snapshot_id
+    ) AS underlying_dependence_count,
+    (
+        SELECT count(*)
+        FROM market.option_chain_specs
+        WHERE snapshot_id = snapshot.snapshot_id
+    ) AS option_chain_spec_count,
     underlying_stats.underlying_daily_count,
     option_stats.option_daily_count,
     metadata_stats.pricing_metadata_count

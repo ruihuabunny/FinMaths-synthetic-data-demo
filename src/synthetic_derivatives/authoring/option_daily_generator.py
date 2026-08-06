@@ -34,6 +34,8 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
     """
 
     def __init__(self, config: GeneratorConfig):
+        """Initialize shared QuantLib infrastructure for option generation."""
+
         super().__init__(config)
 
     def option_chain_spec_row(self, run_id: str) -> tuple[Any, ...] | None:
@@ -71,6 +73,16 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
             chain.exercise_style,
             chain.settlement_type,
             quantize_price(chain.contract_multiplier),
+            (
+                canonical_json(chain.liquidity_filter.as_dict())
+                if chain.liquidity_filter is not None
+                else None
+            ),
+            (
+                canonical_json(self.config.quote_model)
+                if self.config.schema_version == "1.4.0"
+                else None
+            ),
             self.config.generator_config_id,
         ]
         return (*logical, run_id)
@@ -161,12 +173,19 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         master row.  The method receives neither ``UnderlyingSimulationConfig``
         nor its correlation matrix: P-measure dependence affects this quote only
         indirectly through the realized ``spot_close`` supplied by the pipeline.
+
+        QuantLib's analytic BSM NPV is retained as both ``mid`` and settlement
+        price.  Optional deterministic noise independently multiplies the bid
+        and ask half-spreads; it cannot perturb the model value or invert quotes.
         """
 
         (
             _, option_identifier, underlying_id, _, call_put, strike, expiry,
             exercise_style, settlement_type, multiplier, *_lineage,
         ) = contract_row
+        # Expiry-day settlement is outside the current daily quote contract.
+        # Returning None makes absence after expiry explicit rather than a zero
+        # or stale quote, and the pipeline quality gate uses the same predicate.
         if market_date >= expiry:
             return None
 
@@ -207,13 +226,24 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
             ql.EuropeanExercise(expiry_date),
         )
         option.setPricingEngine(ql.AnalyticEuropeanEngine(process))
+        # Model value is canonicalized before microstructure is added.  This mid
+        # remains the BSM price used by parity/bounds checks and IV tasks.
         mid = quantize_price(option.NPV())
         half_spread = max(
             Decimal(str(self.config.quote_model["minimum_half_spread"])),
             mid * Decimal(str(self.config.quote_model["relative_half_spread"])),
         )
-        bid = quantize_price(max(Decimal("0"), mid - half_spread))
-        ask = quantize_price(mid + half_spread)
+        bid_half_spread = half_spread * Decimal(
+            str(self._half_spread_multiplier("bid", option_identifier, market_date))
+        )
+        ask_half_spread = half_spread * Decimal(
+            str(self._half_spread_multiplier("ask", option_identifier, market_date))
+        )
+        # Side-specific noise widens/narrows only executable quotes.  Flooring
+        # bid at zero and keeping both spreads non-negative preserves
+        # bid <= BSM mid <= ask by construction.
+        bid = quantize_price(max(Decimal("0"), mid - bid_half_spread))
+        ask = quantize_price(mid + ask_half_spread)
         activity = self._uniform("option-activity", option_identifier, market_date)
         volume = int(25 + activity * 475)
         open_interest = int(500 + activity * 4_500)
@@ -236,3 +266,22 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
             open_interest,
         ]
         return (*logical, run_id)
+
+    def _half_spread_multiplier(
+        self, side: str, option_identifier: str, market_date: date
+    ) -> float:
+        """Return one clipped, side-specific and replayable noise multiplier."""
+
+        noise = self.config.bid_ask_noise
+        if noise is None:
+            return 1.0
+        raw_multiplier = 1.0 + noise.standard_deviation * self._gaussian(
+            noise.stream_namespace,
+            side,
+            option_identifier,
+            market_date,
+        )
+        return min(
+            noise.maximum_multiplier,
+            max(noise.minimum_multiplier, raw_multiplier),
+        )

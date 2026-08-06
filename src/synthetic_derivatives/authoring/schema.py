@@ -8,11 +8,11 @@ from typing import Any, Sequence
 import duckdb
 
 
-SCHEMA_VERSION = "2.2.0"
-# The 2.1/2.2 changes are additive: private underlying-dependence and option-
-# chain provenance plus nullable contract metadata are added without rewriting
-# existing market observations.
-MIGRATABLE_SCHEMA_VERSIONS = {"2.0.0", "2.1.0"}
+SCHEMA_VERSION = "2.3.0"
+# The 2.1/2.2/2.3 changes are additive: private underlying-dependence and
+# option-chain provenance plus nullable contract/filter/quote metadata are added
+# without rewriting existing market observations.
+MIGRATABLE_SCHEMA_VERSIONS = {"2.0.0", "2.1.0", "2.2.0"}
 
 SCHEMA_BOOTSTRAP = r"""
 CREATE SCHEMA IF NOT EXISTS metadata;
@@ -129,6 +129,10 @@ CREATE TABLE IF NOT EXISTS market.option_chain_specs (
     exercise_style VARCHAR NOT NULL,
     settlement_type VARCHAR NOT NULL,
     contract_multiplier DECIMAL(24, 8) NOT NULL CHECK (contract_multiplier > 0),
+    -- Nullable for migrated 2.2 rows. Config 1.4 stores the candidate-grid
+    -- selection rule and complete BSM spread/noise contract here.
+    liquidity_filter JSON,
+    quote_model JSON,
     generator_config_id VARCHAR NOT NULL,
     created_run_id VARCHAR NOT NULL,
     CHECK (
@@ -277,6 +281,7 @@ TABLE_SPECS = {
             "roll_rule", "grid_type", "expiry_days", "moneyness_grid",
             "strike_grid", "call_put", "strike_increment", "strike_rounding",
             "exercise_style", "settlement_type", "contract_multiplier",
+            "liquidity_filter", "quote_model",
             "generator_config_id", "created_run_id",
         ),
         ("snapshot_id", "chain_id"),
@@ -339,9 +344,10 @@ TABLE_SPECS = {
 def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
     """Create the current schema or apply the supported additive migration.
 
-    Existing 2.0/2.1 snapshots keep every market row unchanged.  Migration only
-    creates private provenance tables, adds nullable option-contract metadata
-    and revision counters, then advances schema metadata to 2.2.
+    Existing 2.0/2.1/2.2 snapshots keep every market row unchanged.  Migration
+    creates private provenance tables as needed, adds nullable option-contract,
+    liquidity and quote metadata plus revision counters, then advances metadata
+    to schema 2.3.
     """
 
     connection.execute(SCHEMA_BOOTSTRAP)
@@ -386,6 +392,16 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
             ADD COLUMN IF NOT EXISTS {column_definition}
             """
         )
+    for column_definition in (
+        "liquidity_filter JSON",
+        "quote_model JSON",
+    ):
+        connection.execute(
+            f"""
+            ALTER TABLE market.option_chain_specs
+            ADD COLUMN IF NOT EXISTS {column_definition}
+            """
+        )
     connection.execute(
         """
         INSERT INTO metadata.schema_versions (schema_version)
@@ -409,7 +425,13 @@ def merge_rows(
     spec: TableSpec,
     rows: Sequence[Sequence[Any]],
 ) -> dict[str, int]:
-    """Insert rows whose primary IDs do not already exist."""
+    """Insert rows whose business keys do not already exist.
+
+    A temporary table inherits the destination column types, then DuckDB MERGE
+    inserts only unmatched keys.  Existing rows are deliberately never updated:
+    economic compatibility is checked by the pipeline before this primitive is
+    called.  The returned counts drive NOOP detection and revision creation.
+    """
 
     if not rows:
         return {"requested": 0, "inserted": 0, "unchanged": 0}
@@ -447,4 +469,6 @@ def merge_rows(
 
 
 def table_columns(connection: duckdb.DuckDBPyConnection, table: str) -> list[str]:
+    """Return DuckDB column names in physical table order for schema tests."""
+
     return [row[1] for row in connection.execute(f"PRAGMA table_info('{table}')").fetchall()]

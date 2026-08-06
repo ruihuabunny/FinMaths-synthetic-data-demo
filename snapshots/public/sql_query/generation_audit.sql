@@ -1,6 +1,6 @@
 -- Authoring/audit query: edit snapshot_id for another public snapshot.
 WITH parameters(snapshot_id) AS (
-    VALUES ('DERIVATIVES-QUANTLIB-SMOKE-v1')
+    VALUES ('DERIVATIVES-METALS-LIQUID-BSM-v1')
 )
 SELECT
     run.run_id,

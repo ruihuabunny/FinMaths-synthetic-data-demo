@@ -51,6 +51,8 @@ class QuantLibGeneratorBase:
     """
 
     def __init__(self, config: GeneratorConfig):
+        """Validate pinned runtime conventions and construct shared calendars."""
+
         if ql.__version__ != PINNED_QUANTLIB_VERSION:
             raise RuntimeError(
                 "QuantLib version mismatch: expected "

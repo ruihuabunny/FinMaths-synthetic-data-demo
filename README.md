@@ -3,12 +3,14 @@
 面向 LLM 训练的确定性合成金融衍生品数据项目。项目目标是把市场数据生成、任务定义、模型解题、独立校验和训练数据导出分成清晰的边界，并保证每个样本都可以通过固定配置与 seed 重放。
 
 当前已完成 authoring pipeline 的第一版、correlated-underlying simulator 第一阶段以及
-`OptionChainBuilder`：
+带流动性筛选和报价噪声的 `OptionChainBuilder`：
 QuantLib 生成 underlying 路径和 European option 报价，DuckDB 事务增量写入 snapshot；
 config `1.2.0` 可以用 factor loading $\Lambda$ 派生 $D$ 与 PSD correlation matrix $R$，
 并只对物理测度 $\mathbb P$ 下的 underlying close shocks 做联合耦合；config `1.3.0`
 则以 expiry × listing-moneyness × call/put 网格生成稳定 option contracts，挂牌时把
-moneyness 转为绝对 strike 后冻结。Option/derivative pricing 不读取 underlying 相关矩阵。
+moneyness 转为绝对 strike 后冻结；config `1.4.0` 将网格视为候选集，通过不可变的
+expiry/moneyness liquidity rule 只挂牌流动性较好的近月、近价合约，并以可重放的 quote
+noise 独立扰动 bid/ask half-spread。Option/derivative pricing 不读取 underlying 相关矩阵。
 仓库同时包含最小可运行的六维 `task_space` registry、受约束
 `mutation` engine 和 adaptive `curriculum` scheduler；Solver、verifier 与训练数据构建
 尚未实现。
@@ -37,58 +39,55 @@ Authoring、Solver 和 Trusted verifier 是三个不同的权限边界：
 - Solver 只能读取公开快照与合同，不得调用现成的定价、IV、Greeks 或 smile API。
 - Trusted verifier 可以使用固定版本的金融与数值包独立复算，但不能向 Solver 暴露 oracle 或 hidden tests。
 
-## Authoring smoke test
+## Public metals snapshot
 
-仓库内置 [QuantLib generator 配置](configs/generators/quantlib_bsm_smoke_v1.json) 和 [DuckDB smoke snapshot](snapshots/public/quantlib_bsm_smoke_v1.duckdb)。这里的“5 种 option”表示 5 个 option contract templates；它们分别实例化到 5 个 underlyings 上，因此 5 个交易日的数据规模为：
+仓库内置 [22-metal generator 配置](configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json)
+和 [DuckDB public snapshot](snapshots/public/quantlib_bsm_smoke_v1.duckdb)。文件名保留旧的
+`quantlib_bsm_smoke_v1` 路径以兼容现有入口，但逻辑 snapshot 已更新为
+`DERIVATIVES-METALS-LIQUID-BSM-v1`：
 
 | 对象 | 行数 |
 |:---|---:|
-| Underlying master | 5 |
-| Option contract master | 25（5 × 5） |
-| `underlying_daily` | 25（5 × 5 日） |
-| `option_daily` | 125（25 × 5 日） |
-| `pricing_metadata` | 25（5 × 5 日） |
+| Underlying master | 22 |
+| Option contract master | 1,232（22 × 56） |
+| `underlying_daily` | 1,430（22 × 65 日） |
+| `option_daily` | 60,368（只在 expiry 前报价） |
+| `pricing_metadata` | 1,430（22 × 65 日） |
 
-先创建或幂等同步基准数据：
+Option candidate grid 为 6 个期限 × 11 个 listing-moneyness × call/put。Inclusive
+liquidity filter 只保留 30/60/90/180 天和 0.85–1.15 moneyness，因此每个 underlying
+挂牌 56 个 static contracts。全部 mid 使用 constant-vol BSM / QuantLib analytic engine；
+`mid = settlement_price`，deterministic clipped-Gaussian quote noise 只作用于 bid/ask
+half-spread。
+
+查看已冻结 public snapshot：
 
 ```bash
 make install
-make smoke
 make snapshot-summary
 ```
 
-加入第 6 个交易日只会新增该日的 5 条 underlying、25 条 option 和 5 条 metadata：
-
-```bash
-make append-day
-```
-
-增加 underlying 或 option template 时，先在 generator config 的相应数组中追加定义，然后运行：
+若要从配置重放，请生成到新文件；不要修改已冻结的 checked-in snapshot：
 
 ```bash
 .venv/bin/python scripts/edit_snapshot.py \
-  --database snapshots/public/quantlib_bsm_smoke_v1.duckdb \
-  --config configs/generators/quantlib_bsm_smoke_v1.json \
-  sync-config
+  --database /tmp/metals-liquid-bsm-v1.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json \
+  create-smoke
 ```
 
-`sync-config` 会为新增品种回填当前已有日期区间；已存在的业务主键不会重写。完整的 schema、主键、增量规则和命令见 [Authoring Pipeline](docs/authoring_pipeline.md)。
-
-另有一个不提交 DuckDB 产物的
-[20 品种 option-chain smoke 配置](configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json)：
-20 个 synthetic metal-breadth underlyings × 3 个 expiries × 7 个 listing moneyness ×
-call/put，共 840 个固定合约；10 个交易日生成 200 条 underlying、8,400 条 option quote
-和 200 条 pricing metadata。它用于结构与规模测试，不宣称已经实现真实金属交易所的
-calendar、carry、expiry 或 settlement 规范。该验收配置把现有 smile coefficients
-设为 0，使每个 underlying 的完整网格来自同一 constant-vol BSM marginal model；这是
-配置选择，没有改变 legacy deterministic-smile 报价代码。
+完整 schema、主键、增量规则和命令见 [Authoring Pipeline](docs/authoring_pipeline.md)。
+原 [5-underlying legacy smoke config](configs/generators/quantlib_bsm_smoke_v1.json) 仍用于
+快速 additive/compatibility tests，不再对应 checked-in public DuckDB。当前 metals profile
+是合成的市场规模近似，不宣称复刻某个真实交易所的 calendar、carry、expiry 或
+settlement 规范。
 
 ## Deterministic physical drift / volatility
 
 Generator config schema `1.1.0` 支持把 underlying 的 P-measure
 `physical_drift` 和 `physical_volatility` 配置成时间的确定性分段线性函数。原来的
 scalar 写法继续支持，并等价于 constant function。当前 checked-in
-`quantlib_bsm_smoke_v1` 保留为 constant baseline；新 job 可以从已使用时间函数的
+legacy `quantlib_bsm_smoke_v1` 保留为 constant baseline；新 job 可以从已使用时间函数的
 [QuantLib/BSM generator 模板](authoring/templates/quantlib_bsm_generator.template.json)
 复制配置。核心配置片段如下；完整可运行字段以模板为准。
 
@@ -280,7 +279,13 @@ date 使用一次：以 listing spot 乘 moneyness，再按
 规则和已挂牌合约在同一 snapshot 内不可修改。schema `1.0`--`1.2` 的 legacy
 `option_templates` 仍保持兼容。
 
-本阶段没有改变当前 deterministic-smile BSM 报价公式，也没有引入逐 option correlation。
+Config `1.4.0` 把 expiry/moneyness arrays 作为 candidate grid，再按 inclusive
+listing-moneyness band 与 maximum expiry 筛出实际挂牌合约。完整 liquidity rule 与 quote
+model 保存在 private `market.option_chain_specs`；筛选不会随 daily spot 变化。其
+side-specific deterministic Gaussian noise 只乘在 baseline bid/ask half-spread 上，
+QuantLib BSM NPV 仍保存为 `mid = settlement_price`。
+
+本阶段没有引入逐 option correlation。
 共同 $\mathbb Q$/numeraire/rate path 和更严格的 coherent pricing model 合同仍属于下一阶段。
 
 ## Market snapshot、pricing model 与 pricing engine 的边界
@@ -421,10 +426,11 @@ derivatives、多币种利率或 numeraire conversion。该方案保证模型内
 
 建议按下面顺序增强，而不是先堆叠多个 pricing engines：
 
-1. **Option chain baseline（已完成）。** config `1.3.0` 已支持同一 expiry 下多个
+1. **Option chain baseline（已完成）。** config `1.3.0/1.4.0` 已支持同一 expiry 下多个
    puts/calls 和 strikes、多个 expiries 的完整 $K\times T$ 网格；listing moneyness 已冻结
-   为绝对 strike，合约跨 valuation dates 保持身份不变。Weekly/monthly/quarterly 动态
-   listing/roll 仍待 exchange profile 阶段实现。
+   为绝对 strike，合约跨 valuation dates 保持身份不变；候选网格按期限和 listing
+   moneyness 做 immutable liquidity filtering。Weekly/monthly/quarterly 动态 listing/roll
+   仍待 exchange profile 阶段实现。
 2. **同币种 common-$\mathbb Q$ pricing context。** 整个 snapshot 共用 $\mathbb Q$/numeraire
    和 interest-rate path；若联合 payoff 需要相关性，PSD $R_t$ 仍只耦合 Q-measure
    underlying drivers。同一 underlying 的 option chain 共享状态，derivative contracts
@@ -460,7 +466,7 @@ derivatives、多币种利率或 numeraire conversion。该方案保证模型内
 | 阶段 | 模块 | 首次实现范围 | 完成标准 |
 |:---|:---|:---|:---|
 | 0（已完成） | `UnderlyingSimulator` / `UnderlyingDependenceSpec` | config `1.2.0` 以 $\Lambda/D/R$ 耦合 P-measure underlying close shocks；private authoring 表冻结合同 | one-shot/append 一致；旧 config 无回归；固定 spot 时 option quote 不受 $R$ 影响；option ids 不进入矩阵 |
-| 1（已完成） | `OptionChainBuilder` | config `1.3.0` 声明 expiry schedule、成对 call/put、moneyness grid、static listing/roll 与 strike increment；listing date 冻结绝对 strike | 同一 expiry 有多个 strikes 和成对 call/put；合约 id 跨日稳定；one-shot、append 与 `sync-config` 结果一致；20 品种 smoke 通过 |
+| 1（已完成） | `OptionChainBuilder` | config `1.3.0/1.4.0` 声明 candidate expiry/moneyness grid、成对 call/put、static listing/roll、liquidity filter 与 strike increment；listing date 冻结绝对 strike；quote noise 只扰动 BSM half-spread | 合约 id 跨日稳定；one-shot、append 与 `sync-config` 一致；22 品种、65 日 public profile 通过；far-expiry/far-strike candidates 不挂牌 |
 | 2 | `CommonQPricingContext` / `CommonQScenario` / `QUnderlyingDependenceSpec` | 为每个 snapshot 声明唯一的 $\mathbb Q$/numeraire/rate path；相关结构只排列 Q-measure underlying drivers，同一 underlying 的所有合约共享 state path | 不存在逐 option context override；option ids 不进入 $R_t$；联合 payoff 来自同一 joint underlying process；固定 seed 下 replay 一致 |
 | 3 | `MarketContext` / `AuthoringProvenance` split | Public 层只留 curves、calendar、timestamp、settlement 与 precision；private 层保存 generation model/engine、P/Q latent state、seed/RNG 和未舍入价格 | `solver_visible` 中不存在 DGP parameters、seed、RNG 或 generator engine；private audit 仍可完整重放 snapshot |
 | 4 | `ExchangeProfile` 与 `QuoteModel` | 加入真实 holiday/early-close、timezone、expiry/settlement、strike/tick rules，以及随 moneyness、maturity、vega、premium、liquidity 变化的 spread；补充 size、stale/missing/zero-bid 与 quality flags | 所有公开报价符合声明的 exchange profile；volume/open interest 和 liquidity state 具有跨日持续性 |
@@ -472,9 +478,10 @@ derivatives、多币种利率或 numeraire conversion。该方案保证模型内
 
 1. 已完成 `UnderlyingSimulator`、配置校验、private dependence persistence 与
    append-invariance/derivative-boundary tests。
-2. 已完成 `OptionChainBuilder`、配置校验、private chain spec、冻结 listing strike 与
-   contract-id/append-invariance tests；没有改变当前 BSM 报价公式。20 品种 smoke 使用
-   3 个 expiries × 7 个固定 strikes × call/put。
+2. 已完成 `OptionChainBuilder`、配置校验、private chain/liquidity/quote spec、冻结 listing
+   strike 与 contract-id/append-invariance tests。当前 public profile 为 22 品种 × 每品种
+   4 个液态 expiries × 7 个液态 strikes × call/put；BSM mid 不变，quote noise 只扰动
+   bid/ask half-spread。
 3. 下一步实现 `CommonQPricingContext` / `CommonQScenario`，加入共同 $\mathbb Q$/numeraire、
    共享利率路径与同一 underlying 共享状态；需要多资产相关时，新增独立的
    Q-measure underlying dependence spec，而不是 derivative correlation。

@@ -1,17 +1,42 @@
 # 常用 DuckDB SQL Query
 
-本目录保存针对 public snapshot 的可复用只读查询。每个 `.sql` 文件只包含一条
-query，并在文件开头使用单行 `parameters` CTE 集中声明可编辑参数。所有结果都显式
-指定 `ORDER BY`，避免依赖 DuckDB 未定义的天然行顺序。
+本目录保存针对 `DERIVATIVES-METALS-LIQUID-BSM-v1` public snapshot 的可复用只读
+查询。每个 `.sql` 文件只包含一条 query，并在文件开头使用 `parameters` CTE 集中声明
+可编辑参数。所有结果都显式指定 `ORDER BY`，避免依赖 DuckDB 未定义的天然行顺序。
 
-| 文件 | 用途 | 默认参数 |
+## Query catalog
+
+| 文件 | 默认结果 | 数据边界 | 用途 |
+|:---|---:|:---|:---|
+| `snapshot_summary.sql` | 1 row | Authoring/audit | Schema、status、revision、日期范围、master/daily/provenance counts。 |
+| `underlying_time_series.sql` | 65 rows | Solver-safe | `SYNTH-METAL-GOLD` 的完整 OHLCV 时间序列。 |
+| `option_chain.sql` | 56 rows | Solver-safe | `2026-08-03` Gold 的 4-expiry × 7-strike × call/put liquid chain。 |
+| `option_spot_moneyness.sql` | 56 rows | Solver-safe | 同一 chain 加当日 spot 和 `strike / spot_close`。 |
+| `option_pricing_context.sql` | 56 rows | Solver-safe | 同一 chain 联表 spot、rate/dividend、day count、BSM model/engine。 |
+| `generation_audit.sql` | 1 row | Authoring/audit | Generation run、逐表 stats、revision 和时间戳。 |
+
+“Solver-safe”表示 SQL 只读取 `solver_visible` views；“Authoring/audit”查询会读取
+`market` 或 `metadata`，用于维护和验收 snapshot，不应直接作为 Solver task 输入。
+
+默认 option-chain 行数只适用于 listing date。Static contracts 到期后不再生成 quote：
+Gold 在 `2026-09-02` 前有 56 rows，在第一个 expiry 之后会减少 14 rows。若参数日期不是
+business date，或不在 `2026-08-03` 至 `2026-10-30` 范围内，查询会返回空集。
+
+## Parameters
+
+查询顶部的参数采用以下含义：
+
+| 参数 | 当前值/范围 | 说明 |
 |:---|:---|:---|
-| `snapshot_summary.sql` | Snapshot 状态、revision、日期范围和各表行数 | 当前 smoke snapshot |
-| `underlying_time_series.sql` | 单个 underlying 的 OHLCV 时间序列 | `SYNTH-U03` |
-| `option_chain.sql` | 指定日期和 underlying 的完整 option chain | `2026-08-03`, `SYNTH-U03` |
-| `option_spot_moneyness.sql` | Option quote、spot 与 spot moneyness | `2026-08-03`, `SYNTH-U03` |
-| `option_pricing_context.sql` | Option、spot、rate/dividend 和 pricing model 联表 | `2026-08-03`, `SYNTH-U03` |
-| `generation_audit.sql` | Authoring generation runs 与 revision 审计 | 当前 smoke snapshot |
+| `snapshot_id` | `DERIVATIVES-METALS-LIQUID-BSM-v1` | 逻辑 snapshot ID，不是 DuckDB 文件名。 |
+| `market_date` | 65 个 business dates | Option rows 还要求 `market_date < expiry`。 |
+| `underlying_id` | 22 个 `SYNTH-METAL-*` IDs | 示例统一使用 `SYNTH-METAL-GOLD`。 |
+
+`option_spot_moneyness.sql` 计算的是 valuation date 的 current spot moneyness。Liquidity
+filter 使用的是 listing moneyness，并在合约创建时只执行一次；因此 current spot
+moneyness 后续移出 `[0.85, 1.15]` 并不表示合约应被删除。
+
+## Running a query
 
 运行示例：
 
@@ -30,6 +55,27 @@ finally:
     connection.close()
 ```
 
-使用其他 snapshot、日期或标的时，只修改目标 SQL 顶部的 `parameters` CTE。Solver
-任务仍须由 task contract 固定查询范围、列和排序；这些文件是公共查询模板，不是
-hidden verifier 或 canonical answer。
+默认 `option_chain.sql` 的 result columns 为：
+
+```text
+date, underlying_id, option_id, call_put, strike, expiry,
+exercise_style, settlement_type, contract_multiplier,
+bid, mid, ask, settlement_price, volume, open_interest
+```
+
+使用其他 snapshot、日期或标的时，只修改目标 SQL 顶部的 `parameters` CTE，不要删除
+稳定 `ORDER BY`。Solver 任务仍须由 task contract 固定查询范围、列和排序；这些文件是
+公共查询模板，不是 hidden verifier 或 canonical answer。
+
+## Expected semantics
+
+- `option_chain.sql` 返回已挂牌且当日未到期的 contracts，不会动态重建 strike grid。
+- `mid = settlement_price` 是经过 8-decimal canonicalization 的 BSM analytic NPV。
+- Bid/ask quote noise 只改变 half-spread，所以所有 rows 满足
+  `0 <= bid <= mid <= ask`。
+- `option_pricing_context.sql` 中的 rate/dividend 是对应 underlying/date 的 flat continuous
+  inputs；pricing model/engine 应分别只有 `Black-Scholes-Merton` 和
+  `QuantLib.AnalyticEuropeanEngine`。
+- Private liquidity rule、candidate grid、$\Lambda/D/R$ 和 RNG lineage 不在 Solver-safe
+  queries 中；需要审计时直接查看 `market.option_chain_specs`、
+  `market.underlying_dependence` 和 `metadata.generation_runs`。

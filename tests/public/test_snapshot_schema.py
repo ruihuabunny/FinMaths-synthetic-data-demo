@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import duckdb
@@ -112,5 +113,146 @@ def test_checked_in_smoke_snapshot_matches_its_manifest(repository_root: Path) -
         assert connection.execute(
             "SELECT count(*) FROM market.option_daily"
         ).fetchone()[0] == manifest["option_daily_count"]
+    finally:
+        connection.close()
+
+
+def test_checked_in_snapshot_is_the_22_metal_liquid_bsm_profile(
+    repository_root: Path,
+) -> None:
+    database = repository_root / "snapshots/public/quantlib_bsm_smoke_v1.duckdb"
+    manifest = json.loads(
+        database.with_suffix(".manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["schema_version"] == "2.3.0"
+    assert manifest["snapshot_id"] == "DERIVATIVES-METALS-LIQUID-BSM-v1"
+    assert manifest["business_date_count"] == 65
+    assert manifest["underlying_count"] == 22
+    assert manifest["option_contract_count"] == 1_232
+    assert manifest["option_daily_count"] == 60_368
+
+    connection = duckdb.connect(str(database), read_only=True)
+    try:
+        chain_shape = connection.execute(
+            """
+            SELECT count(DISTINCT expiry), count(DISTINCT strike_moneyness),
+                   min(strike_moneyness), max(strike_moneyness)
+            FROM market.option_contracts
+            """
+        ).fetchone()
+        assert chain_shape == (
+            4,
+            7,
+            Decimal("0.85000000"),
+            Decimal("1.15000000"),
+        )
+        assert connection.execute(
+            """
+            SELECT count(*) FROM market.option_daily
+            WHERE NOT (bid <= mid AND mid <= ask AND mid = settlement_price)
+            """
+        ).fetchone()[0] == 0
+        liquidity_filter, quote_model = connection.execute(
+            """
+            SELECT liquidity_filter, quote_model
+            FROM market.option_chain_specs
+            """
+        ).fetchone()
+        assert json.loads(liquidity_filter)["max_expiry_days"] == 180
+        assert json.loads(quote_model)["bid_ask_noise"]["type"] == (
+            "clipped_gaussian_half_spread_multiplier"
+        )
+        assert connection.execute(
+            """
+            SELECT DISTINCT pricing_model, pricing_engine
+            FROM market.pricing_metadata
+            """
+        ).fetchall() == [
+            ("Black-Scholes-Merton", "QuantLib.AnalyticEuropeanEngine")
+        ]
+    finally:
+        connection.close()
+
+
+def test_checked_in_bsm_mids_satisfy_discounted_bounds_and_put_call_parity(
+    repository_root: Path,
+) -> None:
+    database = repository_root / "snapshots/public/quantlib_bsm_smoke_v1.duckdb"
+    connection = duckdb.connect(str(database), read_only=True)
+    try:
+        max_parity_error = connection.execute(
+            """
+            WITH paired AS (
+                SELECT
+                    quote.date,
+                    quote.underlying_id,
+                    quote.expiry,
+                    quote.strike,
+                    max(CASE WHEN quote.call_put = 'call' THEN quote.mid END)
+                        AS call_mid,
+                    max(CASE WHEN quote.call_put = 'put' THEN quote.mid END)
+                        AS put_mid,
+                    max(underlying.spot_close) AS spot,
+                    max(pricing.risk_free_rate) AS rate,
+                    max(pricing.dividend_yield) AS dividend_yield
+                FROM market.option_daily AS quote
+                JOIN market.underlying_daily AS underlying
+                  USING (snapshot_id, date, underlying_id)
+                JOIN market.pricing_metadata AS pricing
+                  ON pricing.snapshot_id = quote.snapshot_id
+                 AND pricing.valuation_date = quote.date
+                 AND pricing.underlying_id = quote.underlying_id
+                GROUP BY quote.date, quote.underlying_id,
+                         quote.expiry, quote.strike
+            )
+            SELECT max(abs(
+                (call_mid - put_mid)
+                - (
+                    spot * exp(
+                        -dividend_yield
+                        * date_diff('day', date, expiry) / 365.0
+                    )
+                    - strike * exp(
+                        -rate * date_diff('day', date, expiry) / 365.0
+                    )
+                )
+            ))
+            FROM paired
+            """
+        ).fetchone()[0]
+        assert max_parity_error <= 2e-8
+
+        bound_failures = connection.execute(
+            """
+            WITH priced AS (
+                SELECT
+                    quote.*,
+                    underlying.spot_close * exp(
+                        -pricing.dividend_yield
+                        * date_diff('day', quote.date, quote.expiry) / 365.0
+                    ) AS spot_pv,
+                    quote.strike * exp(
+                        -pricing.risk_free_rate
+                        * date_diff('day', quote.date, quote.expiry) / 365.0
+                    ) AS strike_pv
+                FROM market.option_daily AS quote
+                JOIN market.underlying_daily AS underlying
+                  USING (snapshot_id, date, underlying_id)
+                JOIN market.pricing_metadata AS pricing
+                  ON pricing.snapshot_id = quote.snapshot_id
+                 AND pricing.valuation_date = quote.date
+                 AND pricing.underlying_id = quote.underlying_id
+            )
+            SELECT count(*)
+            FROM priced
+            WHERE CASE WHEN call_put = 'call'
+                THEN mid < greatest(0, spot_pv - strike_pv) - 0.00000002
+                  OR mid > spot_pv + 0.00000002
+                ELSE mid < greatest(0, strike_pv - spot_pv) - 0.00000002
+                  OR mid > strike_pv + 0.00000002
+            END
+            """
+        ).fetchone()[0]
+        assert bound_failures == 0
     finally:
         connection.close()

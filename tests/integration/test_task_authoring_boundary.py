@@ -18,7 +18,8 @@ def test_base_task_references_authoring_snapshot_without_copying_oracle_data(
 
     assert task.snapshot_id == snapshot_manifest["snapshot_id"]
     assert task.snapshot_revision == snapshot_manifest["revision"]
-    assert raw_task["status"] == snapshot_manifest["status"] == "DRAFT"
+    assert snapshot_manifest["status"] == "FROZEN"
+    assert raw_task["status"] == "DRAFT"
     assert raw_task["publication_eligible"] is False
     assert "oracle" not in raw_task
     assert "reference_answer" not in raw_task

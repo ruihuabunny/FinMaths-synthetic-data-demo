@@ -27,6 +27,8 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
     """
 
     def __init__(self, config: GeneratorConfig):
+        """Initialize shared QuantLib infrastructure for underlying generation."""
+
         super().__init__(config)
 
     def underlying_master_row(
@@ -110,6 +112,10 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
 
         ql.Settings.instance().evaluationDate = valuation_date
         spot_quote = ql.QuoteHandle(ql.SimpleQuote(float(previous_close)))
+        # BlackScholesMertonProcess uses (risk-free - dividend) as its drift.
+        # Setting q=0 and the risk-free handle to effective_drift therefore
+        # realizes the configured P-measure transition without mixing in the
+        # Q-measure risk-free/dividend inputs used by option pricing.
         zero_dividend = ql.YieldTermStructureHandle(
             ql.FlatForward(valuation_date, 0.0, self.day_count)
         )
@@ -136,6 +142,9 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
         close = quantize_price(
             process.evolve(0.0, float(previous_close), dt, close_shock)
         )
+        # Persisted precision is part of the path law: an append run restarts
+        # from this eight-decimal close, exactly as a one-shot run advances from
+        # the preceding in-memory row.
         open_price = quantize_price(previous_close)
         range_fraction = effective_volatility * math.sqrt(dt) * range_shock * 0.25
         high = quantize_price(

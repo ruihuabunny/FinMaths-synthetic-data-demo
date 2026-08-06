@@ -14,25 +14,40 @@ from typing import Any
 
 @dataclass(frozen=True)
 class DeterministicFunctionNode:
+    """One value on a calendar-day-offset deterministic parameter curve."""
+
     day_offset: int
     value: float
 
 
 @dataclass(frozen=True)
 class DeterministicFunction:
+    """Constant or piecewise-linear parameter function anchored at start date.
+
+    Offsets are calendar days rather than business-day indices.  Flat
+    extrapolation and exact interval reductions make a multi-day append step
+    use the same integrated GBM coefficients as the corresponding one-shot run.
+    """
+
     function_type: str
     nodes: tuple[DeterministicFunctionNode, ...]
     extrapolation: str = "flat"
 
     @property
     def initial_value(self) -> float:
+        """Return the value persisted in legacy scalar master columns."""
+
         return self.value_at(0.0)
 
     @property
     def is_constant(self) -> bool:
+        """Return whether every date uses the single declared value."""
+
         return self.function_type == "constant"
 
     def value_at(self, day_offset: float) -> float:
+        """Evaluate by linear interpolation and flat endpoint extrapolation."""
+
         if self.is_constant or day_offset <= self.nodes[0].day_offset:
             return self.nodes[0].value
         if day_offset >= self.nodes[-1].day_offset:
@@ -50,6 +65,14 @@ class DeterministicFunction:
     def interval_average(
         self, start_day_offset: float, end_day_offset: float, *, power: int = 1
     ) -> float:
+        """Return the exact interval mean of ``f`` or ``f**2``.
+
+        Piecewise-linear segments use the trapezoid rule for ``power=1`` and
+        the analytic integral of a squared linear function for ``power=2``.
+        Interior nodes split the interval so neither reduction depends on the
+        requested authoring batch boundaries.
+        """
+
         if end_day_offset <= start_day_offset:
             raise ValueError("deterministic-function interval must be positive")
         if power not in {1, 2}:
@@ -83,11 +106,15 @@ class DeterministicFunction:
     def interval_root_mean_square(
         self, start_day_offset: float, end_day_offset: float
     ) -> float:
+        """Return volatility preserving the interval integral of variance."""
+
         return math.sqrt(
             self.interval_average(start_day_offset, end_day_offset, power=2)
         )
 
     def as_dict(self) -> dict[str, Any]:
+        """Serialize the validated function for canonical provenance JSON."""
+
         if self.is_constant:
             return {"type": "constant", "value": self.nodes[0].value}
         return {
@@ -102,6 +129,13 @@ class DeterministicFunction:
 
 @dataclass(frozen=True)
 class UnderlyingConfig:
+    """Validated marginal path and BSM pricing inputs for one underlying.
+
+    The scalar physical fields mirror the functions at day offset zero for
+    backward-compatible master columns.  Risk-free/dividend/implied-volatility
+    fields belong to option pricing and are not used as P-measure path drift.
+    """
+
     underlying_id: str
     initial_spot: Decimal
     physical_drift: float
@@ -135,6 +169,59 @@ class OptionTemplate:
 
 
 @dataclass(frozen=True)
+class OptionLiquidityFilter:
+    """Inclusive listing-time filter applied to a candidate option grid.
+
+    Liquidity is intentionally defined from immutable authoring inputs: maximum
+    calendar days to expiry and a listing-moneyness band.  It is not recomputed
+    from later realized spot values, so contracts do not appear or disappear as
+    the simulated underlying moves.
+    """
+
+    max_expiry_days: int
+    min_moneyness: Decimal
+    max_moneyness: Decimal
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return the canonical JSON-ready liquidity contract."""
+
+        return {
+            "type": "listing_moneyness_band_and_max_expiry",
+            "max_expiry_days": self.max_expiry_days,
+            "min_moneyness": str(self.min_moneyness),
+            "max_moneyness": str(self.max_moneyness),
+            "boundary": "inclusive",
+        }
+
+
+@dataclass(frozen=True)
+class BidAskNoiseConfig:
+    """Deterministic noise applied independently to bid/ask half-spreads.
+
+    The BSM value remains the stored mid and settlement price.  Noise multiplies
+    only the non-negative baseline half-spread and is clipped to keep quotes
+    bounded and replayable without introducing a second pricing model.
+    """
+
+    noise_type: str
+    standard_deviation: float
+    minimum_multiplier: float
+    maximum_multiplier: float
+    stream_namespace: str
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return the canonical JSON-ready quote-noise contract."""
+
+        return {
+            "type": self.noise_type,
+            "standard_deviation": self.standard_deviation,
+            "minimum_multiplier": self.minimum_multiplier,
+            "maximum_multiplier": self.maximum_multiplier,
+            "stream_namespace": self.stream_namespace,
+        }
+
+
+@dataclass(frozen=True)
 class OptionChainConfig:
     """Immutable rules used to expand one complete static option chain.
 
@@ -160,6 +247,7 @@ class OptionChainConfig:
     exercise_style: str
     settlement_type: str
     contract_multiplier: Decimal
+    liquidity_filter: OptionLiquidityFilter | None
 
 
 class OptionChainBuilder:
@@ -171,16 +259,24 @@ class OptionChainBuilder:
     """
 
     def __init__(self, chain: OptionChainConfig):
+        """Bind one already-validated, immutable chain specification."""
+
         self.chain = chain
 
     def build_templates(self) -> tuple[OptionTemplate, ...]:
-        """Return the canonical expiry/grid/call-put Cartesian product.
+        """Return the liquid expiry/grid/call-put Cartesian product.
 
         The loop order is part of authoring canonicalization.  IDs also encode
         their economic inputs, so their identity does not depend on row position.
+        In config 1.4, the full arrays are candidates and the immutable liquidity
+        rule is applied before any contract is materialized.
         """
 
-        grid = self.chain.moneyness_grid or self.chain.strike_grid or ()
+        # Config 1.4 arrays are auditable candidates.  Filtering before IDs and
+        # contracts are materialized means rejected far-expiry/far-moneyness
+        # cells never become empty or dynamically disappearing contracts.
+        expiry_days = self.selected_expiry_days()
+        grid = self.selected_grid()
         return tuple(
             OptionTemplate(
                 template_id=self._template_id(expiry_days, strike_input, call_put),
@@ -199,9 +295,36 @@ class OptionChainBuilder:
                     strike_input if self.chain.strike_grid is not None else None
                 ),
             )
-            for expiry_days in self.chain.expiry_days
+            for expiry_days in expiry_days
             for strike_input in grid
             for call_put in self.chain.call_put
+        )
+
+    def selected_expiry_days(self) -> tuple[int, ...]:
+        """Return candidate expiries admitted by the liquidity rule."""
+
+        liquidity = self.chain.liquidity_filter
+        if liquidity is None:
+            return self.chain.expiry_days
+        return tuple(
+            value
+            for value in self.chain.expiry_days
+            if value <= liquidity.max_expiry_days
+        )
+
+    def selected_grid(self) -> tuple[Decimal, ...]:
+        """Return candidate strikes/moneyness admitted by the liquidity rule."""
+
+        grid = self.chain.moneyness_grid or self.chain.strike_grid or ()
+        liquidity = self.chain.liquidity_filter
+        if liquidity is None:
+            return grid
+        if self.chain.moneyness_grid is None:
+            raise ValueError("liquidity filtering requires a moneyness_grid")
+        return tuple(
+            value
+            for value in grid
+            if liquidity.min_moneyness <= value <= liquidity.max_moneyness
         )
 
     def absolute_strike(
@@ -314,6 +437,7 @@ class GeneratorConfig:
     option_templates: tuple[OptionTemplate, ...]
     smile: dict[str, float]
     quote_model: dict[str, Any]
+    bid_ask_noise: BidAskNoiseConfig | None
     underlying_simulation: UnderlyingSimulationConfig | None
     option_chain: OptionChainConfig | None
 
@@ -325,6 +449,8 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
     1.2 requires the explicit P-measure ``underlying_simulation`` contract.
     Version 1.3 additionally replaces individually authored option templates
     with an explicit, static ``option_chain`` Cartesian-product contract.
+    Version 1.4 treats that product as a candidate grid, requires an immutable
+    liquidity filter, and adds deterministic bid/ask half-spread noise.
     """
 
     config_path = Path(path)
@@ -333,7 +459,7 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
     if not isinstance(raw, dict):
         raise ValueError("generator config must be a JSON object")
     schema_version = raw.get("schema_version")
-    if schema_version not in {"1.0.0", "1.1.0", "1.2.0", "1.3.0"}:
+    if schema_version not in {"1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0"}:
         raise ValueError("unsupported generator config schema_version")
 
     underlyings_list: list[UnderlyingConfig] = []
@@ -365,18 +491,22 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
             )
         )
     underlyings = tuple(underlyings_list)
-    if schema_version == "1.3.0":
+    if schema_version in {"1.3.0", "1.4.0"}:
         if "option_templates" in raw:
             raise ValueError(
-                "schema_version 1.3.0 uses option_chain, not option_templates"
+                f"schema_version {schema_version} uses option_chain, not option_templates"
             )
-        option_chain = _parse_option_chain(raw.get("option_chain"))
+        option_chain = _parse_option_chain(
+            raw.get("option_chain"), schema_version=schema_version
+        )
         builder = OptionChainBuilder(option_chain)
         templates = builder.build_templates()
         _validate_chain_strikes(underlyings, builder)
     else:
         if "option_chain" in raw:
-            raise ValueError("option_chain requires schema_version 1.3.0")
+            raise ValueError(
+                "option_chain requires schema_version 1.3.0 or 1.4.0"
+            )
         option_chain = None
         templates = tuple(
             OptionTemplate(
@@ -391,16 +521,19 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
             for item in raw["option_templates"]
         )
     _validate_entities(underlyings, templates)
-    if schema_version in {"1.2.0", "1.3.0"}:
+    if schema_version in {"1.2.0", "1.3.0", "1.4.0"}:
         underlying_simulation = _parse_underlying_simulation(
             raw.get("underlying_simulation"), underlyings
         )
     else:
         if "underlying_simulation" in raw:
             raise ValueError(
-                "underlying_simulation requires schema_version 1.2.0 or 1.3.0"
+                "underlying_simulation requires schema_version 1.2.0, 1.3.0 or 1.4.0"
             )
         underlying_simulation = None
+    quote_model, bid_ask_noise = _parse_quote_model(
+        raw.get("quote_model"), schema_version=schema_version
+    )
     return GeneratorConfig(
         schema_version=schema_version,
         generator_config_id=raw["generator_config_id"],
@@ -421,13 +554,14 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
         underlyings=underlyings,
         option_templates=templates,
         smile={key: float(value) for key, value in raw["smile"].items()},
-        quote_model=dict(raw["quote_model"]),
+        quote_model=quote_model,
+        bid_ask_noise=bid_ask_noise,
         underlying_simulation=underlying_simulation,
         option_chain=option_chain,
     )
 
 
-def _parse_option_chain(raw: Any) -> OptionChainConfig:
+def _parse_option_chain(raw: Any, *, schema_version: str) -> OptionChainConfig:
     """Validate and canonicalize the first static option-chain contract.
 
     Requiring sorted unique grids and normalizing call/put order makes equivalent
@@ -436,7 +570,7 @@ def _parse_option_chain(raw: Any) -> OptionChainConfig:
     """
 
     if not isinstance(raw, dict):
-        raise ValueError("schema_version 1.3.0 requires option_chain")
+        raise ValueError(f"schema_version {schema_version} requires option_chain")
     chain_id = raw.get("chain_id")
     if not isinstance(chain_id, str) or not chain_id:
         raise ValueError("option_chain.chain_id must be non-empty")
@@ -526,6 +660,23 @@ def _parse_option_chain(raw: Any) -> OptionChainConfig:
     settlement_type = raw.get("settlement_type")
     if not isinstance(settlement_type, str) or not settlement_type:
         raise ValueError("option_chain.settlement_type must be non-empty")
+    liquidity_filter = _parse_liquidity_filter(
+        raw.get("liquidity_filter"), schema_version=schema_version
+    )
+    if liquidity_filter is not None:
+        if moneyness_grid is None:
+            raise ValueError(
+                "schema_version 1.4.0 liquidity filtering requires moneyness_grid"
+            )
+        if not any(value <= liquidity_filter.max_expiry_days for value in expiry_days):
+            raise ValueError("option_chain liquidity filter selects no expiry")
+        if not any(
+            liquidity_filter.min_moneyness
+            <= value
+            <= liquidity_filter.max_moneyness
+            for value in moneyness_grid
+        ):
+            raise ValueError("option_chain liquidity filter selects no moneyness")
     return OptionChainConfig(
         chain_id=chain_id,
         expiry_days=expiry_days,
@@ -539,7 +690,122 @@ def _parse_option_chain(raw: Any) -> OptionChainConfig:
         exercise_style="european",
         settlement_type=settlement_type,
         contract_multiplier=contract_multiplier,
+        liquidity_filter=liquidity_filter,
     )
+
+
+def _parse_liquidity_filter(
+    raw: Any, *, schema_version: str
+) -> OptionLiquidityFilter | None:
+    """Parse the config-1.4 inclusive listing liquidity rule."""
+
+    if schema_version != "1.4.0":
+        if raw is not None:
+            raise ValueError("option_chain.liquidity_filter requires schema_version 1.4.0")
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError("schema_version 1.4.0 requires option_chain.liquidity_filter")
+    if raw.get("type") != "listing_moneyness_band_and_max_expiry":
+        raise ValueError(
+            "option_chain.liquidity_filter.type must be "
+            "listing_moneyness_band_and_max_expiry"
+        )
+    if raw.get("boundary", "inclusive") != "inclusive":
+        raise ValueError("option_chain.liquidity_filter.boundary must be inclusive")
+    max_expiry_days = raw.get("max_expiry_days")
+    if (
+        isinstance(max_expiry_days, bool)
+        or not isinstance(max_expiry_days, int)
+        or max_expiry_days <= 0
+    ):
+        raise ValueError(
+            "option_chain.liquidity_filter.max_expiry_days must be a positive integer"
+        )
+    try:
+        minimum = Decimal(str(raw.get("min_moneyness")))
+        maximum = Decimal(str(raw.get("max_moneyness")))
+    except Exception as error:
+        raise ValueError(
+            "option_chain liquidity moneyness bounds must be decimals"
+        ) from error
+    if (
+        not minimum.is_finite()
+        or not maximum.is_finite()
+        or minimum <= 0
+        or maximum <= minimum
+    ):
+        raise ValueError(
+            "option_chain liquidity moneyness bounds must be finite, positive and increasing"
+        )
+    return OptionLiquidityFilter(
+        max_expiry_days=max_expiry_days,
+        min_moneyness=minimum,
+        max_moneyness=maximum,
+    )
+
+
+def _parse_quote_model(
+    raw: Any, *, schema_version: str
+) -> tuple[dict[str, Any], BidAskNoiseConfig | None]:
+    """Validate the baseline spread and optional config-1.4 noise contract."""
+
+    if not isinstance(raw, dict):
+        raise ValueError("quote_model must be an object")
+    relative_half_spread = _finite_float(
+        raw.get("relative_half_spread"),
+        field_name="quote_model.relative_half_spread",
+    )
+    minimum_half_spread = _finite_float(
+        raw.get("minimum_half_spread"),
+        field_name="quote_model.minimum_half_spread",
+    )
+    if relative_half_spread < 0 or minimum_half_spread < 0:
+        raise ValueError("quote_model half-spreads must be non-negative")
+
+    noise_raw = raw.get("bid_ask_noise")
+    if schema_version != "1.4.0":
+        if noise_raw is not None:
+            raise ValueError("quote_model.bid_ask_noise requires schema_version 1.4.0")
+        return dict(raw), None
+    if not isinstance(noise_raw, dict):
+        raise ValueError("schema_version 1.4.0 requires quote_model.bid_ask_noise")
+    noise_type = noise_raw.get("type")
+    if noise_type != "clipped_gaussian_half_spread_multiplier":
+        raise ValueError(
+            "quote_model.bid_ask_noise.type must be "
+            "clipped_gaussian_half_spread_multiplier"
+        )
+    standard_deviation = _finite_float(
+        noise_raw.get("standard_deviation"),
+        field_name="quote_model.bid_ask_noise.standard_deviation",
+    )
+    minimum_multiplier = _finite_float(
+        noise_raw.get("minimum_multiplier"),
+        field_name="quote_model.bid_ask_noise.minimum_multiplier",
+    )
+    maximum_multiplier = _finite_float(
+        noise_raw.get("maximum_multiplier"),
+        field_name="quote_model.bid_ask_noise.maximum_multiplier",
+    )
+    stream_namespace = noise_raw.get("stream_namespace")
+    if standard_deviation < 0:
+        raise ValueError("quote noise standard_deviation must be non-negative")
+    if minimum_multiplier < 0 or maximum_multiplier < minimum_multiplier:
+        raise ValueError("quote noise multiplier bounds must be non-negative and increasing")
+    if not isinstance(stream_namespace, str) or not stream_namespace:
+        raise ValueError("quote noise stream_namespace must be non-empty")
+    noise = BidAskNoiseConfig(
+        noise_type=noise_type,
+        standard_deviation=standard_deviation,
+        minimum_multiplier=minimum_multiplier,
+        maximum_multiplier=maximum_multiplier,
+        stream_namespace=stream_namespace,
+    )
+    normalized = dict(raw)
+    normalized["relative_half_spread"] = relative_half_spread
+    normalized["minimum_half_spread"] = minimum_half_spread
+    normalized["bid_ask_noise"] = noise.as_dict()
+    return normalized, noise
 
 
 def _validate_chain_strikes(
@@ -553,7 +819,7 @@ def _validate_chain_strikes(
     """
 
     for underlying in underlyings:
-        grid = builder.chain.moneyness_grid or builder.chain.strike_grid or ()
+        grid = builder.selected_grid()
         strikes = [
             builder.absolute_strike(
                 underlying.initial_spot,
@@ -583,7 +849,7 @@ def _parse_underlying_simulation(
 
     if not isinstance(raw, dict):
         raise ValueError(
-            "schema_version 1.2.0 or 1.3.0 requires underlying_simulation"
+            "schema_version 1.2.0, 1.3.0 or 1.4.0 requires underlying_simulation"
         )
 
     dependence_spec_id = raw.get("dependence_spec_id")
@@ -722,6 +988,8 @@ def _parse_underlying_simulation(
 def _parse_deterministic_function(
     raw: Any, *, field_name: str
 ) -> DeterministicFunction:
+    """Normalize a scalar or JSON function definition to one internal type."""
+
     if isinstance(raw, bool):
         raise ValueError(f"{field_name} must be a number or deterministic function")
     if isinstance(raw, (int, float)):
@@ -777,6 +1045,8 @@ def _parse_deterministic_function(
 
 
 def _finite_float(raw: Any, *, field_name: str) -> float:
+    """Convert one numeric input while rejecting bool, NaN and infinities."""
+
     if isinstance(raw, bool):
         raise ValueError(f"{field_name} must be a finite number")
     try:
@@ -792,6 +1062,8 @@ def _validate_entities(
     underlyings: tuple[UnderlyingConfig, ...],
     templates: tuple[OptionTemplate, ...],
 ) -> None:
+    """Validate cross-entity uniqueness and supported economic conventions."""
+
     if not underlyings or not templates:
         raise ValueError("config requires at least one underlying and one option template")
     underlying_ids = [item.underlying_id for item in underlyings]
@@ -837,4 +1109,6 @@ def _validate_entities(
 
 
 def option_id(underlying_id: str, template_id: str) -> str:
+    """Compose a stable option identifier from economic parent and template."""
+
     return f"{underlying_id}-{template_id}"

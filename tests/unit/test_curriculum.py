@@ -12,7 +12,7 @@ def _task(task_id: str, coordinates: TaskCoordinates) -> TaskSpec:
         task_id=task_id,
         task_family_id=family,
         coordinates=coordinates,
-        snapshot_id="DERIVATIVES-QUANTLIB-SMOKE-v1",
+        snapshot_id="DERIVATIVES-METALS-LIQUID-BSM-v1",
         snapshot_revision=1,
         method_id="bsm-analytic-price-v1",
         output_contract_id="canonical-float64-json-v1",

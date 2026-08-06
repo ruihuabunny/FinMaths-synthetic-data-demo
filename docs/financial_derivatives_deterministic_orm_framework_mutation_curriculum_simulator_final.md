@@ -117,7 +117,7 @@ $$
 | `pricing_metadata` | `valuation_timestamp, market_id, currency, numeraire, risk_neutral_measure_id, rate_path_id, discount_curve/risk_free_rate, dividend_curve/dividend_yield, borrow_or_carry_rate, calendar, day_count, physical_dynamics, pricing_dynamics, pricing_model, pricing_engine, generator_version, seed, RNG, input_precision, canonicalization`。 |
 | `underlying_dependence` | `dependence_spec_id, measure, driver_order, formulation, factor_loading_matrix, idiosyncratic_diagonal, correlation_matrix, matrix_dtype, factorization_method, factorization_order, time_grid, regime_id`；driver order 只排列 underlying/model drivers，不排列 derivative contracts。单资产任务给出退化的一维单位矩阵或明确的 `not_applicable` 规则。 |
 | `option_contracts` | 稳定 `option_id`、underlying、call/put、frozen absolute strike、expiry、exercise/settlement/multiplier，以及 listing date/spot/moneyness provenance。 |
-| `option_chain_specs` | `chain_id`、expiry 与 strike/moneyness grid、call/put、listing/roll rule、strike increment/rounding 和合约约定；属于 private authoring provenance。 |
+| `option_chain_specs` | `chain_id`、candidate expiry 与 strike/moneyness grid、call/put、listing/roll rule、strike increment/rounding、liquidity filter、quote model 和合约约定；属于 private authoring provenance。 |
 
 `underlying_daily` 中用于历史收益、VaR/ES 的路径属于物理测度 $\mathbb P$；`option_daily` 的定价属于风险中性测度 $\mathbb Q$。两者可共享当日 spot、variance state 与市场日期，但 drift、风险溢价及模型参数必须分别保存为 `physical_dynamics` 与 `pricing_dynamics`。$\mathbb P$ 与 $\mathbb Q$ 下的 underlying dependence 使用 measure-qualified spec id；不得把历史相关参数无声明地复用到风险中性定价。当前 authoring simulator 第一阶段只 materialize `measure=P` 的 `underlying_dependence`；$\mathbb Q$ pricing-context/dependence 属于后续阶段。如果某题只需 flat rate/dividend，可以把完整 curves 简化为固定 $r,q$，但简化规则本身仍是合同字段。
 
@@ -129,12 +129,14 @@ increment 与 listing/roll rules 冻结为 private chain spec；moneyness 模式
 转成 absolute strike，strike 模式则直接按 increment 规范化，随后合约身份与 strike 都
 不再随每日 spot 改写。第一版只允许
 `listing_rule=snapshot_start`、`roll_rule=static`，动态 weekly/monthly/quarterly listing
-留给 exchange-profile 阶段。该阶段不改变现有 deterministic-smile BSM 报价公式，也不把
-option contracts 加入 correlation matrix；共同 $\mathbb Q$/numeraire/rate path 仍是下一
-阶段。20-underlying smoke 使用 3 expiries × 7 strikes × call/put，共 840 个固定合约。
-该 smoke 在不改报价代码的前提下把 smile coefficients 设为 0，使每个 underlying 的整条
-链由同一 constant-vol BSM marginal model 生成；非零 smile 的 coherent-model 扩展仍由
-后续 pricing-model 阶段负责。
+留给 exchange-profile 阶段。Config `1.4.0` 进一步把该网格定义为 candidate grid，并按
+listing-moneyness inclusive band 与 maximum expiry 只 materialize 流动性较好的合约；
+side-specific deterministic quote noise 只乘在 BSM bid/ask half-spread 上，不改变
+`mid = settlement_price`。当前 public profile 使用 22 个 underlying，每个实际保留
+4 expiries × 7 strikes × call/put，共 1,232 个固定合约，65 个 business dates 内生成
+60,368 条 expiry 前 quotes。Smile coefficients 设为 0，使每个 underlying 的整条链由
+同一 constant-vol BSM marginal model 生成。Option contracts 不加入 correlation matrix；
+共同 $\mathbb Q$/numeraire/rate path 仍是下一阶段。
 
 ### 同币种 Conditional-Independent Baseline 与相关矩阵扰动
 
