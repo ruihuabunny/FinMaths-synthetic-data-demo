@@ -8,8 +8,11 @@ from typing import Any, Sequence
 import duckdb
 
 
-SCHEMA_VERSION = "2.1.0"
-MIGRATABLE_SCHEMA_VERSIONS = {"2.0.0"}
+SCHEMA_VERSION = "2.2.0"
+# The 2.1/2.2 changes are additive: private underlying-dependence and option-
+# chain provenance plus nullable contract metadata are added without rewriting
+# existing market observations.
+MIGRATABLE_SCHEMA_VERSIONS = {"2.0.0", "2.1.0"}
 
 SCHEMA_BOOTSTRAP = r"""
 CREATE SCHEMA IF NOT EXISTS metadata;
@@ -64,6 +67,7 @@ CREATE TABLE IF NOT EXISTS metadata.snapshot_revisions (
     option_daily_count BIGINT NOT NULL,
     pricing_metadata_count BIGINT NOT NULL,
     underlying_dependence_count BIGINT NOT NULL DEFAULT 0,
+    option_chain_spec_count BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     PRIMARY KEY (snapshot_id, revision)
 );
@@ -84,6 +88,7 @@ CREATE TABLE IF NOT EXISTS market.underlyings (
     PRIMARY KEY (snapshot_id, underlying_id)
 );
 
+-- Private P-measure DGP.  Deliberately omitted from solver_visible views.
 CREATE TABLE IF NOT EXISTS market.underlying_dependence (
     snapshot_id VARCHAR NOT NULL,
     dependence_spec_id VARCHAR NOT NULL,
@@ -105,6 +110,34 @@ CREATE TABLE IF NOT EXISTS market.underlying_dependence (
     PRIMARY KEY (snapshot_id, dependence_spec_id)
 );
 
+-- Private option-chain authoring rules. Deliberately omitted from solver views.
+-- Exactly one grid JSON is populated; moneyness is an authoring input rather
+-- than a rule for recomputing strikes on each valuation date.
+CREATE TABLE IF NOT EXISTS market.option_chain_specs (
+    snapshot_id VARCHAR NOT NULL,
+    chain_id VARCHAR NOT NULL,
+    listing_rule VARCHAR NOT NULL CHECK (listing_rule = 'snapshot_start'),
+    listing_date DATE NOT NULL,
+    roll_rule VARCHAR NOT NULL CHECK (roll_rule = 'static'),
+    grid_type VARCHAR NOT NULL CHECK (grid_type IN ('moneyness', 'strike')),
+    expiry_days JSON NOT NULL,
+    moneyness_grid JSON,
+    strike_grid JSON,
+    call_put JSON NOT NULL,
+    strike_increment DECIMAL(24, 8) NOT NULL CHECK (strike_increment > 0),
+    strike_rounding VARCHAR NOT NULL CHECK (strike_rounding = 'ROUND_HALF_EVEN'),
+    exercise_style VARCHAR NOT NULL,
+    settlement_type VARCHAR NOT NULL,
+    contract_multiplier DECIMAL(24, 8) NOT NULL CHECK (contract_multiplier > 0),
+    generator_config_id VARCHAR NOT NULL,
+    created_run_id VARCHAR NOT NULL,
+    CHECK (
+        (grid_type = 'moneyness' AND moneyness_grid IS NOT NULL AND strike_grid IS NULL)
+        OR (grid_type = 'strike' AND strike_grid IS NOT NULL AND moneyness_grid IS NULL)
+    ),
+    PRIMARY KEY (snapshot_id, chain_id)
+);
+
 CREATE TABLE IF NOT EXISTS market.option_contracts (
     snapshot_id VARCHAR NOT NULL,
     option_id VARCHAR NOT NULL,
@@ -116,6 +149,12 @@ CREATE TABLE IF NOT EXISTS market.option_contracts (
     exercise_style VARCHAR NOT NULL,
     settlement_type VARCHAR NOT NULL,
     contract_multiplier DECIMAL(24, 8) NOT NULL CHECK (contract_multiplier > 0),
+    -- Nullable for migrated legacy rows. Chain rows persist the listing inputs
+    -- for audit, while `strike` above remains the immutable economic term.
+    chain_id VARCHAR,
+    listing_date DATE,
+    listing_spot DECIMAL(24, 8),
+    strike_moneyness DECIMAL(24, 8),
     created_run_id VARCHAR NOT NULL,
     PRIMARY KEY (snapshot_id, option_id)
 );
@@ -212,6 +251,8 @@ FROM market.pricing_metadata;
 
 @dataclass(frozen=True)
 class TableSpec:
+    """Ordered table contract used by deterministic staging and MERGE calls."""
+
     name: str
     columns: tuple[str, ...]
     keys: tuple[str, ...]
@@ -229,6 +270,17 @@ TABLE_SPECS = {
         ),
         ("snapshot_id", "dependence_spec_id"),
     ),
+    "option_chain_specs": TableSpec(
+        "market.option_chain_specs",
+        (
+            "snapshot_id", "chain_id", "listing_rule", "listing_date",
+            "roll_rule", "grid_type", "expiry_days", "moneyness_grid",
+            "strike_grid", "call_put", "strike_increment", "strike_rounding",
+            "exercise_style", "settlement_type", "contract_multiplier",
+            "generator_config_id", "created_run_id",
+        ),
+        ("snapshot_id", "chain_id"),
+    ),
     "underlyings": TableSpec(
         "market.underlyings",
         (
@@ -245,6 +297,7 @@ TABLE_SPECS = {
             "snapshot_id", "option_id", "underlying_id", "template_id",
             "call_put", "strike", "expiry", "exercise_style",
             "settlement_type", "contract_multiplier",
+            "chain_id", "listing_date", "listing_spot", "strike_moneyness",
             "created_run_id",
         ),
         ("snapshot_id", "option_id"),
@@ -284,6 +337,13 @@ TABLE_SPECS = {
 
 
 def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
+    """Create the current schema or apply the supported additive migration.
+
+    Existing 2.0/2.1 snapshots keep every market row unchanged.  Migration only
+    creates private provenance tables, adds nullable option-contract metadata
+    and revision counters, then advances schema metadata to 2.2.
+    """
+
     connection.execute(SCHEMA_BOOTSTRAP)
     current_version = connection.execute(
         """
@@ -307,6 +367,25 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
         DEFAULT 0
         """
     )
+    connection.execute(
+        """
+        ALTER TABLE metadata.snapshot_revisions
+        ADD COLUMN IF NOT EXISTS option_chain_spec_count BIGINT
+        DEFAULT 0
+        """
+    )
+    for column_definition in (
+        "chain_id VARCHAR",
+        "listing_date DATE",
+        "listing_spot DECIMAL(24, 8)",
+        "strike_moneyness DECIMAL(24, 8)",
+    ):
+        connection.execute(
+            f"""
+            ALTER TABLE market.option_contracts
+            ADD COLUMN IF NOT EXISTS {column_definition}
+            """
+        )
     connection.execute(
         """
         INSERT INTO metadata.schema_versions (schema_version)

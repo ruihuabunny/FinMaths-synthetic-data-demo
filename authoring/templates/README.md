@@ -9,6 +9,11 @@ underlying 和一组平值 European call/put option templates；每个 option te
 示例。它只用 factor-loading correlation 改变 $\mathbb P$-measure underlying close
 paths；option pricing 不读取该相关矩阵。
 
+完整 option-chain 例子见
+`configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json`。它使用 config
+`1.3.0` 的 static `option_chain` 生成 20 × 3 × 7 × 2 合约网格，并继续保证相关矩阵只
+排列 20 个 underlyings。
+
 ## 使用方式
 
 先复制模板并修改副本，不要直接把模板当作正式配置：
@@ -23,7 +28,7 @@ cp authoring/templates/quantlib_bsm_generator.template.json \
 - `generator_config_id`：一个 snapshot 生命周期内不可更改；
 - `snapshot_id`：修正已有实体或历史数据时必须使用新的 ID；
 - `seed`、`start_date` 和 `business_days`；
-- `underlyings` 与 `option_templates` 中的示例定义。
+- `underlyings` 与 `option_templates`（legacy）或 `option_chain`（`1.3.0`）中的示例定义。
 
 创建 DRAFT snapshot：
 
@@ -52,17 +57,19 @@ cp authoring/templates/quantlib_bsm_generator.template.json \
 
 | 字段 | 当前实现约束 |
 |:---|:---|
-| `schema_version` | `1.0.0` 支持 scalar physical 参数；`1.1.0` 另支持 deterministic time functions；`1.2.0` 再增加 P-measure `underlying_simulation`。 |
+| `schema_version` | `1.0.0` 支持 scalar physical 参数；`1.1.0` 另支持 deterministic time functions；`1.2.0` 再增加 P-measure `underlying_simulation`；`1.3.0` 使用 static `option_chain`。 |
 | `calendar` / `day_count` | 只支持 `WeekendsOnly` / `Actual365Fixed`。 |
 | `start_date` | 使用工作日；首条 underlying path 必须从该日开始。 |
 | `quote_decimal_places` | 使用 `8`，与当前价格量化精度一致。 |
 | `underlying_id` | 配置内唯一；spot 和两类 volatility 必须为正数。 |
 | `physical_drift` / `physical_volatility` | 可使用 scalar，或 `piecewise_linear` 时间函数；volatility 的所有节点必须为正数。 |
-| `underlying_simulation` | `1.2.0` 必需；`measure=P`，`driver_order` 恰好覆盖全部 underlying，$\Lambda$ 每行 norm 不超过 1。 |
+| `underlying_simulation` | `1.2.0/1.3.0` 必需；`measure=P`，`driver_order` 恰好覆盖全部 underlying，$\Lambda$ 每行 norm 不超过 1。 |
+| `option_chain` | `1.3.0` 必需，且不能与 `option_templates` 混用；expiry/moneyness 严格递增、call/put 成对，当前只支持 `snapshot_start/static`。 |
 | `template_id` | 配置内唯一；会与 `underlying_id` 拼成稳定的 `option_id`。 |
 | `call_put` | 只能是 `call` 或 `put`。 |
 | `exercise_style` | v1 只支持 `european`。 |
 | `strike_moneyness` / `expiry_days` | 必须为正数；strike 基于初始 spot 计算。 |
+| `strike_increment` / `strike_rounding` | Chain strike 在 listing date 以正 increment 和固定 `ROUND_HALF_EVEN` 转成绝对值；舍入后不得重复。 |
 
 时间函数以 `start_date` 为 `day_offset = 0`，节点间线性插值，首个节点必须为
 0，节点外只允许 flat extrapolation：
@@ -90,3 +97,5 @@ v1/v1.1 的已有 DRAFT 配置只能追加 underlying 或 option template。conf
 underlying 集合与完整 `underlying_simulation` 视为同一个不可变 path contract；修改
 driver order、factor loading 或增删 underlying 都必须复制配置并启用新的
 `snapshot_id`。所有版本都会拒绝修改已生成的实体定义或回填历史路径缺口。
+config `1.3.0` 还把 chain spec 与全部 listed contracts 视为整体不可变；append 或
+`sync-config` 不能重算 strike、改变 contract ID 或替换 listing/roll rule。

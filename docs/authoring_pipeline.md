@@ -1,13 +1,16 @@
 # DuckDB + QuantLib Authoring Pipeline
 
-> 实现状态（2026-08-06）：underlying simulator 第一阶段已经实现。Generator config
+> 实现状态（2026-08-06）：underlying simulator 第一阶段与 static
+> `OptionChainBuilder` 已经实现。Generator config
 > `1.2.0` 可以用 $\Lambda/D/R$ 相关结构生成物理测度 $\mathbb P$ 下的多个
-> underlying path；authoring schema `2.1.0` 保存其私有生成合同。Option/derivative
-> pricing 不读取该相关矩阵，原有 v1/v1.1 smoke pipeline 保持兼容。
+> underlying path；config `1.3.0` 生成 expiry × listing-moneyness × call/put 完整网格，
+> 并冻结挂牌 strike；authoring schema `2.2.0` 保存两类私有生成合同。
+> Option/derivative pricing 不读取 underlying 相关矩阵，原有 v1/v1.1/v1.2 pipeline
+> 保持兼容。
 
 ## 目标与范围
 
-第一版 authoring pipeline 将 framework 的三表 snapshot 合同落实到一个 DuckDB 文件中，并支持三类增量操作：
+第一版 authoring pipeline 将 framework 的 snapshot 合同落实到一个 DuckDB 文件中，并支持三类增量操作：
 
 1. 在已有 5 天数据后追加第 6 天，只生成并插入第 6 天的数据；
 2. 增加 underlying，在当前日期区间内只为新 underlying 生成路径、metadata 和 options；
@@ -165,7 +168,7 @@ engine 的 no-arbitrage 声明。authoring gate 当前负责：
 |:---|:---|:---|:---|
 | U0. 契约冻结 | 完成 | `config.py`、文档 | 固定 `measure=P`、underlying-only driver order、$\Lambda/D/R$ canonicalization 与不可变规则。 |
 | U1. Config + persistence | 完成 | `config.py`、`schema.py`、模板 | config `1.2.0`、schema `2.1.0`、private dependence table、revision/manifest count 和旧配置兼容。 |
-| U2. 联合 underlying path | 完成 | `generator.py`、`pipeline.py` | factor/idiosyncratic namespaces、相关 close shock、one-shot/append replay 与 metadata lineage。 |
+| U2. 联合 underlying path | 完成 | `underlying_daily_generator.py`、`pipeline.py` | factor/idiosyncratic namespaces、相关 close shock、one-shot/append replay 与 metadata lineage。 |
 | U3. Underlying simulator 扩展 | 计划中 | config/generator/tests | time-varying $\Lambda_t$、regime transitions、richer P dynamics；仍不把 option ids 放入 correlation matrix。 |
 | Q1. Pricing context/model | 独立后续 | pricing/model registry | 共同 $\mathbb Q$/numeraire/rate path 和合法 coherent model；若多资产 payoff 需要相关性，相关对象仍是其 Q-measure underlying drivers，而不是 derivative contracts。 |
 
@@ -188,18 +191,88 @@ engine 的 no-arbitrage 声明。authoring gate 当前负责：
 profile 无回归；$\Lambda/D/R$ 可规范重放；相关结构只改变 underlying close shocks；
 option engine 不读取该结构；snapshot 冻结和不可变规则继续成立。
 
+## OptionChainBuilder 第一阶段
+
+本阶段落实 README 的阶段 1，只改变 option contract construction，不改变现有
+deterministic-smile BSM 报价公式，也不提前引入 common-$\mathbb Q$ pricing context。
+
+### Config `1.3.0`
+
+`1.3.0` 继承 `1.2.0` 的 immutable `underlying_simulation`，并以顶层
+`option_chain` 替代逐条 `option_templates`。下面展示 listing-moneyness 模式；也可以删除
+`moneyness_grid` 并声明互斥的 absolute `strike_grid`：
+
+```json
+{
+  "schema_version": "1.3.0",
+  "option_chain": {
+    "chain_id": "STATIC-GRID-v1",
+    "expiry_days": [30, 90, 180],
+    "moneyness_grid": [0.8, 0.9, 0.95, 1.0, 1.05, 1.1, 1.2],
+    "call_put": ["call", "put"],
+    "listing_rule": "snapshot_start",
+    "roll_rule": "static",
+    "strike_increment": 0.5,
+    "strike_rounding": "ROUND_HALF_EVEN",
+    "exercise_style": "european",
+    "settlement_type": "cash",
+    "contract_multiplier": 100
+  }
+}
+```
+
+当前合同固定如下：
+
+1. expiry 与所选 grid 都必须非空、正值且严格递增；`moneyness_grid` / `strike_grid`
+   必须恰好出现一个；call/put 必须各出现一次。
+2. 第一版只支持 `snapshot_start` listing 与 `static` roll。动态 weekly/monthly/quarterly
+   series 需要后续 exchange profile，不允许在本版隐式发生。
+3. listing date 是 `start_date` 按 `WeekendsOnly/Following` 调整后的首个 business date；
+   listing spot 使用配置中明确的 `initial_spot`。
+4. Moneyness 模式的 listing strike 按
+   `initial_spot × moneyness / strike_increment` 执行 `ROUND_HALF_EVEN` 后还原成绝对
+   strike；absolute-strike 模式直接按相同 increment/rounding 规范化。若两个 grid
+   inputs 舍入到同一 strike，整个 config 被拒绝。
+5. template/option ID 只由 stable underlying id、chain id、expiry、moneyness 与 call/put
+   派生，不依赖生成循环位置。listing 后绝对 strike 永不随 daily spot 重算。
+
+### Schema、增量与边界
+
+Authoring schema `2.2.0` 从 `2.0.0/2.1.0` additive migration：
+
+| 对象 | 作用 |
+|:---|:---|
+| `market.option_chain_specs` | 私有保存 chain grid type/value、listing/roll、strike rounding、合约约定与 lineage；无 solver view。 |
+| `market.option_contracts` | 新增 nullable `chain_id, listing_date, listing_spot, strike_moneyness`；legacy 已有行不改写。 |
+| `metadata.snapshot_revisions` / manifest | 新增 `option_chain_spec_count`。 |
+
+一个 `1.3.0` snapshot 将 chain spec、underlying 集合和全部已挂牌 contracts 视为不可变
+整体。one-shot、append 与 `sync-config` 每次重建相同 expected contract rows，再与数据库
+逐字段比较；修改 grid、increment、initial spot、expiry、roll 或 stable ID 必须使用新
+`snapshot_id`。Quality gates 另验证 chain contract 必须能关联私有 spec、listing 字段完整，
+以及每条 option quote 的静态合约字段必须与 contract master 一致。
+
+Correlation boundary 保持不变：`OptionChainBuilder` 的 Cartesian grid 不进入
+`underlying_simulation.driver_order`，840 个 option contracts 也不会扩张 underlying 的
+20×20 $R$。Option rows 仍只读取 realization spot、contract 和现有 pricing inputs。
+
 ## 文件
 
 | 文件 | 用途 |
 |:---|:---|
 | `configs/generators/quantlib_bsm_smoke_v1.json` | 固定 seed、模型、underlyings、option templates 与 quote rules。 |
 | `authoring/templates/quantlib_bsm_correlated_underlyings.template.json` | 可运行的 config `1.2.0` correlated-underlying 示例。 |
+| `configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json` | config `1.3.0` 的 20-underlying、840-contract、10-day 规模测试。 |
 | `snapshots/public/quantlib_bsm_smoke_v1.duckdb` | 可增量编辑的 `DRAFT` smoke snapshot。 |
 | `snapshots/public/quantlib_bsm_smoke_v1.manifest.json` | 当前 logical revision、版本标识和行数。 |
 | `scripts/edit_snapshot.py` | 仓库本地 `.venv` 使用的编辑入口。 |
-| `src/synthetic_derivatives/authoring/` | Config、QuantLib generator、DuckDB schema、transactional pipeline 与 CLI。 |
+| `src/synthetic_derivatives/authoring/generator_common.py` | 两个 generator 共享的 pinned QuantLib、calendar/day-count、decimal canonicalization 与 deterministic RNG。 |
+| `src/synthetic_derivatives/authoring/underlying_daily_generator.py` | Underlying master/dependence、P path 与 pricing metadata；唯一消费 $\Lambda/D/R$ 的 generator。 |
+| `src/synthetic_derivatives/authoring/option_daily_generator.py` | Option chain spec、frozen contracts 与 daily quotes；只接收 realized spot，不提供 underlying dependence API。 |
+| `src/synthetic_derivatives/authoring/pipeline.py` | 显式编排两个 generator、DuckDB transaction、incremental MERGE 与 quality gates。 |
 | `tests/public/test_authoring_smoke.py` | 初始规模、幂等、追加日期、增加品种和 freeze 测试。 |
 | `tests/unit/test_underlying_simulator.py` | $\Lambda/D/R$、联合 shock、持久化、append invariance 与 derivative boundary 测试。 |
+| `tests/unit/test_option_chain_builder.py` | chain config、完整网格、listing strike、不可变性及 append/sync tests。 |
 
 ## DuckDB schemas（当前实现）
 
@@ -211,7 +284,8 @@ option engine 不读取该结构；snapshot 冻结和不可变规则继续成立
 |:---|:---|:---|
 | `market.underlyings` | `(snapshot_id, underlying_id)` | Underlying master 和 P/Q 参数入口。 |
 | `market.underlying_dependence` | `(snapshot_id, dependence_spec_id)` | 私有的 P-measure underlying factor-loading 合同；不进入 solver views。 |
-| `market.option_contracts` | `(snapshot_id, option_id)` | Option 合约静态字段；`option_id` 由 underlying 与 template 稳定派生。 |
+| `market.option_chain_specs` | `(snapshot_id, chain_id)` | 私有 option-chain listing/grid/roll/rounding 合同；不进入 solver views。 |
+| `market.option_contracts` | `(snapshot_id, option_id)` | Option 合约静态字段及 listing provenance；绝对 strike 挂牌后冻结。 |
 | `market.underlying_daily` | `(snapshot_id, date, underlying_id)` | Framework 要求的 underlying daily panel。 |
 | `market.option_daily` | `(snapshot_id, date, option_id)` | Framework 要求的 option daily quotes。 |
 | `market.pricing_metadata` | `(snapshot_id, valuation_timestamp, underlying_id)` | 每个 valuation slice 的 P/Q dynamics、curves、engine、seed、RNG 和 canonicalization。 |
@@ -269,7 +343,8 @@ transition 的 $Z_t$；range、volume 与 option activity 仍使用各自的稳�
 
 ### Option quotes
 
-每个 valuation date 使用：
+`1.3.0` 先由 `OptionChainBuilder` 生成 frozen contract grid；每个 valuation date 对这些
+合约继续使用原有：
 
 - `QuantLib.BlackScholesMertonProcess`
 - flat continuous risk-free/dividend curves
@@ -303,6 +378,8 @@ validate DRAFT/config
 - 需要修正历史或模型参数时，应使用新的 `snapshot_id`。
 - config `1.2.0` 的 `underlying_simulation` 与 underlying 集合整体不可变；修改 loading、
   driver order 或增删 underlying 时必须使用新的 `snapshot_id`。
+- config `1.3.0` 的 option chain spec 和已挂牌 contracts 整体不可变；append/sync 只生成
+  缺失 daily rows，不能改变 listing strike 或 contract identity。
 
 ## 命令
 
@@ -353,6 +430,21 @@ validate DRAFT/config
 
 `DRAFT` 可以增量编辑；`FROZEN` 会拒绝任何后续写入。若要扩展已发布 snapshot，复制配置并使用新的 `snapshot_id` 创建新数据库。
 
+### 运行 20 品种 option-chain smoke
+
+```bash
+.venv/bin/python scripts/edit_snapshot.py \
+  --database /tmp/metals-option-chain-smoke.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json \
+  create-smoke
+```
+
+期望规模为 20 个 underlyings、840 个 option contracts、10 个 business dates、200 条
+underlying daily、8,400 条 option daily 与 200 条 pricing metadata。这个 smoke 只验证
+规模、完整 chain、确定性和基础 pricing sanity，不代表真实金属交易所 calendar/carry/
+settlement profile。验收配置将现有 smile 的 skew/curvature/term-slope 设为 0，因此每个
+underlying 的完整 grid 使用同一个 constant-vol BSM marginal model；报价实现本身未改。
+
 ## Smoke-test 验收（当前实现）
 
 ```bash
@@ -370,6 +462,9 @@ make test
 - frozen snapshot 拒绝增量写入；
 - config `1.2.0` 的 $\Lambda/D/R$ 可重放，相关 underlying 路径满足 append invariance；
 - 固定 spot 与 pricing inputs 时，underlying correlation 不影响 option quote。
+- config `1.3.0` 展开 3 expiries × 7 strikes × paired call/put，listing strike 跨日固定；
+- chain one-shot/append/`sync-config` invariant，修改 chain spec 或 listed contract 被拒绝；
+- 20 品种 smoke 的 840 contracts 与 8,400 quotes 完整生成。
 
 ## 版本与参考
 

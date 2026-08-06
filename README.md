@@ -2,11 +2,14 @@
 
 面向 LLM 训练的确定性合成金融衍生品数据项目。项目目标是把市场数据生成、任务定义、模型解题、独立校验和训练数据导出分成清晰的边界，并保证每个样本都可以通过固定配置与 seed 重放。
 
-当前已完成 authoring pipeline 的第一版以及 correlated-underlying simulator 的第一阶段：
+当前已完成 authoring pipeline 的第一版、correlated-underlying simulator 第一阶段以及
+`OptionChainBuilder`：
 QuantLib 生成 underlying 路径和 European option 报价，DuckDB 事务增量写入 snapshot；
 config `1.2.0` 可以用 factor loading $\Lambda$ 派生 $D$ 与 PSD correlation matrix $R$，
-并只对物理测度 $\mathbb P$ 下的 underlying close shocks 做联合耦合。Option/derivative
-pricing 不读取该相关矩阵。仓库同时包含最小可运行的六维 `task_space` registry、受约束
+并只对物理测度 $\mathbb P$ 下的 underlying close shocks 做联合耦合；config `1.3.0`
+则以 expiry × listing-moneyness × call/put 网格生成稳定 option contracts，挂牌时把
+moneyness 转为绝对 strike 后冻结。Option/derivative pricing 不读取 underlying 相关矩阵。
+仓库同时包含最小可运行的六维 `task_space` registry、受约束
 `mutation` engine 和 adaptive `curriculum` scheduler；Solver、verifier 与训练数据构建
 尚未实现。
 
@@ -70,6 +73,15 @@ make append-day
 ```
 
 `sync-config` 会为新增品种回填当前已有日期区间；已存在的业务主键不会重写。完整的 schema、主键、增量规则和命令见 [Authoring Pipeline](docs/authoring_pipeline.md)。
+
+另有一个不提交 DuckDB 产物的
+[20 品种 option-chain smoke 配置](configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json)：
+20 个 synthetic metal-breadth underlyings × 3 个 expiries × 7 个 listing moneyness ×
+call/put，共 840 个固定合约；10 个交易日生成 200 条 underlying、8,400 条 option quote
+和 200 条 pricing metadata。它用于结构与规模测试，不宣称已经实现真实金属交易所的
+calendar、carry、expiry 或 settlement 规范。该验收配置把现有 smile coefficients
+设为 0，使每个 underlying 的完整网格来自同一 constant-vol BSM marginal model；这是
+配置选择，没有改变 legacy deterministic-smile 报价代码。
 
 ## Deterministic physical drift / volatility
 
@@ -150,7 +162,9 @@ $$
 对应实现位置：
 
 - [config.py](src/synthetic_derivatives/authoring/config.py)：配置解析、节点验证、线性插值、drift 积分与 volatility RMS；
-- [generator.py](src/synthetic_derivatives/authoring/generator.py)：按真实日期区间计算等效参数并注入 QuantLib process；
+- [generator_common.py](src/synthetic_derivatives/authoring/generator_common.py)：共享 pinned QuantLib、calendar/day-count、日期转换、价格量化与 namespaced RNG；
+- [underlying_daily_generator.py](src/synthetic_derivatives/authoring/underlying_daily_generator.py)：按真实日期区间计算等效参数、生成 P-measure underlying path/dependence 和 pricing metadata；
+- [option_daily_generator.py](src/synthetic_derivatives/authoring/option_daily_generator.py)：生成 frozen option contracts，并从 realized spot 生成 daily quotes；不提供 underlying path/dependence API；
 - [pipeline.py](src/synthetic_derivatives/authoring/pipeline.py)：增量生成时保留每条路径的真实 previous date，保证一次生成和 append 的结果一致；
 - [公开测试](tests/public/test_authoring_template.py)与[单元测试](tests/unit/test_authoring_config.py)：覆盖每日参数变化、精确积分、append invariance、配置校验与函数定义不可变性。
 
@@ -226,6 +240,48 @@ dependence id 与 driver lineage。`option_daily_row()` 仍只读取固定 spot 
 inputs：在相同 spot 下切换 $R$，option quote 必须完全不变。可运行配置见
 [correlated-underlying 模板](authoring/templates/quantlib_bsm_correlated_underlyings.template.json)，
 完整增量规则见 [Authoring Pipeline](docs/authoring_pipeline.md)。
+
+## OptionChainBuilder
+
+Generator config `1.3.0` 用一个显式 `option_chain` 合同替代逐条
+`option_templates`。当前第一版只支持 `listing_rule=snapshot_start` 与
+`roll_rule=static`，避免在尚未定义 exchange schedule 时隐式滚动：
+
+```json
+{
+  "schema_version": "1.3.0",
+  "option_chain": {
+    "chain_id": "STATIC-GRID-v1",
+    "expiry_days": [30, 90, 180],
+    "moneyness_grid": [0.8, 0.9, 0.95, 1.0, 1.05, 1.1, 1.2],
+    "call_put": ["call", "put"],
+    "listing_rule": "snapshot_start",
+    "roll_rule": "static",
+    "strike_increment": 0.5,
+    "strike_rounding": "ROUND_HALF_EVEN",
+    "exercise_style": "european",
+    "settlement_type": "cash",
+    "contract_multiplier": 100
+  }
+}
+```
+
+`OptionChainBuilder` 要求 `moneyness_grid` 与 `strike_grid` 恰好选择一个，再按 expiry、
+grid value、call/put 的规范顺序展开完整 Cartesian grid。每个 moneyness 只在 listing
+date 使用一次：以 listing spot 乘 moneyness，再按
+`strike_increment` 与 `ROUND_HALF_EVEN` 得到绝对 strike。`market.option_contracts`
+保存 listing date/spot/moneyness 与 frozen strike；后续 spot 变化、append 或
+`sync-config` 都不会改写合约。若直接使用 `strike_grid`，输入 strike 只按相同 increment
+规范化并冻结，不依赖 listing spot。`market.option_chain_specs` 私有保存 grid type/value、listing/roll
+与 rounding 合同，不创建 solver-visible view。
+
+同一 expiry/strike 必须同时存在 call 和 put，expiry 与所选 grid 必须正值且严格
+递增；若 strike increment 使不同 grid inputs 舍入到同一 strike，配置会被拒绝。Chain
+规则和已挂牌合约在同一 snapshot 内不可修改。schema `1.0`--`1.2` 的 legacy
+`option_templates` 仍保持兼容。
+
+本阶段没有改变当前 deterministic-smile BSM 报价公式，也没有引入逐 option correlation。
+共同 $\mathbb Q$/numeraire/rate path 和更严格的 coherent pricing model 合同仍属于下一阶段。
 
 ## Market snapshot、pricing model 与 pricing engine 的边界
 
@@ -365,10 +421,10 @@ derivatives、多币种利率或 numeraire conversion。该方案保证模型内
 
 建议按下面顺序增强，而不是先堆叠多个 pricing engines：
 
-1. **真实 option chain。** 把当前 strike 与 maturity 一一绑定的 5 个 templates 改成同一
-   expiry 下多个 puts/calls 和 strikes、同一 strike/moneyness 附近多个 expiries 的完整
-   $K\times T$ 网格；合约在上市后跨 valuation dates 保持身份不变，并按规则新增 weekly、
-   monthly 或 quarterly series。
+1. **Option chain baseline（已完成）。** config `1.3.0` 已支持同一 expiry 下多个
+   puts/calls 和 strikes、多个 expiries 的完整 $K\times T$ 网格；listing moneyness 已冻结
+   为绝对 strike，合约跨 valuation dates 保持身份不变。Weekly/monthly/quarterly 动态
+   listing/roll 仍待 exchange profile 阶段实现。
 2. **同币种 common-$\mathbb Q$ pricing context。** 整个 snapshot 共用 $\mathbb Q$/numeraire
    和 interest-rate path；若联合 payoff 需要相关性，PSD $R_t$ 仍只耦合 Q-measure
    underlying drivers。同一 underlying 的 option chain 共享状态，derivative contracts
@@ -404,7 +460,7 @@ derivatives、多币种利率或 numeraire conversion。该方案保证模型内
 | 阶段 | 模块 | 首次实现范围 | 完成标准 |
 |:---|:---|:---|:---|
 | 0（已完成） | `UnderlyingSimulator` / `UnderlyingDependenceSpec` | config `1.2.0` 以 $\Lambda/D/R$ 耦合 P-measure underlying close shocks；private authoring 表冻结合同 | one-shot/append 一致；旧 config 无回归；固定 spot 时 option quote 不受 $R$ 影响；option ids 不进入矩阵 |
-| 1 | `OptionChainBuilder` | 在 config 中声明 expiry schedule、call/put、strike 或 moneyness grid、listing/roll rules；在 listing date 把 moneyness 转成绝对 strike 后固定，不随每日 spot 重写合约 | 同一 expiry 有多个 strikes 和成对 call/put；合约 id 跨日稳定；one-shot、append 与 `sync-config` 结果一致 |
+| 1（已完成） | `OptionChainBuilder` | config `1.3.0` 声明 expiry schedule、成对 call/put、moneyness grid、static listing/roll 与 strike increment；listing date 冻结绝对 strike | 同一 expiry 有多个 strikes 和成对 call/put；合约 id 跨日稳定；one-shot、append 与 `sync-config` 结果一致；20 品种 smoke 通过 |
 | 2 | `CommonQPricingContext` / `CommonQScenario` / `QUnderlyingDependenceSpec` | 为每个 snapshot 声明唯一的 $\mathbb Q$/numeraire/rate path；相关结构只排列 Q-measure underlying drivers，同一 underlying 的所有合约共享 state path | 不存在逐 option context override；option ids 不进入 $R_t$；联合 payoff 来自同一 joint underlying process；固定 seed 下 replay 一致 |
 | 3 | `MarketContext` / `AuthoringProvenance` split | Public 层只留 curves、calendar、timestamp、settlement 与 precision；private 层保存 generation model/engine、P/Q latent state、seed/RNG 和未舍入价格 | `solver_visible` 中不存在 DGP parameters、seed、RNG 或 generator engine；private audit 仍可完整重放 snapshot |
 | 4 | `ExchangeProfile` 与 `QuoteModel` | 加入真实 holiday/early-close、timezone、expiry/settlement、strike/tick rules，以及随 moneyness、maturity、vega、premium、liquidity 变化的 spread；补充 size、stale/missing/zero-bid 与 quality flags | 所有公开报价符合声明的 exchange profile；volume/open interest 和 liquidity state 具有跨日持续性 |
@@ -416,16 +472,17 @@ derivatives、多币种利率或 numeraire conversion。该方案保证模型内
 
 1. 已完成 `UnderlyingSimulator`、配置校验、private dependence persistence 与
    append-invariance/derivative-boundary tests。
-2. 接着只实现 `OptionChainBuilder`、配置校验与 contract-id/append-invariance tests，不改变
-   当前 BSM 报价公式；smoke target 可使用 3 个 expiries × 7 个固定 strikes × call/put。
-3. 实现 `CommonQPricingContext` / `CommonQScenario`，加入共同 $\mathbb Q$/numeraire、
+2. 已完成 `OptionChainBuilder`、配置校验、private chain spec、冻结 listing strike 与
+   contract-id/append-invariance tests；没有改变当前 BSM 报价公式。20 品种 smoke 使用
+   3 个 expiries × 7 个固定 strikes × call/put。
+3. 下一步实现 `CommonQPricingContext` / `CommonQScenario`，加入共同 $\mathbb Q$/numeraire、
    共享利率路径与同一 underlying 共享状态；需要多资产相关时，新增独立的
    Q-measure underlying dependence spec，而不是 derivative correlation。
 4. 完成 public/private metadata migration；此后 Heston/Bates 等新 DGP 才能接入，避免把
    richer latent parameters 暴露给 Solver。
 
-因此 underlying correlation 的第一阶段已经完成；下一项代码工作是
-`OptionChainBuilder`，随后才是 common-$\mathbb Q$ pricing context。Pricing model registry
+因此 underlying correlation 与 static `OptionChainBuilder` 已经完成；下一项代码工作是
+common-$\mathbb Q$ pricing context。Pricing model registry
 仍在市场数据结构、统一定价算子和权限边界建立之后推进。
 
 常用的只读 DuckDB 查询集中保存在

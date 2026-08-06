@@ -1,92 +1,39 @@
-"""Deterministic QuantLib market-state and option-quote generation."""
+"""Deterministic P-measure underlying path and metadata generation."""
 
 from __future__ import annotations
 
-import hashlib
-import json
 import math
-from datetime import date, datetime, time, timedelta, timezone
-from decimal import Decimal, ROUND_HALF_EVEN
+from datetime import date, datetime, time, timezone
+from decimal import Decimal
 from typing import Any
 
 import QuantLib as ql
 
-from synthetic_derivatives.authoring.config import (
-    GeneratorConfig,
-    OptionTemplate,
-    UnderlyingConfig,
-    option_id,
+from synthetic_derivatives.authoring.config import GeneratorConfig, UnderlyingConfig
+from synthetic_derivatives.authoring.generator_common import (
+    QuantLibGeneratorBase,
+    canonical_json,
+    ql_date,
+    quantize_price,
 )
 
 
-PINNED_QUANTLIB_VERSION = "1.39"
-PRICE_QUANTUM = Decimal("0.00000001")
+class UnderlyingDailyGenerator(QuantLibGeneratorBase):
+    """Generate underlying masters, P paths and per-date pricing metadata.
 
+    This is the only generator that consumes ``underlying_simulation`` and its
+    Lambda/D/R dependence contract.  It exposes realized spot rows to the
+    pipeline; it never generates option contracts or option quotes.
+    """
 
-def canonical_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-def quantize_price(value: float | Decimal) -> Decimal:
-    result = Decimal(str(value)).quantize(PRICE_QUANTUM, rounding=ROUND_HALF_EVEN)
-    return abs(result) if result == 0 else result
-
-
-def ql_date(value: date) -> ql.Date:
-    return ql.Date(value.day, value.month, value.year)
-
-
-def py_date(value: ql.Date) -> date:
-    return date(value.year(), value.month(), value.dayOfMonth())
-
-
-class QuantLibGenerator:
     def __init__(self, config: GeneratorConfig):
-        if ql.__version__ != PINNED_QUANTLIB_VERSION:
-            raise RuntimeError(
-                f"QuantLib version mismatch: expected {PINNED_QUANTLIB_VERSION}, got {ql.__version__}"
-            )
-        if config.calendar != "WeekendsOnly" or config.day_count != "Actual365Fixed":
-            raise ValueError("v1 supports WeekendsOnly and Actual365Fixed only")
-        self.config = config
-        self.calendar = ql.WeekendsOnly()
-        self.day_count = ql.Actual365Fixed()
-
-    def business_dates(self, start: date, count: int) -> list[date]:
-        if count < 1:
-            raise ValueError("business-day count must be positive")
-        current = self.calendar.adjust(ql_date(start), ql.Following)
-        result: list[date] = []
-        while len(result) < count:
-            if self.calendar.isBusinessDay(current):
-                result.append(py_date(current))
-            current = current + 1
-        return result
-
-    def business_dates_between(self, start: date, end: date) -> list[date]:
-        if end < start:
-            raise ValueError("end date must not be before start date")
-        result: list[date] = []
-        current = ql_date(start)
-        final = ql_date(end)
-        while current <= final:
-            if self.calendar.isBusinessDay(current):
-                result.append(py_date(current))
-            current = current + 1
-        return result
-
-    def next_business_dates(self, last_date: date, count: int) -> list[date]:
-        result: list[date] = []
-        current = ql_date(last_date) + 1
-        while len(result) < count:
-            if self.calendar.isBusinessDay(current):
-                result.append(py_date(current))
-            current = current + 1
-        return result
+        super().__init__(config)
 
     def underlying_master_row(
         self, underlying: UnderlyingConfig, run_id: str
     ) -> tuple[Any, ...]:
+        """Build one immutable underlying master row."""
+
         logical = [
             self.config.snapshot_id,
             underlying.underlying_id,
@@ -103,6 +50,12 @@ class QuantLibGenerator:
         return (*logical, run_id)
 
     def underlying_dependence_row(self, run_id: str) -> tuple[Any, ...] | None:
+        """Build the private, canonical P-measure dependence row.
+
+        Legacy configs return ``None``.  The resulting table is authoring
+        provenance and intentionally has no solver-visible view.
+        """
+
         simulation = self.config.underlying_simulation
         if simulation is None:
             return None
@@ -124,31 +77,6 @@ class QuantLibGenerator:
         ]
         return (*logical, run_id)
 
-    def option_contract_row(
-        self,
-        underlying: UnderlyingConfig,
-        template: OptionTemplate,
-        run_id: str,
-    ) -> tuple[Any, ...]:
-        strike = quantize_price(underlying.initial_spot * template.strike_moneyness)
-        expiry_unadjusted = ql_date(
-            self.config.start_date + timedelta(days=template.expiry_days)
-        )
-        expiry = py_date(self.calendar.adjust(expiry_unadjusted, ql.Following))
-        logical = [
-            self.config.snapshot_id,
-            option_id(underlying.underlying_id, template.template_id),
-            underlying.underlying_id,
-            template.template_id,
-            template.call_put,
-            strike,
-            expiry,
-            template.exercise_style,
-            template.settlement_type,
-            quantize_price(template.contract_multiplier),
-        ]
-        return (*logical, run_id)
-
     def underlying_daily_row(
         self,
         underlying: UnderlyingConfig,
@@ -157,6 +85,19 @@ class QuantLibGenerator:
         previous_close: Decimal,
         run_id: str,
     ) -> tuple[Any, ...]:
+        """Advance one underlying close through one P-measure Markov transition.
+
+        For the current time-inhomogeneous GBM, the persisted, quantized
+        ``previous_close`` plus the interval dates are the sufficient restart
+        state.  One-shot and incremental runs therefore execute the same
+        transition.  Models with latent variance/rate/regime state must extend
+        the persisted state before they can use this incremental path.
+
+        Only the close shock uses ``underlying_simulation``.  OHLC range and
+        activity retain separate streams, and derivative pricing never receives
+        the dependence contract.
+        """
+
         valuation_date = ql_date(market_date)
         previous_ql_date = ql_date(previous_date)
         dt = self.day_count.yearFraction(previous_ql_date, valuation_date)
@@ -197,11 +138,14 @@ class QuantLibGenerator:
         )
         open_price = quantize_price(previous_close)
         range_fraction = effective_volatility * math.sqrt(dt) * range_shock * 0.25
-        high = quantize_price(max(open_price, close) * Decimal(str(1.0 + range_fraction)))
+        high = quantize_price(
+            max(open_price, close) * Decimal(str(1.0 + range_fraction))
+        )
         low = quantize_price(
             max(
                 Decimal("0.00000001"),
-                min(open_price, close) * Decimal(str(max(0.0, 1.0 - range_fraction))),
+                min(open_price, close)
+                * Decimal(str(max(0.0, 1.0 - range_fraction))),
             )
         )
         volume_uniform = self._uniform(
@@ -223,88 +167,6 @@ class QuantLibGenerator:
         ]
         return (*logical, run_id)
 
-    def option_daily_row(
-        self,
-        underlying: UnderlyingConfig,
-        contract_row: tuple[Any, ...],
-        market_date: date,
-        spot_close: Decimal,
-        run_id: str,
-    ) -> tuple[Any, ...] | None:
-        (
-            _, option_identifier, underlying_id, _, call_put, strike, expiry,
-            exercise_style, settlement_type, multiplier, *_lineage,
-        ) = contract_row
-        if market_date >= expiry:
-            return None
-
-        evaluation_date = ql_date(market_date)
-        expiry_date = ql_date(expiry)
-        ql.Settings.instance().evaluationDate = evaluation_date
-        maturity = self.day_count.yearFraction(evaluation_date, expiry_date)
-        forward = float(spot_close) * math.exp(
-            (underlying.risk_free_rate - underlying.dividend_yield) * maturity
-        )
-        log_moneyness = math.log(float(strike) / forward)
-        smile = self.config.smile
-        implied_volatility = max(
-            smile["minimum_volatility"],
-            underlying.base_implied_volatility
-            + smile["skew"] * log_moneyness
-            + smile["curvature"] * log_moneyness * log_moneyness
-            + smile["term_slope"] * maturity,
-        )
-        spot_handle = ql.QuoteHandle(ql.SimpleQuote(float(spot_close)))
-        risk_free_curve = ql.YieldTermStructureHandle(
-            ql.FlatForward(evaluation_date, underlying.risk_free_rate, self.day_count)
-        )
-        dividend_curve = ql.YieldTermStructureHandle(
-            ql.FlatForward(evaluation_date, underlying.dividend_yield, self.day_count)
-        )
-        vol_surface = ql.BlackVolTermStructureHandle(
-            ql.BlackConstantVol(
-                evaluation_date, self.calendar, implied_volatility, self.day_count
-            )
-        )
-        process = ql.BlackScholesMertonProcess(
-            spot_handle, dividend_curve, risk_free_curve, vol_surface
-        )
-        option_type = ql.Option.Call if call_put == "call" else ql.Option.Put
-        option = ql.VanillaOption(
-            ql.PlainVanillaPayoff(option_type, float(strike)),
-            ql.EuropeanExercise(expiry_date),
-        )
-        option.setPricingEngine(ql.AnalyticEuropeanEngine(process))
-        mid = quantize_price(option.NPV())
-        half_spread = max(
-            Decimal(str(self.config.quote_model["minimum_half_spread"])),
-            mid * Decimal(str(self.config.quote_model["relative_half_spread"])),
-        )
-        bid = quantize_price(max(Decimal("0"), mid - half_spread))
-        ask = quantize_price(mid + half_spread)
-        activity = self._uniform("option-activity", option_identifier, market_date)
-        volume = int(25 + activity * 475)
-        open_interest = int(500 + activity * 4_500)
-        logical = [
-            self.config.snapshot_id,
-            market_date,
-            underlying_id,
-            option_identifier,
-            call_put,
-            strike,
-            expiry,
-            exercise_style,
-            settlement_type,
-            multiplier,
-            bid,
-            ask,
-            mid,
-            mid,
-            volume,
-            open_interest,
-        ]
-        return (*logical, run_id)
-
     def pricing_metadata_row(
         self,
         underlying: UnderlyingConfig,
@@ -312,6 +174,13 @@ class QuantLibGenerator:
         previous_date: date,
         run_id: str,
     ) -> tuple[Any, ...]:
+        """Build per-underlying metadata for the realized market-date slice.
+
+        The row records both P path provenance and the Q inputs later consumed
+        by ``OptionDailyGenerator``.  It describes the pricing boundary but does
+        not itself generate a derivative quote.
+        """
+
         valuation_timestamp = datetime.combine(
             market_date,
             time.fromisoformat(self.config.valuation_time_utc),
@@ -419,13 +288,14 @@ class QuantLibGenerator:
         previous_date: date,
         market_date: date,
     ) -> tuple[float, float]:
+        """Reduce deterministic functions to exact interval GBM parameters."""
+
         if market_date <= previous_date:
             raise ValueError("underlying dates must be strictly increasing")
         start_day_offset = float((previous_date - self.config.start_date).days)
         end_day_offset = float((market_date - self.config.start_date).days)
-        # These two reductions preserve both integrals in the exact
-        # time-inhomogeneous GBM transition: integral(mu dt) and
-        # integral(sigma^2 dt).
+        # These reductions preserve integral(mu dt) and integral(sigma^2 dt)
+        # in the exact time-inhomogeneous GBM transition.
         effective_drift = underlying.physical_drift_function.interval_average(
             start_day_offset, end_day_offset
         )
@@ -436,13 +306,21 @@ class QuantLibGenerator:
         )
         return effective_drift, effective_volatility
 
-    def previous_business_date(self, market_date: date) -> date:
-        return py_date(self.calendar.advance(ql_date(market_date), -1, ql.Days))
-
     def underlying_close_shock(
         self, underlying_id: str, market_date: date
     ) -> float:
-        """Return the P-measure spot shock; derivative pricing never calls this."""
+        """Return the canonical P-measure shock for one underlying and date.
+
+        Shared factor draws are keyed by dependence spec, factor index and date,
+        so every underlying receives the same factor realization for a time
+        slice regardless of generation order.  Idiosyncratic draws are also
+        keyed by underlying ID.  Consequently one-shot and append runs replay
+        the same ``Lambda * eta + sqrt(D) * epsilon`` transition.
+
+        This method is exclusively part of underlying path simulation.  Option
+        pricing is conditionally a function of the realized spot and its own
+        pricing inputs; it does not call this method or consume R directly.
+        """
 
         simulation = self.config.underlying_simulation
         if simulation is None:
@@ -474,18 +352,3 @@ class QuantLibGenerator:
         return factor_component + math.sqrt(
             simulation.idiosyncratic_diagonal[driver_index]
         ) * idiosyncratic_shock
-
-    def _derived_seed(self, *parts: Any) -> int:
-        material = "|".join(
-            [self.config.snapshot_id, str(self.config.seed), *(str(part) for part in parts)]
-        ).encode("utf-8")
-        return int.from_bytes(hashlib.sha256(material).digest()[:4], "big")
-
-    def _gaussian(self, *parts: Any) -> float:
-        uniform = ql.MersenneTwisterUniformRng(self._derived_seed(*parts))
-        gaussian = ql.BoxMullerMersenneTwisterGaussianRng(uniform)
-        return float(gaussian.next().value())
-
-    def _uniform(self, *parts: Any) -> float:
-        uniform = ql.MersenneTwisterUniformRng(self._derived_seed(*parts))
-        return float(uniform.next().value())

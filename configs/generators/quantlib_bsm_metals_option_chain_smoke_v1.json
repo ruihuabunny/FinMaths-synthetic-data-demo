@@ -1,0 +1,279 @@
+{
+  "schema_version": "1.3.0",
+  "generator_config_id": "quantlib-bsm-metals-option-chain-smoke-v1",
+  "generator_version": "0.4.0",
+  "snapshot_id": "DERIVATIVES-METALS-OPTION-CHAIN-SMOKE-v1",
+  "seed": 20260806,
+  "rng": "QuantLib.BoxMullerMersenneTwisterGaussianRng/underlying-factor-idiosyncratic-sha256-v1",
+  "start_date": "2026-08-03",
+  "business_days": 10,
+  "calendar": "WeekendsOnly",
+  "day_count": "Actual365Fixed",
+  "valuation_time_utc": "16:00:00",
+  "pricing_model": "Black-Scholes-Merton",
+  "pricing_engine": "QuantLib.AnalyticEuropeanEngine",
+  "physical_process": "QuantLib.BlackScholesMertonProcess",
+  "currency": "USD",
+  "quote_decimal_places": 8,
+  "underlyings": [
+    {
+      "underlying_id": "SYNTH-METAL-ALUMINUM",
+      "initial_spot": 100.0,
+      "physical_drift": 0.045,
+      "physical_volatility": 0.22,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.24
+    },
+    {
+      "underlying_id": "SYNTH-METAL-COPPER",
+      "initial_spot": 105.0,
+      "physical_drift": 0.05,
+      "physical_volatility": 0.24,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.26
+    },
+    {
+      "underlying_id": "SYNTH-METAL-ZINC",
+      "initial_spot": 92.0,
+      "physical_drift": 0.04,
+      "physical_volatility": 0.25,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.27
+    },
+    {
+      "underlying_id": "SYNTH-METAL-LEAD",
+      "initial_spot": 88.0,
+      "physical_drift": 0.035,
+      "physical_volatility": 0.21,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.23
+    },
+    {
+      "underlying_id": "SYNTH-METAL-NICKEL",
+      "initial_spot": 115.0,
+      "physical_drift": 0.055,
+      "physical_volatility": 0.32,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.34
+    },
+    {
+      "underlying_id": "SYNTH-METAL-TIN",
+      "initial_spot": 125.0,
+      "physical_drift": 0.05,
+      "physical_volatility": 0.28,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.3
+    },
+    {
+      "underlying_id": "SYNTH-METAL-GOLD",
+      "initial_spot": 150.0,
+      "physical_drift": 0.04,
+      "physical_volatility": 0.16,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.18
+    },
+    {
+      "underlying_id": "SYNTH-METAL-SILVER",
+      "initial_spot": 135.0,
+      "physical_drift": 0.045,
+      "physical_volatility": 0.26,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.28
+    },
+    {
+      "underlying_id": "SYNTH-METAL-PLATINUM",
+      "initial_spot": 140.0,
+      "physical_drift": 0.04,
+      "physical_volatility": 0.23,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.25
+    },
+    {
+      "underlying_id": "SYNTH-METAL-PALLADIUM",
+      "initial_spot": 145.0,
+      "physical_drift": 0.035,
+      "physical_volatility": 0.34,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.36
+    },
+    {
+      "underlying_id": "SYNTH-METAL-COBALT",
+      "initial_spot": 98.0,
+      "physical_drift": 0.05,
+      "physical_volatility": 0.3,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.32
+    },
+    {
+      "underlying_id": "SYNTH-METAL-MOLYBDENUM",
+      "initial_spot": 108.0,
+      "physical_drift": 0.045,
+      "physical_volatility": 0.24,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.26
+    },
+    {
+      "underlying_id": "SYNTH-METAL-IRON-ORE",
+      "initial_spot": 82.0,
+      "physical_drift": 0.035,
+      "physical_volatility": 0.27,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.29
+    },
+    {
+      "underlying_id": "SYNTH-METAL-STEEL-REBAR",
+      "initial_spot": 86.0,
+      "physical_drift": 0.035,
+      "physical_volatility": 0.23,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.25
+    },
+    {
+      "underlying_id": "SYNTH-METAL-LITHIUM",
+      "initial_spot": 118.0,
+      "physical_drift": 0.06,
+      "physical_volatility": 0.38,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.4
+    },
+    {
+      "underlying_id": "SYNTH-METAL-URANIUM",
+      "initial_spot": 128.0,
+      "physical_drift": 0.055,
+      "physical_volatility": 0.29,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.31
+    },
+    {
+      "underlying_id": "SYNTH-METAL-RHODIUM",
+      "initial_spot": 160.0,
+      "physical_drift": 0.03,
+      "physical_volatility": 0.42,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.44
+    },
+    {
+      "underlying_id": "SYNTH-METAL-MAGNESIUM",
+      "initial_spot": 94.0,
+      "physical_drift": 0.04,
+      "physical_volatility": 0.25,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.27
+    },
+    {
+      "underlying_id": "SYNTH-METAL-MANGANESE",
+      "initial_spot": 90.0,
+      "physical_drift": 0.04,
+      "physical_volatility": 0.24,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.26
+    },
+    {
+      "underlying_id": "SYNTH-METAL-CHROMIUM",
+      "initial_spot": 102.0,
+      "physical_drift": 0.045,
+      "physical_volatility": 0.22,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.24
+    }
+  ],
+  "underlying_simulation": {
+    "dependence_spec_id": "SYNTH-METALS-P-SPOT-FACTOR-v1",
+    "measure": "P",
+    "driver_order": [
+      "SYNTH-METAL-ALUMINUM",
+      "SYNTH-METAL-COPPER",
+      "SYNTH-METAL-ZINC",
+      "SYNTH-METAL-LEAD",
+      "SYNTH-METAL-NICKEL",
+      "SYNTH-METAL-TIN",
+      "SYNTH-METAL-GOLD",
+      "SYNTH-METAL-SILVER",
+      "SYNTH-METAL-PLATINUM",
+      "SYNTH-METAL-PALLADIUM",
+      "SYNTH-METAL-COBALT",
+      "SYNTH-METAL-MOLYBDENUM",
+      "SYNTH-METAL-IRON-ORE",
+      "SYNTH-METAL-STEEL-REBAR",
+      "SYNTH-METAL-LITHIUM",
+      "SYNTH-METAL-URANIUM",
+      "SYNTH-METAL-RHODIUM",
+      "SYNTH-METAL-MAGNESIUM",
+      "SYNTH-METAL-MANGANESE",
+      "SYNTH-METAL-CHROMIUM"
+    ],
+    "formulation": "factor_loading",
+    "factor_loading_matrix": [
+      [0.55, 0.15, 0.05],
+      [0.62, 0.12, 0.08],
+      [0.57, 0.1, 0.06],
+      [0.5, 0.08, 0.05],
+      [0.58, 0.1, 0.2],
+      [0.52, 0.12, 0.15],
+      [0.12, 0.66, 0.04],
+      [0.18, 0.61, 0.06],
+      [0.15, 0.58, 0.08],
+      [0.1, 0.54, 0.12],
+      [0.28, 0.1, 0.58],
+      [0.48, 0.12, 0.2],
+      [0.64, 0.04, 0.12],
+      [0.6, 0.05, 0.1],
+      [0.18, 0.08, 0.7],
+      [0.2, 0.35, 0.28],
+      [0.08, 0.52, 0.18],
+      [0.49, 0.08, 0.22],
+      [0.5, 0.07, 0.24],
+      [0.53, 0.08, 0.16]
+    ],
+    "idiosyncratic_diagonal": "derive_from_row_norms",
+    "matrix_dtype": "float64",
+    "factorization_method": "factor_loading_direct",
+    "factorization_order": "declared_driver_order",
+    "time_grid": "business_daily",
+    "regime_id": "constant-metals-breadth-smoke"
+  },
+  "option_chain": {
+    "chain_id": "METALS-STATIC-GRID-v1",
+    "expiry_days": [30, 90, 180],
+    "moneyness_grid": [0.8, 0.9, 0.95, 1.0, 1.05, 1.1, 1.2],
+    "call_put": ["call", "put"],
+    "listing_rule": "snapshot_start",
+    "roll_rule": "static",
+    "strike_increment": 0.5,
+    "strike_rounding": "ROUND_HALF_EVEN",
+    "exercise_style": "european",
+    "settlement_type": "cash",
+    "contract_multiplier": 100
+  },
+  "smile": {
+    "skew": 0.0,
+    "curvature": 0.0,
+    "term_slope": 0.0,
+    "minimum_volatility": 0.05
+  },
+  "quote_model": {
+    "relative_half_spread": 0.0025,
+    "minimum_half_spread": 0.005,
+    "null_policy": "no-null-for-required-snapshot-fields"
+  }
+}

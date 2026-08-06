@@ -7,7 +7,7 @@ import math
 from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_EVEN
 from pathlib import Path
 from typing import Any
 
@@ -115,18 +115,150 @@ class UnderlyingConfig:
 
 @dataclass(frozen=True)
 class OptionTemplate:
+    """One canonical cell in the authored option grid.
+
+    Legacy configs populate ``strike_moneyness`` without a ``chain_id``.
+    Config 1.3 chain cells populate exactly one of ``strike_moneyness`` and
+    ``strike_absolute``; both are construction inputs, not mutable daily state.
+    The generator later materializes either input as one frozen contract strike.
+    """
+
     template_id: str
     call_put: str
-    strike_moneyness: Decimal
+    strike_moneyness: Decimal | None
     expiry_days: int
+    exercise_style: str
+    settlement_type: str
+    contract_multiplier: Decimal
+    chain_id: str | None = None
+    strike_absolute: Decimal | None = None
+
+
+@dataclass(frozen=True)
+class OptionChainConfig:
+    """Immutable rules used to expand one complete static option chain.
+
+    Exactly one of ``moneyness_grid`` and ``strike_grid`` is populated.
+    Moneyness is a listing-time construction input; an absolute grid is already
+    in strike units.  Both paths apply the declared increment and materialize a
+    frozen contract strike that is never recomputed from later spot observations.
+
+    The first implementation deliberately supports one listing at the snapshot
+    start and no rolling.  Later listing/roll behavior requires a new versioned
+    contract rather than implicit date-dependent behavior.
+    """
+
+    chain_id: str
+    expiry_days: tuple[int, ...]
+    moneyness_grid: tuple[Decimal, ...] | None
+    strike_grid: tuple[Decimal, ...] | None
+    call_put: tuple[str, ...]
+    listing_rule: str
+    roll_rule: str
+    strike_increment: Decimal
+    strike_rounding: str
     exercise_style: str
     settlement_type: str
     contract_multiplier: Decimal
 
 
+class OptionChainBuilder:
+    """Expand a validated chain specification into stable option templates.
+
+    This class is intentionally deterministic and contains no market-path or RNG
+    input.  Correlation belongs to underlying simulation and cannot change the
+    option grid, template IDs, or listed strikes.
+    """
+
+    def __init__(self, chain: OptionChainConfig):
+        self.chain = chain
+
+    def build_templates(self) -> tuple[OptionTemplate, ...]:
+        """Return the canonical expiry/grid/call-put Cartesian product.
+
+        The loop order is part of authoring canonicalization.  IDs also encode
+        their economic inputs, so their identity does not depend on row position.
+        """
+
+        grid = self.chain.moneyness_grid or self.chain.strike_grid or ()
+        return tuple(
+            OptionTemplate(
+                template_id=self._template_id(expiry_days, strike_input, call_put),
+                call_put=call_put,
+                strike_moneyness=(
+                    strike_input
+                    if self.chain.moneyness_grid is not None
+                    else None
+                ),
+                expiry_days=expiry_days,
+                exercise_style=self.chain.exercise_style,
+                settlement_type=self.chain.settlement_type,
+                contract_multiplier=self.chain.contract_multiplier,
+                chain_id=self.chain.chain_id,
+                strike_absolute=(
+                    strike_input if self.chain.strike_grid is not None else None
+                ),
+            )
+            for expiry_days in self.chain.expiry_days
+            for strike_input in grid
+            for call_put in self.chain.call_put
+        )
+
+    def absolute_strike(
+        self,
+        listing_spot: Decimal,
+        moneyness: Decimal | None,
+        absolute_strike: Decimal | None = None,
+    ) -> Decimal:
+        """Freeze one moneyness or absolute-strike input to its listed strike.
+
+        Rounding occurs in units of ``strike_increment`` before the database's
+        eight-decimal price canonicalization.  This method is called while the
+        contract master is built, never once per valuation date.
+        """
+
+        if (moneyness is None) == (absolute_strike is None):
+            raise ValueError(
+                "exactly one of moneyness and absolute_strike is required"
+            )
+        if moneyness is not None:
+            raw_strike = listing_spot * moneyness
+        else:
+            if absolute_strike is None:
+                raise ValueError("absolute_strike is required")
+            raw_strike = absolute_strike
+        increment_units = raw_strike / self.chain.strike_increment
+        rounded_units = increment_units.quantize(
+            Decimal("1"), rounding=ROUND_HALF_EVEN
+        )
+        return rounded_units * self.chain.strike_increment
+
+    def _template_id(
+        self, expiry_days: int, strike_input: Decimal, call_put: str
+    ) -> str:
+        """Encode economic grid identity without using generation position."""
+
+        strike_token = format(strike_input.normalize(), "f").replace(".", "p")
+        grid_prefix = "M" if self.chain.moneyness_grid is not None else "K"
+        return (
+            f"{self.chain.chain_id}-{call_put.upper()}-"
+            f"{expiry_days:04d}D-{grid_prefix}{strike_token}"
+        )
+
+
 @dataclass(frozen=True)
 class UnderlyingSimulationConfig:
-    """A constant factor-loading dependence contract for P-measure spot paths."""
+    """Canonical dependence contract for P-measure underlying spot paths.
+
+    The author supplies ``factor_loading_matrix`` (Lambda) in ``driver_order``.
+    Config parsing derives the idiosyncratic diagonal D and correlation matrix
+    R = Lambda Lambda^T + D; a separately supplied R is deliberately rejected.
+    Drivers are underlying IDs, never option or other derivative contract IDs.
+
+    The first implementation supports one constant, business-daily regime.  A
+    future time-varying implementation must persist its regime/latent state so
+    incremental generation can restart from the complete Markov state.
+    """
 
     dependence_spec_id: str
     measure: str
@@ -143,9 +275,13 @@ class UnderlyingSimulationConfig:
 
     @property
     def factor_count(self) -> int:
+        """Return the number of shared Gaussian factors in Lambda."""
+
         return len(self.factor_loading_matrix[0])
 
     def driver_index(self, underlying_id: str) -> int:
+        """Resolve an underlying ID to its canonical matrix row."""
+
         try:
             return self.driver_order.index(underlying_id)
         except ValueError as error:
@@ -156,6 +292,8 @@ class UnderlyingSimulationConfig:
 
 @dataclass(frozen=True)
 class GeneratorConfig:
+    """Validated, immutable input contract for one authoring snapshot."""
+
     schema_version: str
     generator_config_id: str
     generator_version: str
@@ -177,16 +315,25 @@ class GeneratorConfig:
     smile: dict[str, float]
     quote_model: dict[str, Any]
     underlying_simulation: UnderlyingSimulationConfig | None
+    option_chain: OptionChainConfig | None
 
 
 def load_generator_config(path: str | Path) -> GeneratorConfig:
+    """Load and validate a versioned generator configuration.
+
+    Versions 1.0/1.1 retain the legacy independent underlying streams.  Version
+    1.2 requires the explicit P-measure ``underlying_simulation`` contract.
+    Version 1.3 additionally replaces individually authored option templates
+    with an explicit, static ``option_chain`` Cartesian-product contract.
+    """
+
     config_path = Path(path)
     with config_path.open(encoding="utf-8") as handle:
         raw = json.load(handle)
     if not isinstance(raw, dict):
         raise ValueError("generator config must be a JSON object")
     schema_version = raw.get("schema_version")
-    if schema_version not in {"1.0.0", "1.1.0", "1.2.0"}:
+    if schema_version not in {"1.0.0", "1.1.0", "1.2.0", "1.3.0"}:
         raise ValueError("unsupported generator config schema_version")
 
     underlyings_list: list[UnderlyingConfig] = []
@@ -218,27 +365,40 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
             )
         )
     underlyings = tuple(underlyings_list)
-    templates = tuple(
-        OptionTemplate(
-            template_id=item["template_id"],
-            call_put=item["call_put"],
-            strike_moneyness=Decimal(str(item["strike_moneyness"])),
-            expiry_days=int(item["expiry_days"]),
-            exercise_style=item["exercise_style"],
-            settlement_type=item["settlement_type"],
-            contract_multiplier=Decimal(str(item["contract_multiplier"])),
+    if schema_version == "1.3.0":
+        if "option_templates" in raw:
+            raise ValueError(
+                "schema_version 1.3.0 uses option_chain, not option_templates"
+            )
+        option_chain = _parse_option_chain(raw.get("option_chain"))
+        builder = OptionChainBuilder(option_chain)
+        templates = builder.build_templates()
+        _validate_chain_strikes(underlyings, builder)
+    else:
+        if "option_chain" in raw:
+            raise ValueError("option_chain requires schema_version 1.3.0")
+        option_chain = None
+        templates = tuple(
+            OptionTemplate(
+                template_id=item["template_id"],
+                call_put=item["call_put"],
+                strike_moneyness=Decimal(str(item["strike_moneyness"])),
+                expiry_days=int(item["expiry_days"]),
+                exercise_style=item["exercise_style"],
+                settlement_type=item["settlement_type"],
+                contract_multiplier=Decimal(str(item["contract_multiplier"])),
+            )
+            for item in raw["option_templates"]
         )
-        for item in raw["option_templates"]
-    )
     _validate_entities(underlyings, templates)
-    if schema_version == "1.2.0":
+    if schema_version in {"1.2.0", "1.3.0"}:
         underlying_simulation = _parse_underlying_simulation(
             raw.get("underlying_simulation"), underlyings
         )
     else:
         if "underlying_simulation" in raw:
             raise ValueError(
-                "underlying_simulation requires schema_version 1.2.0"
+                "underlying_simulation requires schema_version 1.2.0 or 1.3.0"
             )
         underlying_simulation = None
     return GeneratorConfig(
@@ -263,15 +423,168 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
         smile={key: float(value) for key, value in raw["smile"].items()},
         quote_model=dict(raw["quote_model"]),
         underlying_simulation=underlying_simulation,
+        option_chain=option_chain,
     )
+
+
+def _parse_option_chain(raw: Any) -> OptionChainConfig:
+    """Validate and canonicalize the first static option-chain contract.
+
+    Requiring sorted unique grids and normalizing call/put order makes equivalent
+    configs generate the same tuple order.  Dynamic listings and rolling are
+    rejected explicitly because they require persisted exchange-calendar state.
+    """
+
+    if not isinstance(raw, dict):
+        raise ValueError("schema_version 1.3.0 requires option_chain")
+    chain_id = raw.get("chain_id")
+    if not isinstance(chain_id, str) or not chain_id:
+        raise ValueError("option_chain.chain_id must be non-empty")
+
+    raw_expiry_days = raw.get("expiry_days")
+    if (
+        not isinstance(raw_expiry_days, list)
+        or not raw_expiry_days
+        or any(
+            isinstance(value, bool) or not isinstance(value, int)
+            for value in raw_expiry_days
+        )
+    ):
+        raise ValueError("option_chain.expiry_days must be a non-empty integer array")
+    expiry_days = tuple(raw_expiry_days)
+    if any(value <= 0 for value in expiry_days) or any(
+        right <= left for left, right in zip(expiry_days, expiry_days[1:])
+    ):
+        raise ValueError(
+            "option_chain.expiry_days must be positive and strictly increasing"
+        )
+
+    has_moneyness_grid = "moneyness_grid" in raw
+    has_strike_grid = "strike_grid" in raw
+    if has_moneyness_grid == has_strike_grid:
+        raise ValueError(
+            "option_chain requires exactly one of moneyness_grid or strike_grid"
+        )
+    grid_field = "moneyness_grid" if has_moneyness_grid else "strike_grid"
+    raw_grid = raw.get(grid_field)
+    if not isinstance(raw_grid, list) or not raw_grid:
+        raise ValueError(f"option_chain.{grid_field} must be a non-empty array")
+    try:
+        parsed_grid = tuple(Decimal(str(value)) for value in raw_grid)
+    except Exception as error:
+        raise ValueError(
+            f"option_chain.{grid_field} must contain finite decimals"
+        ) from error
+    if any(not value.is_finite() or value <= 0 for value in parsed_grid) or any(
+        right <= left for left, right in zip(parsed_grid, parsed_grid[1:])
+    ):
+        raise ValueError(
+            f"option_chain.{grid_field} must be finite, positive and strictly increasing"
+        )
+    moneyness_grid = parsed_grid if has_moneyness_grid else None
+    strike_grid = parsed_grid if has_strike_grid else None
+
+    raw_call_put = raw.get("call_put")
+    if not isinstance(raw_call_put, list) or set(raw_call_put) != {"call", "put"}:
+        raise ValueError("option_chain.call_put must contain paired call and put")
+    if len(raw_call_put) != 2:
+        raise ValueError("option_chain.call_put must not contain duplicates")
+    call_put = ("call", "put")
+
+    if raw.get("listing_rule") != "snapshot_start":
+        raise ValueError("option_chain.listing_rule must be snapshot_start")
+    if raw.get("roll_rule") != "static":
+        raise ValueError("option_chain.roll_rule must be static")
+    if raw.get("strike_rounding") != "ROUND_HALF_EVEN":
+        raise ValueError(
+            "option_chain.strike_rounding must be ROUND_HALF_EVEN"
+        )
+    try:
+        strike_increment = Decimal(str(raw.get("strike_increment")))
+        contract_multiplier = Decimal(str(raw.get("contract_multiplier")))
+    except Exception as error:
+        raise ValueError(
+            "option_chain strike_increment and contract_multiplier must be decimals"
+        ) from error
+    if (
+        not strike_increment.is_finite()
+        or strike_increment <= 0
+        or not contract_multiplier.is_finite()
+        or contract_multiplier <= 0
+    ):
+        raise ValueError(
+            "option_chain strike_increment and contract_multiplier must be positive"
+        )
+    if strike_increment.quantize(
+        Decimal("0.00000001"), rounding=ROUND_HALF_EVEN
+    ) != strike_increment:
+        raise ValueError(
+            "option_chain.strike_increment supports at most 8 decimal places"
+        )
+    if raw.get("exercise_style") != "european":
+        raise ValueError("option_chain.exercise_style must be european")
+    settlement_type = raw.get("settlement_type")
+    if not isinstance(settlement_type, str) or not settlement_type:
+        raise ValueError("option_chain.settlement_type must be non-empty")
+    return OptionChainConfig(
+        chain_id=chain_id,
+        expiry_days=expiry_days,
+        moneyness_grid=moneyness_grid,
+        strike_grid=strike_grid,
+        call_put=call_put,
+        listing_rule="snapshot_start",
+        roll_rule="static",
+        strike_increment=strike_increment,
+        strike_rounding="ROUND_HALF_EVEN",
+        exercise_style="european",
+        settlement_type=settlement_type,
+        contract_multiplier=contract_multiplier,
+    )
+
+
+def _validate_chain_strikes(
+    underlyings: tuple[UnderlyingConfig, ...], builder: OptionChainBuilder
+) -> None:
+    """Reject a grid whose exchange rounding collapses distinct contracts.
+
+    Validation is per underlying because listing-moneyness grids use each
+    underlying's own listing spot.  A collision would otherwise create two
+    stable IDs for the same economic expiry/call-put/strike contract.
+    """
+
+    for underlying in underlyings:
+        grid = builder.chain.moneyness_grid or builder.chain.strike_grid or ()
+        strikes = [
+            builder.absolute_strike(
+                underlying.initial_spot,
+                strike_input if builder.chain.moneyness_grid is not None else None,
+                strike_input if builder.chain.strike_grid is not None else None,
+            )
+            for strike_input in grid
+        ]
+        if any(strike <= 0 for strike in strikes) or len(strikes) != len(set(strikes)):
+            raise ValueError(
+                "option_chain grid collapses after strike rounding for "
+                f"{underlying.underlying_id}"
+            )
 
 
 def _parse_underlying_simulation(
     raw: Any,
     underlyings: tuple[UnderlyingConfig, ...],
 ) -> UnderlyingSimulationConfig:
+    """Validate Lambda and deterministically derive D and R in float64 order.
+
+    Row norms are checked against the decimal input and again after conversion
+    to the declared float64 representation.  This makes positive-semidefiniteness
+    a property of the factor construction instead of a tolerance-based eigenvalue
+    repair performed after the fact.
+    """
+
     if not isinstance(raw, dict):
-        raise ValueError("schema_version 1.2.0 requires underlying_simulation")
+        raise ValueError(
+            "schema_version 1.2.0 or 1.3.0 requires underlying_simulation"
+        )
 
     dependence_spec_id = raw.get("dependence_spec_id")
     if not isinstance(dependence_spec_id, str) or not dependence_spec_id:
@@ -500,7 +813,26 @@ def _validate_entities(
             raise ValueError(f"unsupported call_put: {item.call_put}")
         if item.exercise_style != "european":
             raise ValueError("the v1 pipeline supports European exercise only")
-        if item.strike_moneyness <= 0 or item.expiry_days <= 0:
+        if (
+            (item.strike_moneyness is None) == (item.strike_absolute is None)
+            or (
+                item.strike_moneyness is not None
+                and (
+                    not item.strike_moneyness.is_finite()
+                    or item.strike_moneyness <= 0
+                )
+            )
+            or (
+                item.strike_absolute is not None
+                and (
+                    not item.strike_absolute.is_finite()
+                    or item.strike_absolute <= 0
+                )
+            )
+            or item.expiry_days <= 0
+            or not item.contract_multiplier.is_finite()
+            or item.contract_multiplier <= 0
+        ):
             raise ValueError(f"invalid option template: {item.template_id}")
 
 

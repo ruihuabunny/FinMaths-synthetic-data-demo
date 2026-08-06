@@ -12,9 +12,12 @@ import duckdb
 import pytest
 
 from synthetic_derivatives.authoring.config import load_generator_config
-from synthetic_derivatives.authoring.generator import QuantLibGenerator
+from synthetic_derivatives.authoring.option_daily_generator import OptionDailyGenerator
 from synthetic_derivatives.authoring.pipeline import AuthoringPipeline
 from synthetic_derivatives.authoring.schema import SCHEMA_VERSION, initialize_schema
+from synthetic_derivatives.authoring.underlying_daily_generator import (
+    UnderlyingDailyGenerator,
+)
 
 
 def _factor_config(
@@ -128,18 +131,36 @@ def test_authoring_schema_migrates_additively_from_v2(
               AND table_name = 'underlying_dependence'
             """
         ).fetchone()[0]
+        option_chain_table_count = connection.execute(
+            """
+            SELECT count(*) FROM information_schema.tables
+            WHERE table_schema = 'market'
+              AND table_name = 'option_chain_specs'
+            """
+        ).fetchone()[0]
         revision_columns = {
             row[1]
             for row in connection.execute(
                 "PRAGMA table_info('metadata.snapshot_revisions')"
             ).fetchall()
         }
+        option_contract_columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info('market.option_contracts')"
+            ).fetchall()
+        }
     finally:
         connection.close()
 
-    assert current_version == SCHEMA_VERSION == "2.1.0"
+    assert current_version == SCHEMA_VERSION == "2.2.0"
     assert dependence_table_count == 1
+    assert option_chain_table_count == 1
     assert "underlying_dependence_count" in revision_columns
+    assert "option_chain_spec_count" in revision_columns
+    assert {
+        "chain_id", "listing_date", "listing_spot", "strike_moneyness"
+    } <= option_contract_columns
 
 
 @pytest.mark.parametrize(
@@ -190,7 +211,7 @@ def test_underlying_close_shock_uses_factor_plus_idiosyncratic_components(
     tmp_path: Path, smoke_config_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = load_generator_config(_factor_config(tmp_path, smoke_config_path))
-    generator = QuantLibGenerator(config)
+    generator = UnderlyingDailyGenerator(config)
     market_date = config.start_date
 
     def fixed_gaussian(*parts: Any) -> float:
@@ -342,17 +363,21 @@ def test_option_pricing_does_not_consume_underlying_correlation(
         name="negative-correlation.json",
         factor_loading_matrix=[[-0.8], [0.5]],
     )
-    positive = QuantLibGenerator(load_generator_config(positive_path))
-    negative = QuantLibGenerator(load_generator_config(negative_path))
-    positive_underlying = positive.config.underlyings[0]
-    negative_underlying = negative.config.underlyings[0]
+    positive_config = load_generator_config(positive_path)
+    negative_config = load_generator_config(negative_path)
+    positive = OptionDailyGenerator(positive_config)
+    negative = OptionDailyGenerator(negative_config)
+    assert not hasattr(positive, "underlying_close_shock")
+    assert not hasattr(positive, "underlying_daily_row")
+    positive_underlying = positive_config.underlyings[0]
+    negative_underlying = negative_config.underlyings[0]
     positive_contract = positive.option_contract_row(
-        positive_underlying, positive.config.option_templates[0], "same-run"
+        positive_underlying, positive_config.option_templates[0], "same-run"
     )
     negative_contract = negative.option_contract_row(
-        negative_underlying, negative.config.option_templates[0], "same-run"
+        negative_underlying, negative_config.option_templates[0], "same-run"
     )
-    market_date = positive.config.start_date + timedelta(days=1)
+    market_date = positive_config.start_date + timedelta(days=1)
 
     positive_quote = positive.option_daily_row(
         positive_underlying,
@@ -369,10 +394,10 @@ def test_option_pricing_does_not_consume_underlying_correlation(
         "same-run",
     )
 
-    assert positive.config.underlying_simulation is not None
-    assert negative.config.underlying_simulation is not None
+    assert positive_config.underlying_simulation is not None
+    assert negative_config.underlying_simulation is not None
     assert (
-        positive.config.underlying_simulation.correlation_matrix
-        != negative.config.underlying_simulation.correlation_matrix
+        positive_config.underlying_simulation.correlation_matrix
+        != negative_config.underlying_simulation.correlation_matrix
     )
     assert positive_quote == negative_quote

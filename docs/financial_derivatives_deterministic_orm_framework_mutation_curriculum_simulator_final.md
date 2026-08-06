@@ -108,7 +108,7 @@ $$
 
 生产 authoring job 将 $G_{\mathrm{mkt}}$ 实现为 pinned QuantLib pipeline，而不是只使用单一 GBM 公式。模型 registry 可以包含 GBM/BSM baseline、Heston、jump diffusion/Bates、local volatility，以及 SVI/SABR smile/surface；每个 variant 必须保存实际使用的 QuantLib version、Python binding、process class、pricing engine、参数、离散化方法与 engine id。GBM 只作为解析基线，不作为唯一 generator。
 
-统一 snapshot 至少由以下四类对象组成：
+统一 snapshot 至少由以下对象组成：
 
 | 对象 | 必需字段 |
 |:---|:---|
@@ -116,10 +116,25 @@ $$
 | `option_daily` | `date, underlying_id, option_id, call_put, strike, expiry, exercise_style, settlement_type, contract_multiplier, bid, ask, mid, settlement_price, volume, open_interest`。 |
 | `pricing_metadata` | `valuation_timestamp, market_id, currency, numeraire, risk_neutral_measure_id, rate_path_id, discount_curve/risk_free_rate, dividend_curve/dividend_yield, borrow_or_carry_rate, calendar, day_count, physical_dynamics, pricing_dynamics, pricing_model, pricing_engine, generator_version, seed, RNG, input_precision, canonicalization`。 |
 | `underlying_dependence` | `dependence_spec_id, measure, driver_order, formulation, factor_loading_matrix, idiosyncratic_diagonal, correlation_matrix, matrix_dtype, factorization_method, factorization_order, time_grid, regime_id`；driver order 只排列 underlying/model drivers，不排列 derivative contracts。单资产任务给出退化的一维单位矩阵或明确的 `not_applicable` 规则。 |
+| `option_contracts` | 稳定 `option_id`、underlying、call/put、frozen absolute strike、expiry、exercise/settlement/multiplier，以及 listing date/spot/moneyness provenance。 |
+| `option_chain_specs` | `chain_id`、expiry 与 strike/moneyness grid、call/put、listing/roll rule、strike increment/rounding 和合约约定；属于 private authoring provenance。 |
 
 `underlying_daily` 中用于历史收益、VaR/ES 的路径属于物理测度 $\mathbb P$；`option_daily` 的定价属于风险中性测度 $\mathbb Q$。两者可共享当日 spot、variance state 与市场日期，但 drift、风险溢价及模型参数必须分别保存为 `physical_dynamics` 与 `pricing_dynamics`。$\mathbb P$ 与 $\mathbb Q$ 下的 underlying dependence 使用 measure-qualified spec id；不得把历史相关参数无声明地复用到风险中性定价。当前 authoring simulator 第一阶段只 materialize `measure=P` 的 `underlying_dependence`；$\mathbb Q$ pricing-context/dependence 属于后续阶段。如果某题只需 flat rate/dividend，可以把完整 curves 简化为固定 $r,q$，但简化规则本身仍是合同字段。
 
 Authoring pipeline 固定为：QuantLib 先在共同时间网格上生成全部 underlying path/state，再对每个 valuation date、underlying 与 strike--maturity grid $\mathcal{K}\times\mathcal{T}$ 用指定 QuantLib pricing engine 生成 option chain，最后按题面精度量化并冻结。题目的 IV 真值必须从 solver 实际可见的、已量化 option price 按指定求根法重新反解，不能直接拿 QuantLib 内部未公开的 latent volatility 作答案。这样一套数据即可派生 Greeks、IV、smile/surface、underlying VaR/ES、option-portfolio VaR/ES 以及同一联合过程下的 basket/index/spread variants；不需要维护彼此不一致的独立“Greeks 数据表”或“VaR 数据表”。
+
+当前实现已经完成 static `OptionChainBuilder` baseline：generator config `1.3.0` 把
+expiry schedule、互斥的 listing-moneyness/absolute-strike grid、成对 call/put、strike
+increment 与 listing/roll rules 冻结为 private chain spec；moneyness 模式在 listing date
+转成 absolute strike，strike 模式则直接按 increment 规范化，随后合约身份与 strike 都
+不再随每日 spot 改写。第一版只允许
+`listing_rule=snapshot_start`、`roll_rule=static`，动态 weekly/monthly/quarterly listing
+留给 exchange-profile 阶段。该阶段不改变现有 deterministic-smile BSM 报价公式，也不把
+option contracts 加入 correlation matrix；共同 $\mathbb Q$/numeraire/rate path 仍是下一
+阶段。20-underlying smoke 使用 3 expiries × 7 strikes × call/put，共 840 个固定合约。
+该 smoke 在不改报价代码的前提下把 smile coefficients 设为 0，使每个 underlying 的整条
+链由同一 constant-vol BSM marginal model 生成；非零 smile 的 coherent-model 扩展仍由
+后续 pricing-model 阶段负责。
 
 ### 同币种 Conditional-Independent Baseline 与相关矩阵扰动
 
@@ -200,6 +215,8 @@ $$
 - IV 任务存在且只有一个声明区间内的根；
 - rate/dividend、discounting、calendar 与 day-count 明确；
 - surface task 的 grid、缺失 pattern 与 extrapolation policy 明确；
+- listing moneyness 只在挂牌时转换一次，absolute strike 与 stable contract id 跨 valuation
+  dates 不变；同一 expiry/strike 的 call/put 配对和完整 grid 可重放；
 - 多资产任务的共同 $\mathbb Q$、numeraire、rate path id、driver order 与 dependence spec 完整；
 - $R_t$ 对称、单位对角且 PSD，固定 factorization method 与输出顺序；
 - 联合衍生品全部来自同一 joint process，而不是独立边际价格的事后拼接。
@@ -236,7 +253,7 @@ $O_v$ 是 output contract，$V_v$ 是 verifier contract，$S_v$ 是 target skill
 | Physical dynamics    | 生成 underlying history 的 $\mathbb P$-measure process、drift/risk premium、discretization、time grid 与 path state。     |
 | Pricing dynamics     | 共同 $\mathbb Q$、numeraire、共享 rate path，以及各资产 coherent marginal model/parameters、engine 与 calibration policy；不得与 $\mathbb P$-measure 隐式混用。 |
 | Underlying dependence | measure-qualified dependence spec id、underlying/model driver order、$\Lambda_t$、$D_t$、$R_t$、PSD/PD policy、factorization、matrix dtype 与 time/regime policy；禁止 derivative ids。 |
-| Snapshot schema      | `underlying_daily`、`option_daily`、`pricing_metadata`、`underlying_dependence` 的字段、类型、主键、null policy、单位与可见性。  |
+| Snapshot schema      | `underlying_daily`、`option_daily`、`pricing_metadata`、`underlying_dependence`、`option_contracts`、`option_chain_specs` 的字段、类型、主键、null policy、单位与可见性。  |
 | Market state         | asset/underlying id、spot/forward、strike、maturity、共享 rate path、dividend、curve 与 quote definition。                 |
 | Clock convention     | valuation date、calendar、business-day adjustment、day-count、time-to-expiry。                                             |
 | Pricing model/method | Black–Scholes–Merton、Black-76、tree、PDE、Monte Carlo 等唯一模型与唯一 engine/method。                                    |

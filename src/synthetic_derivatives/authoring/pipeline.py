@@ -13,12 +13,15 @@ import duckdb
 import QuantLib as ql
 
 from synthetic_derivatives.authoring.config import GeneratorConfig
-from synthetic_derivatives.authoring.generator import QuantLibGenerator
+from synthetic_derivatives.authoring.option_daily_generator import OptionDailyGenerator
 from synthetic_derivatives.authoring.schema import (
     SCHEMA_VERSION,
     TABLE_SPECS,
     initialize_schema,
     merge_rows,
+)
+from synthetic_derivatives.authoring.underlying_daily_generator import (
+    UnderlyingDailyGenerator,
 )
 
 
@@ -27,7 +30,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         self.database = Path(database)
         self.database.parent.mkdir(parents=True, exist_ok=True)
         self.config = config
-        self.generator = QuantLibGenerator(config)
+        self.underlying_generator = UnderlyingDailyGenerator(config)
+        self.option_generator = OptionDailyGenerator(config)
         self.connection = duckdb.connect(str(self.database))
         initialize_schema(self.connection)
 
@@ -35,7 +39,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         self.connection.close()
 
     def create_smoke_snapshot(self) -> dict[str, Any]:
-        dates = self.generator.business_dates(
+        dates = self.underlying_generator.business_dates(
             self.config.start_date, self.config.business_days
         )
         return self.sync_range(dates[0], dates[-1], operation="CREATE_OR_SYNC")
@@ -53,7 +57,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         ).fetchone()[0]
         if last_date is None:
             return self.create_smoke_snapshot()
-        dates = self.generator.next_business_dates(last_date, count)
+        dates = self.underlying_generator.next_business_dates(last_date, count)
         return self.sync_range(dates[0], dates[-1], operation="APPEND_DATES")
 
     def sync_config(self) -> dict[str, Any]:
@@ -72,7 +76,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
     def sync_range(
         self, start_date: date, end_date: date, operation: str = "SYNC_RANGE"
     ) -> dict[str, Any]:
-        dates = self.generator.business_dates_between(start_date, end_date)
+        dates = self.underlying_generator.business_dates_between(start_date, end_date)
         if not dates:
             raise ValueError("requested range contains no business dates")
         run_id = str(uuid4())
@@ -80,6 +84,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         try:
             self._ensure_snapshot_is_editable()
             self._assert_underlying_dependence_is_compatible()
+            self._assert_option_chain_is_compatible()
+            self._assert_option_contracts_are_compatible()
             self.connection.execute(
                 """
                 INSERT INTO metadata.generation_runs (
@@ -235,13 +241,29 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
     def _generate_incremental_rows(
         self, dates: list[date], run_id: str
     ) -> dict[str, dict[str, int]]:
-        underlying_dependence_row = self.generator.underlying_dependence_row(run_id)
+        """Insert missing business-key rows without rewriting historical state.
+
+        Underlying closes are generated chronologically from the last persisted,
+        quantized close.  For the current GBM that value and the interval dates
+        form the complete Markov restart state.  Date-partitioned factor and
+        idiosyncratic streams make this append path identical to a one-shot run.
+
+        Chain specs and contract masters are reconstructed from immutable config
+        on every run, then merged by stable keys.  Daily option rows are built
+        only after the underlying slice exists and receive realized spots, not
+        the underlying dependence matrix.
+        """
+
+        underlying_dependence_row = (
+            self.underlying_generator.underlying_dependence_row(run_id)
+        )
+        option_chain_spec_row = self.option_generator.option_chain_spec_row(run_id)
         underlying_master_rows = [
-            self.generator.underlying_master_row(underlying, run_id)
+            self.underlying_generator.underlying_master_row(underlying, run_id)
             for underlying in self.config.underlyings
         ]
         option_contract_rows = [
-            self.generator.option_contract_row(underlying, template, run_id)
+            self.option_generator.option_contract_row(underlying, template, run_id)
             for underlying in self.config.underlyings
             for template in self.config.option_templates
         ]
@@ -251,6 +273,13 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 TABLE_SPECS["underlying_dependence"],
                 [underlying_dependence_row]
                 if underlying_dependence_row is not None
+                else [],
+            ),
+            "option_chain_specs": merge_rows(
+                self.connection,
+                TABLE_SPECS["option_chain_specs"],
+                [option_chain_spec_row]
+                if option_chain_spec_row is not None
                 else [],
             ),
             "underlyings": merge_rows(
@@ -296,9 +325,11 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                             f"new underlying {underlying.underlying_id} must be generated "
                             f"from configured start_date {self.config.start_date}"
                         )
-                    previous_date = self.generator.previous_business_date(market_date)
+                    previous_date = (
+                        self.underlying_generator.previous_business_date(market_date)
+                    )
                     previous_close = underlying.initial_spot
-                row = self.generator.underlying_daily_row(
+                row = self.underlying_generator.underlying_daily_row(
                     underlying, market_date, previous_date, previous_close, run_id
                 )
                 underlying_daily_rows.append(row)
@@ -310,7 +341,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                     previous_date_by_key[(path_date, underlying.underlying_id)] = (
                         prior_path_date
                         if prior_path_date is not None
-                        else self.generator.previous_business_date(path_date)
+                        else self.underlying_generator.previous_business_date(path_date)
                     )
                 prior_path_date = path_date
 
@@ -330,7 +361,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             ).fetchall()
         }
         metadata_rows = [
-            self.generator.pricing_metadata_row(
+            self.underlying_generator.pricing_metadata_row(
                 underlying,
                 market_date,
                 previous_date_by_key[(market_date, underlying.underlying_id)],
@@ -374,7 +405,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 if (market_date, contract[1]) in existing_option_daily:
                     continue
                 spot = spot_by_key[(market_date, underlying_id)]
-                row = self.generator.option_daily_row(
+                row = self.option_generator.option_daily_row(
                     underlyings_by_id[underlying_id],
                     contract,
                     market_date,
@@ -389,6 +420,14 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         return stats
 
     def _assert_underlying_dependence_is_compatible(self) -> None:
+        """Protect the dependence contract and its generated path as one unit.
+
+        Retrofitting, removing, or changing Lambda/driver order after any path
+        exists would combine transitions from different joint laws.  Such a
+        change must therefore use a new snapshot ID.  Legacy configs remain
+        valid only when no dependence row is present.
+        """
+
         columns = TABLE_SPECS["underlying_dependence"].columns[:-1]
         existing_rows = self.connection.execute(
             f"""
@@ -399,7 +438,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             """,
             [self.config.snapshot_id],
         ).fetchall()
-        expected_row = self.generator.underlying_dependence_row(
+        expected_row = self.underlying_generator.underlying_dependence_row(
             "compatibility-check"
         )
         if expected_row is None:
@@ -432,9 +471,132 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 "create a new snapshot instead"
             )
 
+    def _assert_option_chain_is_compatible(self) -> None:
+        """Keep listing, grid, strike-rounding and roll rules immutable.
+
+        The private spec is compared without its run-lineage column.  A chain
+        may be inserted only before any contract exists; retrofitting rules onto
+        an existing master would make its original listing state unknowable.
+        """
+
+        columns = TABLE_SPECS["option_chain_specs"].columns[:-1]
+        existing_rows = self.connection.execute(
+            f"""
+            SELECT {', '.join(columns)}
+            FROM market.option_chain_specs
+            WHERE snapshot_id = ?
+            ORDER BY chain_id
+            """,
+            [self.config.snapshot_id],
+        ).fetchall()
+        expected_row = self.option_generator.option_chain_spec_row(
+            "compatibility-check"
+        )
+        if expected_row is None:
+            if existing_rows:
+                raise ValueError(
+                    "option_chain cannot be removed within one snapshot; "
+                    "create a new snapshot instead"
+                )
+            return
+
+        expected_logical_row = tuple(expected_row[:-1])
+        if existing_rows:
+            if len(existing_rows) != 1 or tuple(existing_rows[0]) != expected_logical_row:
+                raise ValueError(
+                    "option_chain cannot change within one snapshot; "
+                    "create a new snapshot instead"
+                )
+            return
+
+        existing_contract_count = self.connection.execute(
+            """
+            SELECT count(*) FROM market.option_contracts
+            WHERE snapshot_id = ?
+            """,
+            [self.config.snapshot_id],
+        ).fetchone()[0]
+        if existing_contract_count:
+            raise ValueError(
+                "option_chain cannot be added to existing contracts; "
+                "create a new snapshot instead"
+            )
+
+    def _assert_option_contracts_are_compatible(self) -> None:
+        """Reject any rewrite of a listed chain contract under a stable ID.
+
+        Comparing the full expected set also catches changes that leave the
+        chain spec text untouched, such as editing an underlying's listing spot.
+        The run-lineage field is excluded because it is not economic identity.
+        """
+
+        if self.config.option_chain is None:
+            return
+        columns = TABLE_SPECS["option_contracts"].columns[:-1]
+        existing_rows = self.connection.execute(
+            f"""
+            SELECT {', '.join(columns)}
+            FROM market.option_contracts
+            WHERE snapshot_id = ?
+            ORDER BY option_id
+            """,
+            [self.config.snapshot_id],
+        ).fetchall()
+        if not existing_rows:
+            return
+        expected_rows = sorted(
+            (
+                tuple(
+                    self.option_generator.option_contract_row(
+                        underlying, template, "compatibility-check"
+                    )[:-1]
+                )
+                for underlying in self.config.underlyings
+                for template in self.config.option_templates
+            ),
+            key=lambda row: row[1],
+        )
+        if [tuple(row) for row in existing_rows] != expected_rows:
+            raise ValueError(
+                "listed option-chain contracts cannot change within one snapshot; "
+                "create a new snapshot instead"
+            )
+
     def _assert_quality_gates(self) -> None:
+        """Validate cross-table completeness and immutable contract identity.
+
+        These are implementation-integrity gates, not a replacement for the
+        no-arbitrage conditions supplied by the selected pricing model and
+        numeraire.  In particular, no check treats derivative contracts as
+        correlation drivers.
+        """
+
         self._assert_underlying_dependence_is_compatible()
+        self._assert_option_chain_is_compatible()
+        self._assert_option_contracts_are_compatible()
         checks = {
+            "option_chain_contract_without_spec": """
+                SELECT count(*) FROM market.option_contracts contract
+                LEFT JOIN market.option_chain_specs chain
+                  ON chain.snapshot_id = contract.snapshot_id
+                 AND chain.chain_id = contract.chain_id
+                WHERE contract.snapshot_id = ?
+                  AND contract.chain_id IS NOT NULL
+                  AND chain.chain_id IS NULL
+            """,
+            "incomplete_option_chain_contract": """
+                SELECT count(*) FROM market.option_contracts contract
+                JOIN market.option_chain_specs chain
+                  ON chain.snapshot_id = contract.snapshot_id
+                 AND chain.chain_id = contract.chain_id
+                WHERE contract.snapshot_id = ?
+                  AND (contract.listing_date IS NULL
+                       OR contract.listing_spot IS NULL
+                       OR (chain.grid_type = 'moneyness'
+                           AND contract.strike_moneyness IS NULL)
+                       OR (chain.grid_type = 'strike'
+                           AND contract.strike_moneyness IS NOT NULL))
+            """,
             "orphan_option_contract": """
                 SELECT count(*) FROM market.option_contracts option_contract
                 LEFT JOIN market.underlyings underlying
@@ -455,6 +617,20 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                   ON contract.snapshot_id = daily.snapshot_id
                  AND contract.option_id = daily.option_id
                 WHERE daily.snapshot_id = ? AND contract.option_id IS NULL
+            """,
+            "option_quote_contract_mismatch": """
+                SELECT count(*) FROM market.option_daily daily
+                JOIN market.option_contracts contract
+                  ON contract.snapshot_id = daily.snapshot_id
+                 AND contract.option_id = daily.option_id
+                WHERE daily.snapshot_id = ?
+                  AND (daily.underlying_id != contract.underlying_id
+                       OR daily.call_put != contract.call_put
+                       OR daily.strike != contract.strike
+                       OR daily.expiry != contract.expiry
+                       OR daily.exercise_style != contract.exercise_style
+                       OR daily.settlement_type != contract.settlement_type
+                       OR daily.contract_multiplier != contract.contract_multiplier)
             """,
             "missing_pricing_metadata": """
                 SELECT count(*) FROM market.underlying_daily daily
@@ -499,8 +675,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 snapshot_id, revision, run_id, underlying_count,
                 option_contract_count, underlying_daily_count,
                 option_daily_count, pricing_metadata_count,
-                underlying_dependence_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                underlying_dependence_count, option_chain_spec_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 self.config.snapshot_id,
@@ -512,6 +688,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 counts["option_daily_count"],
                 counts["pricing_metadata_count"],
                 counts["underlying_dependence_count"],
+                counts["option_chain_spec_count"],
             ],
         )
         self.connection.execute(
@@ -555,6 +732,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             "option_daily_count": "market.option_daily",
             "pricing_metadata_count": "market.pricing_metadata",
             "underlying_dependence_count": "market.underlying_dependence",
+            "option_chain_spec_count": "market.option_chain_specs",
         }
         return {
             name: self.connection.execute(
@@ -592,6 +770,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             "underlying_dependence_count": summary[
                 "underlying_dependence_count"
             ],
+            "option_chain_spec_count": summary["option_chain_spec_count"],
         }
         temporary_path.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
