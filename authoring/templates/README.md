@@ -5,6 +5,10 @@
 underlying 和一组平值 European call/put option templates；每个 option template
 都会实例化到每个 underlying。
 
+`quantlib_bsm_correlated_underlyings.template.json` 是 config `1.2.0` 的双 underlying
+示例。它只用 factor-loading correlation 改变 $\mathbb P$-measure underlying close
+paths；option pricing 不读取该相关矩阵。
+
 ## 使用方式
 
 先复制模板并修改副本，不要直接把模板当作正式配置：
@@ -48,12 +52,13 @@ cp authoring/templates/quantlib_bsm_generator.template.json \
 
 | 字段 | 当前实现约束 |
 |:---|:---|
-| `schema_version` | `1.0.0` 支持 scalar physical 参数；`1.1.0` 另支持 deterministic time functions。 |
+| `schema_version` | `1.0.0` 支持 scalar physical 参数；`1.1.0` 另支持 deterministic time functions；`1.2.0` 再增加 P-measure `underlying_simulation`。 |
 | `calendar` / `day_count` | 只支持 `WeekendsOnly` / `Actual365Fixed`。 |
 | `start_date` | 使用工作日；首条 underlying path 必须从该日开始。 |
 | `quote_decimal_places` | 使用 `8`，与当前价格量化精度一致。 |
 | `underlying_id` | 配置内唯一；spot 和两类 volatility 必须为正数。 |
 | `physical_drift` / `physical_volatility` | 可使用 scalar，或 `piecewise_linear` 时间函数；volatility 的所有节点必须为正数。 |
+| `underlying_simulation` | `1.2.0` 必需；`measure=P`，`driver_order` 恰好覆盖全部 underlying，$\Lambda$ 每行 norm 不超过 1。 |
 | `template_id` | 配置内唯一；会与 `underlying_id` 拼成稳定的 `option_id`。 |
 | `call_put` | 只能是 `call` 或 `put`。 |
 | `exercise_style` | v1 只支持 `european`。 |
@@ -81,6 +86,7 @@ volatility 取均方根。因此 QuantLib 的单步 GBM transition 满足
 保存函数在 `day_offset = 0` 的值；完整函数和当日有效参数保存在
 `pricing_metadata.physical_dynamics`。
 
-对已有 DRAFT 配置只能追加 underlying 或 option template。删除或修改已生成的
-实体定义、回填历史路径缺口都会被 pipeline 拒绝；此类变更应复制配置并启用新的
-`snapshot_id`。
+v1/v1.1 的已有 DRAFT 配置只能追加 underlying 或 option template。config `1.2.0` 把
+underlying 集合与完整 `underlying_simulation` 视为同一个不可变 path contract；修改
+driver order、factor loading 或增删 underlying 都必须复制配置并启用新的
+`snapshot_id`。所有版本都会拒绝修改已生成的实体定义或回填历史路径缺口。

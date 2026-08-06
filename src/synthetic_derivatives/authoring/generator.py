@@ -102,6 +102,28 @@ class QuantLibGenerator:
         ]
         return (*logical, run_id)
 
+    def underlying_dependence_row(self, run_id: str) -> tuple[Any, ...] | None:
+        simulation = self.config.underlying_simulation
+        if simulation is None:
+            return None
+        logical = [
+            self.config.snapshot_id,
+            simulation.dependence_spec_id,
+            simulation.measure,
+            canonical_json(simulation.driver_order),
+            simulation.formulation,
+            canonical_json(simulation.factor_loading_matrix),
+            canonical_json(simulation.idiosyncratic_diagonal),
+            canonical_json(simulation.correlation_matrix),
+            simulation.matrix_dtype,
+            simulation.factorization_method,
+            simulation.factorization_order,
+            simulation.time_grid,
+            simulation.regime_id,
+            self.config.generator_config_id,
+        ]
+        return (*logical, run_id)
+
     def option_contract_row(
         self,
         underlying: UnderlyingConfig,
@@ -164,7 +186,9 @@ class QuantLibGenerator:
         process = ql.BlackScholesMertonProcess(
             spot_quote, zero_dividend, physical_drift, volatility
         )
-        close_shock = self._gaussian("underlying-close", underlying.underlying_id, market_date)
+        close_shock = self.underlying_close_shock(
+            underlying.underlying_id, market_date
+        )
         range_shock = abs(
             self._gaussian("underlying-range", underlying.underlying_id, market_date)
         )
@@ -300,6 +324,20 @@ class QuantLibGenerator:
             "volatility": underlying.physical_volatility,
             "increment_partition": "sha256(snapshot_id,seed,purpose,entity,date)",
         }
+        if self.config.underlying_simulation is not None:
+            simulation = self.config.underlying_simulation
+            physical_dynamics_value.update(
+                {
+                    "dependence_spec_id": simulation.dependence_spec_id,
+                    "driver_id": underlying.underlying_id,
+                    "driver_order": list(simulation.driver_order),
+                    "shock_formulation": "Lambda*factor+sqrt(D)*idiosyncratic",
+                    "increment_partition": (
+                        "sha256(snapshot_id,seed,measure,dependence_spec_id,"
+                        "stream_type,stream_id,date)"
+                    ),
+                }
+            )
         if not (
             underlying.physical_drift_function.is_constant
             and underlying.physical_volatility_function.is_constant
@@ -400,6 +438,42 @@ class QuantLibGenerator:
 
     def previous_business_date(self, market_date: date) -> date:
         return py_date(self.calendar.advance(ql_date(market_date), -1, ql.Days))
+
+    def underlying_close_shock(
+        self, underlying_id: str, market_date: date
+    ) -> float:
+        """Return the P-measure spot shock; derivative pricing never calls this."""
+
+        simulation = self.config.underlying_simulation
+        if simulation is None:
+            return self._gaussian("underlying-close", underlying_id, market_date)
+
+        driver_index = simulation.driver_index(underlying_id)
+        factor_component = math.fsum(
+            loading
+            * self._gaussian(
+                "underlying-simulation",
+                simulation.measure,
+                simulation.dependence_spec_id,
+                "factor",
+                factor_index,
+                market_date,
+            )
+            for factor_index, loading in enumerate(
+                simulation.factor_loading_matrix[driver_index]
+            )
+        )
+        idiosyncratic_shock = self._gaussian(
+            "underlying-simulation",
+            simulation.measure,
+            simulation.dependence_spec_id,
+            "idiosyncratic",
+            underlying_id,
+            market_date,
+        )
+        return factor_component + math.sqrt(
+            simulation.idiosyncratic_diagonal[driver_index]
+        ) * idiosyncratic_shock
 
     def _derived_seed(self, *parts: Any) -> int:
         material = "|".join(

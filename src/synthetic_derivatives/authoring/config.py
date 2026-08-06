@@ -125,7 +125,38 @@ class OptionTemplate:
 
 
 @dataclass(frozen=True)
+class UnderlyingSimulationConfig:
+    """A constant factor-loading dependence contract for P-measure spot paths."""
+
+    dependence_spec_id: str
+    measure: str
+    driver_order: tuple[str, ...]
+    formulation: str
+    factor_loading_matrix: tuple[tuple[float, ...], ...]
+    idiosyncratic_diagonal: tuple[float, ...]
+    correlation_matrix: tuple[tuple[float, ...], ...]
+    matrix_dtype: str
+    factorization_method: str
+    factorization_order: str
+    time_grid: str
+    regime_id: str
+
+    @property
+    def factor_count(self) -> int:
+        return len(self.factor_loading_matrix[0])
+
+    def driver_index(self, underlying_id: str) -> int:
+        try:
+            return self.driver_order.index(underlying_id)
+        except ValueError as error:
+            raise ValueError(
+                f"underlying driver is not declared: {underlying_id}"
+            ) from error
+
+
+@dataclass(frozen=True)
 class GeneratorConfig:
+    schema_version: str
     generator_config_id: str
     generator_version: str
     snapshot_id: str
@@ -145,6 +176,7 @@ class GeneratorConfig:
     option_templates: tuple[OptionTemplate, ...]
     smile: dict[str, float]
     quote_model: dict[str, Any]
+    underlying_simulation: UnderlyingSimulationConfig | None
 
 
 def load_generator_config(path: str | Path) -> GeneratorConfig:
@@ -154,7 +186,7 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
     if not isinstance(raw, dict):
         raise ValueError("generator config must be a JSON object")
     schema_version = raw.get("schema_version")
-    if schema_version not in {"1.0.0", "1.1.0"}:
+    if schema_version not in {"1.0.0", "1.1.0", "1.2.0"}:
         raise ValueError("unsupported generator config schema_version")
 
     underlyings_list: list[UnderlyingConfig] = []
@@ -199,7 +231,18 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
         for item in raw["option_templates"]
     )
     _validate_entities(underlyings, templates)
+    if schema_version == "1.2.0":
+        underlying_simulation = _parse_underlying_simulation(
+            raw.get("underlying_simulation"), underlyings
+        )
+    else:
+        if "underlying_simulation" in raw:
+            raise ValueError(
+                "underlying_simulation requires schema_version 1.2.0"
+            )
+        underlying_simulation = None
     return GeneratorConfig(
+        schema_version=schema_version,
         generator_config_id=raw["generator_config_id"],
         generator_version=raw["generator_version"],
         snapshot_id=raw["snapshot_id"],
@@ -219,6 +262,147 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
         option_templates=templates,
         smile={key: float(value) for key, value in raw["smile"].items()},
         quote_model=dict(raw["quote_model"]),
+        underlying_simulation=underlying_simulation,
+    )
+
+
+def _parse_underlying_simulation(
+    raw: Any,
+    underlyings: tuple[UnderlyingConfig, ...],
+) -> UnderlyingSimulationConfig:
+    if not isinstance(raw, dict):
+        raise ValueError("schema_version 1.2.0 requires underlying_simulation")
+
+    dependence_spec_id = raw.get("dependence_spec_id")
+    if not isinstance(dependence_spec_id, str) or not dependence_spec_id:
+        raise ValueError("underlying_simulation.dependence_spec_id must be non-empty")
+    if raw.get("measure") != "P":
+        raise ValueError("underlying_simulation.measure must be P")
+    if raw.get("formulation") != "factor_loading":
+        raise ValueError(
+            "underlying_simulation.formulation must be factor_loading"
+        )
+    if raw.get("idiosyncratic_diagonal") != "derive_from_row_norms":
+        raise ValueError(
+            "underlying_simulation.idiosyncratic_diagonal must be "
+            "derive_from_row_norms"
+        )
+    if "correlation_matrix" in raw:
+        raise ValueError(
+            "underlying_simulation.correlation_matrix is derived from factor loadings"
+        )
+    if raw.get("matrix_dtype") != "float64":
+        raise ValueError("underlying_simulation.matrix_dtype must be float64")
+    if raw.get("factorization_method") != "factor_loading_direct":
+        raise ValueError(
+            "underlying_simulation.factorization_method must be "
+            "factor_loading_direct"
+        )
+    if raw.get("factorization_order") != "declared_driver_order":
+        raise ValueError(
+            "underlying_simulation.factorization_order must be "
+            "declared_driver_order"
+        )
+    if raw.get("time_grid") != "business_daily":
+        raise ValueError(
+            "underlying_simulation.time_grid must be business_daily"
+        )
+    regime_id = raw.get("regime_id")
+    if not isinstance(regime_id, str) or not regime_id:
+        raise ValueError("underlying_simulation.regime_id must be non-empty")
+
+    raw_driver_order = raw.get("driver_order")
+    if not isinstance(raw_driver_order, list) or not raw_driver_order or any(
+        not isinstance(driver, str) or not driver for driver in raw_driver_order
+    ):
+        raise ValueError(
+            "underlying_simulation.driver_order must be a non-empty string array"
+        )
+    driver_order = tuple(raw_driver_order)
+    if len(driver_order) != len(set(driver_order)):
+        raise ValueError("underlying_simulation.driver_order must be unique")
+    underlying_ids = {underlying.underlying_id for underlying in underlyings}
+    if set(driver_order) != underlying_ids:
+        raise ValueError(
+            "underlying_simulation.driver_order must contain every underlying_id "
+            "exactly once"
+        )
+
+    raw_matrix = raw.get("factor_loading_matrix")
+    if not isinstance(raw_matrix, list) or len(raw_matrix) != len(driver_order):
+        raise ValueError(
+            "underlying_simulation.factor_loading_matrix row count must match "
+            "driver_order"
+        )
+    if not raw_matrix or any(not isinstance(row, list) for row in raw_matrix):
+        raise ValueError(
+            "underlying_simulation.factor_loading_matrix must be a matrix"
+        )
+    factor_count = len(raw_matrix[0])
+    if factor_count < 1 or any(len(row) != factor_count for row in raw_matrix):
+        raise ValueError(
+            "underlying_simulation.factor_loading_matrix must be non-ragged "
+            "with at least one factor"
+        )
+
+    factor_loading_rows: list[tuple[float, ...]] = []
+    idiosyncratic_diagonal: list[float] = []
+    for row_index, raw_row in enumerate(raw_matrix):
+        row = tuple(
+            _finite_float(
+                value,
+                field_name=(
+                    "underlying_simulation.factor_loading_matrix"
+                    f"[{row_index}][{column_index}]"
+                ),
+            )
+            for column_index, value in enumerate(raw_row)
+        )
+        exact_row_norm_squared = sum(
+            (Decimal(str(value)) ** 2 for value in raw_row), Decimal("0")
+        )
+        if exact_row_norm_squared > Decimal("1"):
+            raise ValueError(
+                "underlying_simulation factor-loading row norm must not exceed 1: "
+                f"{driver_order[row_index]}"
+            )
+        row_norm_squared = math.fsum(value * value for value in row)
+        if row_norm_squared > 1.0:
+            raise ValueError(
+                "underlying_simulation factor-loading row norm exceeds 1 in "
+                f"float64: {driver_order[row_index]}"
+            )
+        factor_loading_rows.append(row)
+        idiosyncratic_diagonal.append(max(0.0, 1.0 - row_norm_squared))
+
+    factor_loading_matrix = tuple(factor_loading_rows)
+    diagonal = tuple(idiosyncratic_diagonal)
+    correlation_matrix = tuple(
+        tuple(
+            1.0
+            if row_index == column_index
+            else math.fsum(
+                factor_loading_matrix[row_index][factor_index]
+                * factor_loading_matrix[column_index][factor_index]
+                for factor_index in range(factor_count)
+            )
+            for column_index in range(len(driver_order))
+        )
+        for row_index in range(len(driver_order))
+    )
+    return UnderlyingSimulationConfig(
+        dependence_spec_id=dependence_spec_id,
+        measure="P",
+        driver_order=driver_order,
+        formulation="factor_loading",
+        factor_loading_matrix=factor_loading_matrix,
+        idiosyncratic_diagonal=diagonal,
+        correlation_matrix=correlation_matrix,
+        matrix_dtype="float64",
+        factorization_method="factor_loading_direct",
+        factorization_order="declared_driver_order",
+        time_grid="business_daily",
+        regime_id=regime_id,
     )
 
 

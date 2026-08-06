@@ -8,7 +8,8 @@ from typing import Any, Sequence
 import duckdb
 
 
-SCHEMA_VERSION = "2.0.0"
+SCHEMA_VERSION = "2.1.0"
+MIGRATABLE_SCHEMA_VERSIONS = {"2.0.0"}
 
 SCHEMA_BOOTSTRAP = r"""
 CREATE SCHEMA IF NOT EXISTS metadata;
@@ -62,6 +63,7 @@ CREATE TABLE IF NOT EXISTS metadata.snapshot_revisions (
     underlying_daily_count BIGINT NOT NULL,
     option_daily_count BIGINT NOT NULL,
     pricing_metadata_count BIGINT NOT NULL,
+    underlying_dependence_count BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     PRIMARY KEY (snapshot_id, revision)
 );
@@ -80,6 +82,27 @@ CREATE TABLE IF NOT EXISTS market.underlyings (
     generator_config_id VARCHAR NOT NULL,
     created_run_id VARCHAR NOT NULL,
     PRIMARY KEY (snapshot_id, underlying_id)
+);
+
+CREATE TABLE IF NOT EXISTS market.underlying_dependence (
+    snapshot_id VARCHAR NOT NULL,
+    dependence_spec_id VARCHAR NOT NULL,
+    measure VARCHAR NOT NULL CHECK (measure = 'P'),
+    driver_order JSON NOT NULL,
+    formulation VARCHAR NOT NULL CHECK (formulation = 'factor_loading'),
+    factor_loading_matrix JSON NOT NULL,
+    idiosyncratic_diagonal JSON NOT NULL,
+    correlation_matrix JSON NOT NULL,
+    matrix_dtype VARCHAR NOT NULL CHECK (matrix_dtype = 'float64'),
+    factorization_method VARCHAR NOT NULL
+        CHECK (factorization_method = 'factor_loading_direct'),
+    factorization_order VARCHAR NOT NULL
+        CHECK (factorization_order = 'declared_driver_order'),
+    time_grid VARCHAR NOT NULL CHECK (time_grid = 'business_daily'),
+    regime_id VARCHAR NOT NULL,
+    generator_config_id VARCHAR NOT NULL,
+    created_run_id VARCHAR NOT NULL,
+    PRIMARY KEY (snapshot_id, dependence_spec_id)
 );
 
 CREATE TABLE IF NOT EXISTS market.option_contracts (
@@ -195,6 +218,17 @@ class TableSpec:
 
 
 TABLE_SPECS = {
+    "underlying_dependence": TableSpec(
+        "market.underlying_dependence",
+        (
+            "snapshot_id", "dependence_spec_id", "measure", "driver_order",
+            "formulation", "factor_loading_matrix",
+            "idiosyncratic_diagonal", "correlation_matrix", "matrix_dtype",
+            "factorization_method", "factorization_order", "time_grid",
+            "regime_id", "generator_config_id", "created_run_id",
+        ),
+        ("snapshot_id", "dependence_spec_id"),
+    ),
     "underlyings": TableSpec(
         "market.underlyings",
         (
@@ -254,14 +288,25 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
     current_version = connection.execute(
         """
         SELECT schema_version FROM metadata.schema_versions
-        ORDER BY applied_at DESC LIMIT 1
+        ORDER BY applied_at DESC, schema_version DESC LIMIT 1
         """
     ).fetchone()
-    if current_version and current_version[0] != SCHEMA_VERSION:
+    if (
+        current_version
+        and current_version[0] != SCHEMA_VERSION
+        and current_version[0] not in MIGRATABLE_SCHEMA_VERSIONS
+    ):
         raise RuntimeError(
             f"unsupported DuckDB schema version: {current_version[0]}"
         )
     connection.execute(DDL)
+    connection.execute(
+        """
+        ALTER TABLE metadata.snapshot_revisions
+        ADD COLUMN IF NOT EXISTS underlying_dependence_count BIGINT
+        DEFAULT 0
+        """
+    )
     connection.execute(
         """
         INSERT INTO metadata.schema_versions (schema_version)
@@ -269,6 +314,15 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
         """,
         [SCHEMA_VERSION],
     )
+    if current_version and current_version[0] != SCHEMA_VERSION:
+        connection.execute(
+            """
+            UPDATE metadata.snapshots
+            SET schema_version = ?
+            WHERE schema_version = ?
+            """,
+            [SCHEMA_VERSION, current_version[0]],
+        )
 
 
 def merge_rows(

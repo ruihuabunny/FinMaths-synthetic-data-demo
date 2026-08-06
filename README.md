@@ -2,18 +2,23 @@
 
 面向 LLM 训练的确定性合成金融衍生品数据项目。项目目标是把市场数据生成、任务定义、模型解题、独立校验和训练数据导出分成清晰的边界，并保证每个样本都可以通过固定配置与 seed 重放。
 
-当前已完成 authoring pipeline 的第一版：使用 QuantLib 生成 underlying 路径和 European option 报价，通过 DuckDB 事务增量写入 snapshot。在此基础上，仓库已加入最小可运行的六维 `task_space` registry、受约束 `mutation` engine 和 adaptive `curriculum` scheduler；它们只按 id/revision 引用 snapshot，不修改 authoring 数据。Solver、verifier 与训练数据构建尚未实现。
+当前已完成 authoring pipeline 的第一版以及 correlated-underlying simulator 的第一阶段：
+QuantLib 生成 underlying 路径和 European option 报价，DuckDB 事务增量写入 snapshot；
+config `1.2.0` 可以用 factor loading $\Lambda$ 派生 $D$ 与 PSD correlation matrix $R$，
+并只对物理测度 $\mathbb P$ 下的 underlying close shocks 做联合耦合。Option/derivative
+pricing 不读取该相关矩阵。仓库同时包含最小可运行的六维 `task_space` registry、受约束
+`mutation` engine 和 adaptive `curriculum` scheduler；Solver、verifier 与训练数据构建
+尚未实现。
 
-下一阶段的同币种联合市场设计采用共同 $\mathbb Q$/numeraire 与共享利率路径，以 coherent
-marginal pricing models 生成各资产完整 option surface，再从条件独立 baseline 出发，用
-PSD correlation matrix 对联合随机驱动进行确定性扰动。该设计已写入文档，但尚未落入当前
-DuckDB schema 和 generator。
+后续的共同 $\mathbb Q$/numeraire、共享利率路径与 coherent pricing models 是独立的
+pricing-context 改造。若未来定价 basket/index/spread，相关结构仍应定义在其
+$\mathbb Q$-measure underlying drivers 上，而不是定义在 derivative contracts 之间。
 
 ## 设计流程
 
 ```text
 Authoring
-  -> 生成并冻结 market snapshot（联合市场同时冻结 dependence spec）
+  -> 生成并冻结 market snapshot（correlated profile 同时冻结 underlying dependence spec）
   -> 注册六维 task variant 与 compatibility decision
   -> Mutation Engine 生成带 lineage 的 candidate pool
   -> Curriculum Scheduler 按 mastery 选择训练分布
@@ -171,6 +176,57 @@ FROM market.pricing_metadata
 ORDER BY underlying_id, valuation_date;
 ```
 
+## Correlated underlying simulator
+
+Generator config `1.2.0` 在上述单资产 physical dynamics 之上增加
+`underlying_simulation`。其 `driver_order` 只能包含 underlying ids，相关结构不接受
+option ids：
+
+```json
+{
+  "schema_version": "1.2.0",
+  "underlying_simulation": {
+    "dependence_spec_id": "SYNTH-P-SPOT-FACTOR-v1",
+    "measure": "P",
+    "driver_order": ["SYNTH-U01", "SYNTH-U02"],
+    "formulation": "factor_loading",
+    "factor_loading_matrix": [[0.8], [0.5]],
+    "idiosyncratic_diagonal": "derive_from_row_norms",
+    "matrix_dtype": "float64",
+    "factorization_method": "factor_loading_direct",
+    "factorization_order": "declared_driver_order",
+    "time_grid": "business_daily",
+    "regime_id": "constant"
+  }
+}
+```
+
+若 $\lambda_i^\top$ 是 $\Lambda$ 的第 $i$ 行，则 generator 确定性派生
+
+$$
+D=\operatorname{diag}\!\left(1-\lVert\lambda_1\rVert^2,\ldots,
+1-\lVert\lambda_n\rVert^2\right),
+\qquad
+R=\Lambda\Lambda^\top+D,
+$$
+
+并按
+
+$$
+Z_t=\Lambda\eta_t+D^{1/2}\varepsilon_t
+$$
+
+替换每个 underlying GBM close transition 的标准正态冲击。Common factor 和
+idiosyncratic streams 分别按 `dependence_spec_id/factor/date` 与
+`dependence_spec_id/underlying_id/date` 派生，因此 one-shot 与 append 完全一致。
+
+完整合同持久化在 private authoring 表 `market.underlying_dependence`，不建立对应的
+solver-visible view；每个 `pricing_metadata.physical_dynamics` row 只记录关联的
+dependence id 与 driver lineage。`option_daily_row()` 仍只读取固定 spot 和原有 pricing
+inputs：在相同 spot 下切换 $R$，option quote 必须完全不变。可运行配置见
+[correlated-underlying 模板](authoring/templates/quantlib_bsm_correlated_underlyings.template.json)，
+完整增量规则见 [Authoring Pipeline](docs/authoring_pipeline.md)。
+
 ## Market snapshot、pricing model 与 pricing engine 的边界
 
 下一阶段按“一个 snapshot 是一个已经实现的市场世界”设计。这里的市场事实是合约、
@@ -226,12 +282,12 @@ task convention + IV solver          valuation/calibration runs
 过渡结构；在产生训练快照前应完成上述 public/private split，避免 Solver 直接读到 DGP
 和随机性 provenance。以上是下一阶段合同，尚未改变现有 DuckDB schema 或 generator。
 
-### 同币种联合模拟与 no-arbitrage 方案（下一步方向）
+### Underlying correlation 与 derivative no-arbitrage 边界
 
-下一版带随机利率和多个 option risk units 的 authoring DGP 采用同币种联合市场方案。整个
-snapshot 使用同一个 filtered probability space、共同风险中性测度 $\mathbb Q$、共同
-numeraire 与共享利率路径；每个资产的完整 option surface 由一个合法且内部一致的 coherent
-marginal pricing model 生成。以 money-market account 为例：
+当前实现的 $R$ 是 $\mathbb P$-measure underlying path DGP 的一部分，不表示 option
+之间的相关矩阵，也不直接进入 option pricing engine。后续同币种 pricing context 仍按
+共同 $\mathbb Q$、numeraire 与共享利率路径设计，每个资产的完整 option surface 由合法
+coherent marginal pricing model 生成。以 money-market account 为例：
 
 $$
 B_t=\exp\left(\int_0^t r_s\,ds\right),
@@ -242,14 +298,13 @@ V_t^{(i)}
 \right].
 $$
 
-本文保留 $B_t$ 专门表示 money-market numeraire；下文的 factor-loading matrix 统一记为
-$\Lambda_t$，不再复用字母 $B$。
+本文保留 $B_t$ 专门表示 money-market numeraire；underlying factor-loading matrix
+统一记为 $\Lambda_t$，不再复用字母 $B$。
 
-生成器先构造 baseline：所有 option 在同一个 Monte Carlo scenario 中共享同一条
-$\mathbb Q$-measure interest-rate path；给定完整利率路径后，不同 underlying/entity
-risk units 的 idiosyncratic base noises 相互独立。同一 underlying 上不同 strike、expiry
-或 call/put 合约必须共享同一条 underlying state path，不能按 option contract 独立抽样。
-随后按固定 `driver_order` 使用相关矩阵 $R_t$ 扰动并耦合基础冲击：
+若未来做 $\mathbb Q$-measure multi-asset Monte Carlo，生成器仍先模拟 underlying
+drivers：给定共享利率路径后，各 underlying 的 idiosyncratic base noises 相互独立，再按
+固定 `driver_order` 使用 $R_t$ 耦合。`driver_order` 不包含 option ids；同一 underlying
+上的所有 strike、expiry 和 call/put 都读取同一 underlying state path。相关结构为：
 
 $$
 R_t=R_t^\top,
@@ -276,9 +331,10 @@ $$
 生成，且 $\operatorname{Cov}(Z_t)=R_t$。
 
 因此，`conditional independence given the shared interest-rate path` 只描述相关扰动前的
-baseline。只要 $R_t$ 有非零非对角元，最终资产在仅给定利率路径后就是 conditionally
-correlated。对 Heston、stochastic-rate 或 hybrid models，`driver_order` 和 $R_t$ 必须
-覆盖完整 spot/volatility/rate driver blocks，并保持各边际模型原有的内部相关结构。
+underlying baseline。只要 $R_t$ 有非零非对角元，最终 underlying 在仅给定利率路径后
+就是 conditionally correlated。对 Heston、stochastic-rate 或 hybrid models，
+`driver_order` 和 $R_t$ 覆盖 underlying 的 spot/volatility/rate driver blocks，并保持
+各边际模型原有的内部相关结构。
 
 这一阶段的实现合同如下：
 
@@ -286,16 +342,17 @@ correlated。对 Heston、stochastic-rate 或 hybrid models，`driver_order` 和
   `rate_path_id`；不能逐 option 混用 measure、discounting convention 或 rate path。
 - 每个资产的全部 strike、maturity 与合约变体必须来自同一个 coherent marginal model
   snapshot；相关矩阵只耦合随机驱动，不改变边际参数或完整 option surface。
-- 新增 `joint_dependence` 合同，至少冻结 `dependence_spec_id`、`driver_order`、
-  $\Lambda_t$、$D_t$、$R_t$、matrix dtype、PSD/PD policy、time grid 与 regime id。
+- Underlying dependence 合同至少冻结 `dependence_spec_id`、measure、underlying
+  `driver_order`、$\Lambda_t$、$D_t$、$R_t$、matrix dtype、time grid 与 regime id；
+  derivative contracts 不在矩阵中占行或列。
 - 合法 $R_t$ 默认由固定的 $\Lambda_t\Lambda_t^\top+D_t$ 构造，再按相同 dtype、顺序与
   canonicalization 重放；symmetry、单位对角与 PSD 都由构造保证，不依赖带 tolerance 的
   事后 eigenvalue 判定。
-- 每个 scenario 先生成一次共享利率路径，再从稳定 risk-unit id 派生独立 base streams，
+- 每个 scenario 先生成一次共享利率路径，再从稳定 underlying driver id 派生 base streams，
   最后按冻结的 $\Lambda_t$ 与 $D_t$ 耦合；固定 config/seed 时 one-shot、append 和 replay
   必须一致。
-- 所有 basket、index、spread 或其他多资产 payoff 必须使用同一个 joint process、相关矩阵
-  snapshot 与联合状态定价，不能在事后拼接独立边际分布。
+- 所有 basket、index、spread 或其他多资产 payoff 必须读取同一个 joint underlying
+  process 与 dependence snapshot，不能独立生成 derivative prices 后再做相关拼接。
 - No-arbitrage 来自共同 $\mathbb Q$/numeraire、coherent marginal models 与一致联合定价，
   而不是来自 conditional independence 或相关矩阵。Put--call parity、strike
   monotonicity/convexity 和 calendar consistency 作为实现层 sanity checks 保留。
@@ -312,10 +369,10 @@ derivatives、多币种利率或 numeraire conversion。该方案保证模型内
    expiry 下多个 puts/calls 和 strikes、同一 strike/moneyness 附近多个 expiries 的完整
    $K\times T$ 网格；合约在上市后跨 valuation dates 保持身份不变，并按规则新增 weekly、
    monthly 或 quarterly series。
-2. **同币种 common-$\mathbb Q$ 与 PSD 联合依赖。** 整个 snapshot 共用 $\mathbb Q$/numeraire
-   和 interest-rate path；给定利率路径的条件独立只作为 baseline，再以冻结的 PSD $R_t$
-   耦合随机驱动。同一 underlying 的 option chain 共享状态，所有联合 payoff 使用同一个
-   joint process 和 $\mathbb Q$-pricing operator。
+2. **同币种 common-$\mathbb Q$ pricing context。** 整个 snapshot 共用 $\mathbb Q$/numeraire
+   和 interest-rate path；若联合 payoff 需要相关性，PSD $R_t$ 仍只耦合 Q-measure
+   underlying drivers。同一 underlying 的 option chain 共享状态，derivative contracts
+   不进入 correlation matrix。
 3. **公共市场状态与私有 DGP 隔离。** 先完成上面的 metadata split，再扩充模型；否则
    更复杂的 Heston/Bates parameters 只会成为更明显的答案泄漏。
 4. **曲线、日历与合约约定。** 用非 flat discount/dividend/borrow term structures、离散
@@ -346,27 +403,30 @@ derivatives、多币种利率或 numeraire conversion。该方案保证模型内
 
 | 阶段 | 模块 | 首次实现范围 | 完成标准 |
 |:---|:---|:---|:---|
+| 0（已完成） | `UnderlyingSimulator` / `UnderlyingDependenceSpec` | config `1.2.0` 以 $\Lambda/D/R$ 耦合 P-measure underlying close shocks；private authoring 表冻结合同 | one-shot/append 一致；旧 config 无回归；固定 spot 时 option quote 不受 $R$ 影响；option ids 不进入矩阵 |
 | 1 | `OptionChainBuilder` | 在 config 中声明 expiry schedule、call/put、strike 或 moneyness grid、listing/roll rules；在 listing date 把 moneyness 转成绝对 strike 后固定，不随每日 spot 重写合约 | 同一 expiry 有多个 strikes 和成对 call/put；合约 id 跨日稳定；one-shot、append 与 `sync-config` 结果一致 |
-| 2 | `CommonQPricingContext` / `CommonQScenario` / `JointDependenceSpec` | 为每个 snapshot 声明唯一的 $\mathbb Q$/numeraire/rate path；按稳定 risk-unit id 生成条件独立 base streams，再用固定 driver order、$\Lambda_t$ 与 $D_t$ 构造 PSD $R_t$ 并耦合；同一 underlying 的所有合约共享 underlying path | 不存在逐 option context override；联合 payoff 来自同一 joint process；$R_t=\Lambda_t\Lambda_t^\top+D_t$ 可精确重放；identity 与非对角 $R_t$ 切换不改变单资产边际；固定 seed 下 one-shot、append 和 replay 一致 |
+| 2 | `CommonQPricingContext` / `CommonQScenario` / `QUnderlyingDependenceSpec` | 为每个 snapshot 声明唯一的 $\mathbb Q$/numeraire/rate path；相关结构只排列 Q-measure underlying drivers，同一 underlying 的所有合约共享 state path | 不存在逐 option context override；option ids 不进入 $R_t$；联合 payoff 来自同一 joint underlying process；固定 seed 下 replay 一致 |
 | 3 | `MarketContext` / `AuthoringProvenance` split | Public 层只留 curves、calendar、timestamp、settlement 与 precision；private 层保存 generation model/engine、P/Q latent state、seed/RNG 和未舍入价格 | `solver_visible` 中不存在 DGP parameters、seed、RNG 或 generator engine；private audit 仍可完整重放 snapshot |
 | 4 | `ExchangeProfile` 与 `QuoteModel` | 加入真实 holiday/early-close、timezone、expiry/settlement、strike/tick rules，以及随 moneyness、maturity、vega、premium、liquidity 变化的 spread；补充 size、stale/missing/zero-bid 与 quality flags | 所有公开报价符合声明的 exchange profile；volume/open interest 和 liquidity state 具有跨日持续性 |
-| 5 | `CurveState` 与 richer driver blocks | 在既有 common-$\mathbb Q$ 与 `joint_dependence` 合同下支持非 flat curves、离散 dividend/corporate actions、共享 variance/regime/jump state、time-varying $R_t$ 及 spot--volatility/rate blocks | 同一 valuation timestamp 使用同一个 market-state/dependence version；边际内部相关结构不被 cross-asset coupling 改写；$\mathbb P/\mathbb Q$ 差异由显式 risk premia 描述 |
+| 5 | `CurveState` 与 richer driver blocks | 在 common-$\mathbb Q$ 与 measure-qualified underlying dependence 合同下支持非 flat curves、离散 dividend/corporate actions、共享 variance/regime/jump state、time-varying $R_t$ 及 spot--volatility/rate blocks | 同一 valuation timestamp 使用同一个 market-state/dependence version；边际内部相关结构不被 cross-asset coupling 改写；$\mathbb P/\mathbb Q$ 差异由显式 risk premia 描述 |
 | 6 | `GenerationModel` / `GenerationEngine` registry | 先保留 deterministic-smile BSM baseline，再分别加入 Heston、Bates/jump-diffusion、local-vol snapshot DGP；每个 snapshot 只选一个 canonical engine，另一个 engine 做 verifier | 不同 DGP 使用不同 `snapshot_id`；同一 snapshot/合约/时间仍只有一条市场报价；cross-engine error 在预设 tolerance 内 |
 | 7 | Scenario campaign | 扩展日期跨度、seed、calm/high-vol/earnings/jump/liquidity-stress regimes，并升级 OHLC、overnight gap、volume 与 corporate actions | manifest 记录 scenario lineage；dataset split 按 snapshot/scenario 分组，避免同一 latent world 跨 train/test 泄漏 |
 
 最小可审阅的提交顺序建议为：
 
-1. 先只实现 `OptionChainBuilder`、配置校验与 contract-id/append-invariance tests，不改变
+1. 已完成 `UnderlyingSimulator`、配置校验、private dependence persistence 与
+   append-invariance/derivative-boundary tests。
+2. 接着只实现 `OptionChainBuilder`、配置校验与 contract-id/append-invariance tests，不改变
    当前 BSM 报价公式；smoke target 可使用 3 个 expiries × 7 个固定 strikes × call/put。
-2. 实现 `CommonQPricingContext` / `CommonQScenario` / `JointDependenceSpec`，加入共同
-   $\mathbb Q$/numeraire、共享利率路径、稳定条件独立 base streams、PSD correlation
-   perturbation、同一 underlying 共享状态以及 joint-pricing consistency tests。
-3. 完成 public/private metadata migration；此后 Heston/Bates 等新 DGP 才能接入，避免把
+3. 实现 `CommonQPricingContext` / `CommonQScenario`，加入共同 $\mathbb Q$/numeraire、
+   共享利率路径与同一 underlying 共享状态；需要多资产相关时，新增独立的
+   Q-measure underlying dependence spec，而不是 derivative correlation。
+4. 完成 public/private metadata migration；此后 Heston/Bates 等新 DGP 才能接入，避免把
    richer latent parameters 暴露给 Solver。
 
-因此第一项代码工作应是 `OptionChainBuilder`，第二项是 common-$\mathbb Q$ 联合定价上下文
-与相关结构合同；pricing model registry 是建立好市场数据结构、统一定价算子和权限边界
-之后的工作。
+因此 underlying correlation 的第一阶段已经完成；下一项代码工作是
+`OptionChainBuilder`，随后才是 common-$\mathbb Q$ pricing context。Pricing model registry
+仍在市场数据结构、统一定价算子和权限边界建立之后推进。
 
 常用的只读 DuckDB 查询集中保存在
 [`snapshots/public/sql_query/`](snapshots/public/sql_query/README.md)，包括 snapshot 摘要、

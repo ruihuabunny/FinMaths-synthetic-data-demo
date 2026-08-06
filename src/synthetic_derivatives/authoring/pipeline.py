@@ -79,6 +79,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         self.connection.execute("BEGIN TRANSACTION")
         try:
             self._ensure_snapshot_is_editable()
+            self._assert_underlying_dependence_is_compatible()
             self.connection.execute(
                 """
                 INSERT INTO metadata.generation_runs (
@@ -234,6 +235,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
     def _generate_incremental_rows(
         self, dates: list[date], run_id: str
     ) -> dict[str, dict[str, int]]:
+        underlying_dependence_row = self.generator.underlying_dependence_row(run_id)
         underlying_master_rows = [
             self.generator.underlying_master_row(underlying, run_id)
             for underlying in self.config.underlyings
@@ -244,6 +246,13 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             for template in self.config.option_templates
         ]
         stats = {
+            "underlying_dependence": merge_rows(
+                self.connection,
+                TABLE_SPECS["underlying_dependence"],
+                [underlying_dependence_row]
+                if underlying_dependence_row is not None
+                else [],
+            ),
             "underlyings": merge_rows(
                 self.connection, TABLE_SPECS["underlyings"], underlying_master_rows
             ),
@@ -379,7 +388,52 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         )
         return stats
 
+    def _assert_underlying_dependence_is_compatible(self) -> None:
+        columns = TABLE_SPECS["underlying_dependence"].columns[:-1]
+        existing_rows = self.connection.execute(
+            f"""
+            SELECT {', '.join(columns)}
+            FROM market.underlying_dependence
+            WHERE snapshot_id = ?
+            ORDER BY dependence_spec_id
+            """,
+            [self.config.snapshot_id],
+        ).fetchall()
+        expected_row = self.generator.underlying_dependence_row(
+            "compatibility-check"
+        )
+        if expected_row is None:
+            if existing_rows:
+                raise ValueError(
+                    "underlying_simulation cannot be removed within one snapshot; "
+                    "create a new snapshot instead"
+                )
+            return
+
+        expected_logical_row = tuple(expected_row[:-1])
+        if existing_rows:
+            if len(existing_rows) != 1 or tuple(existing_rows[0]) != expected_logical_row:
+                raise ValueError(
+                    "underlying_simulation cannot change within one snapshot; "
+                    "create a new snapshot instead"
+                )
+            return
+
+        existing_path_count = self.connection.execute(
+            """
+            SELECT count(*) FROM market.underlying_daily
+            WHERE snapshot_id = ?
+            """,
+            [self.config.snapshot_id],
+        ).fetchone()[0]
+        if existing_path_count:
+            raise ValueError(
+                "underlying_simulation cannot be added to an existing path; "
+                "create a new snapshot instead"
+            )
+
     def _assert_quality_gates(self) -> None:
+        self._assert_underlying_dependence_is_compatible()
         checks = {
             "orphan_option_contract": """
                 SELECT count(*) FROM market.option_contracts option_contract
@@ -444,8 +498,9 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             INSERT INTO metadata.snapshot_revisions (
                 snapshot_id, revision, run_id, underlying_count,
                 option_contract_count, underlying_daily_count,
-                option_daily_count, pricing_metadata_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                option_daily_count, pricing_metadata_count,
+                underlying_dependence_count
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 self.config.snapshot_id,
@@ -456,6 +511,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 counts["underlying_daily_count"],
                 counts["option_daily_count"],
                 counts["pricing_metadata_count"],
+                counts["underlying_dependence_count"],
             ],
         )
         self.connection.execute(
@@ -498,6 +554,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             "underlying_daily_count": "market.underlying_daily",
             "option_daily_count": "market.option_daily",
             "pricing_metadata_count": "market.pricing_metadata",
+            "underlying_dependence_count": "market.underlying_dependence",
         }
         return {
             name: self.connection.execute(
@@ -532,6 +589,9 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             "underlying_daily_count": summary["underlying_daily_count"],
             "option_daily_count": summary["option_daily_count"],
             "pricing_metadata_count": summary["pricing_metadata_count"],
+            "underlying_dependence_count": summary[
+                "underlying_dependence_count"
+            ],
         }
         temporary_path.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
