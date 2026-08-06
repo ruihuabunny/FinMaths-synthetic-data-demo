@@ -1,36 +1,84 @@
 # FinMaths Synthetic Data Demo
 
-面向 LLM 训练的确定性合成金融衍生品数据项目。项目目标是把市场数据生成、任务定义、模型解题、独立校验和训练数据导出分成清晰的边界，并保证每个样本都可以通过固定配置与 seed 重放。
+面向 LLM 训练的可重放合成金融衍生品数据项目。项目把市场数据生成、任务定义、模型解题、
+独立校验和训练数据导出划分为不同权限边界；固定完整配置、版本、seed、随机流与数值约定
+后，同一 market snapshot 可以确定性重放。
 
-当前已完成 authoring pipeline 的第一版、correlated-underlying simulator 第一阶段以及
-带流动性筛选和报价噪声的 `OptionChainBuilder`：
-QuantLib 生成 underlying 路径和 European option 报价，DuckDB 事务增量写入 snapshot；
-config `1.2.0` 可以用 factor loading $\Lambda$ 派生 $D$ 与 PSD correlation matrix $R$，
-并只对物理测度 $\mathbb P$ 下的 underlying close shocks 做联合耦合；config `1.3.0`
-则以 expiry × listing-moneyness × call/put 网格生成稳定 option contracts，挂牌时把
-moneyness 转为绝对 strike 后冻结；config `1.4.0` 将网格视为候选集，通过不可变的
-expiry/moneyness liquidity rule 只挂牌流动性较好的近月、近价合约，并以可重放的 quote
-noise 独立扰动 bid/ask half-spread。Config `1.5.0` 为当前 metals snapshot 抽样并冻结
-piecewise-linear $\mathbb P$-measure drift/volatility 节点，声明 money-market numeraire 下
-drift-only Girsanov mapping，以相同 deterministic diffusion 在 $\mathbb Q$ 下定价，并从
-canonical mid 调用 QuantLib 反解 IV。Option/derivative pricing 不读取 $\mathbb P$ 相关矩阵。
-仓库同时包含最小可运行的六维 `task_space` registry、受约束
-`mutation` engine 和 adaptive `curriculum` scheduler；Solver、verifier 与训练数据构建
-尚未实现。
+当前可运行主线使用 QuantLib 生成物理测度 $\mathbb P$ 下的 underlying 路径和风险中性
+测度 $\mathbb Q$ 下的 European option 报价，再由 DuckDB 事务化、增量地保存 snapshot。
+仓库内置的 public metals snapshot 已冻结，包含 22 个 underlying、65 个 business dates、
+1,232 个静态期权合约和 60,368 条有效期内报价。
 
-当前 single-asset vanilla baseline 已有 snapshot-wide $\mathbb Q$/numeraire/rate-path
-identity；多资产 $\mathbb Q$ dependence 与 basket/index/spread joint pricing 仍是后续
-pricing-context 工作。届时相关结构应定义在 $\mathbb Q$-measure underlying/model drivers
-上，而不是定义在 derivative contracts 之间。
+## 当前状态
+
+| 能力 | 状态 | 说明 |
+|:---|:---:|:---|
+| Authoring pipeline | 已实现 | 支持 create、range sync、append、NOOP、quality gates、revision、manifest 与 freeze。 |
+| $\mathbb P$-measure underlying simulation | 已实现 | 分段线性 drift/volatility 按真实日历区间精确缩约；factor loading 只耦合 underlying shocks。 |
+| Single-asset $\mathbb Q$ pricing | 已实现 | 共同 measure/numeraire/rate-path identity；canonical mid 由 QuantLib 反解 IV 并写入 private audit。 |
+| Static option chain | 已实现 | 固定 listing strike、到期日/价内外筛选、可重放 bid/ask spread noise。 |
+| Task space / mutation / curriculum | 最小版本已实现 | 六维 compatibility registry、确定性 lineage 与 adaptive sampling weights。 |
+| Solver / trusted verifier / dataset export | 未实现 | 目录边界已预留，但还没有可运行实现。 |
+| 多资产 $\mathbb Q$ dependence 与 joint payoff | 未实现 | Basket/index/spread 不能由当前 single-asset baseline 推断或定价。 |
+
+当前的 volatility mapping 是一个明确的 baseline 假设：Girsanov change of measure 只改变
+drift，并令确定性扩散函数满足 $\sigma_Q(t)=\sigma_P(t)$。这不是“physical volatility
+按定义等于 implied volatility”，也不是可推广到随机波动率、局部波动率或 jump model 的
+通用结论。
+
+## 快速开始
+
+要求 Python `3.12.x`、`make`，并在类 Unix 环境中运行。依赖锁定为 QuantLib `1.39`、
+DuckDB `1.5.5` 和 pytest `8.4.1`。
+
+```bash
+make install
+make snapshot-summary
+make test
+```
+
+`snapshot-summary` 只读 checked-in 的 frozen snapshot。若要生成或追加数据，默认目标位于
+`/tmp`，不会改写仓库内的 public DuckDB：
+
+```bash
+make smoke
+make append-day
+```
+
+也可以显式指定临时数据库：
+
+```bash
+DATABASE=/tmp/my-synthetic-market.duckdb make smoke
+.venv/bin/python scripts/edit_snapshot.py \
+  --database /tmp/my-synthetic-market.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json \
+  summary
+```
+
+常用的只读 SQL 位于
+[`snapshots/public/sql_query/`](snapshots/public/sql_query/README.md)。完整 CLI、schema、
+增量规则与冻结语义见 [Authoring Pipeline](docs/authoring_pipeline.md)；authoring 包的模块边界
+见 [`src/synthetic_derivatives/authoring/README.md`](src/synthetic_derivatives/authoring/README.md)。
+
+## 阅读导航
+
+- 想运行项目：从上面的“快速开始”和 [public tests](tests/public/README.md) 开始。
+- 想修改 generator：先读 [authoring package](src/synthetic_derivatives/authoring/README.md) 和
+  [unit-test invariants](tests/unit/README.md)。
+- 想理解完整数学与训练框架：读
+  [框架设计文档](docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md)。
+- 想查看可执行查询：读 [public SQL 说明](snapshots/public/sql_query/README.md)。
 
 ## 设计流程
 
 ```text
-Authoring
+已实现：Authoring
   -> 生成并冻结 market snapshot（correlated profile 同时冻结 underlying dependence spec）
   -> 注册六维 task variant 与 compatibility decision
   -> Mutation Engine 生成带 lineage 的 candidate pool
   -> Curriculum Scheduler 按 mastery 选择训练分布
+
+规划中：
   -> Solver 手工计算 IV / Greeks / smile
   -> Trusted verifier 独立复算并执行 exact equality
   -> 记录 ORM outcome 与 agent trajectory
@@ -42,6 +90,11 @@ Authoring、Solver 和 Trusted verifier 是三个不同的权限边界：
 - Authoring 可以使用固定版本的 QuantLib 和固定 seed 生成市场数据。
 - Solver 只能读取公开快照与合同，不得调用现成的定价、IV、Greeks 或 smile API。
 - Trusted verifier 可以使用固定版本的金融与数值包独立复算，但不能向 Solver 暴露 oracle 或 hidden tests。
+
+六维坐标 $\tau=(L,P,M,A,D,R)$ 分别表示 reasoning、product、model、numerical method、
+data/tool 和 risk output。坐标必须先通过 compatibility registry；不能把六个轴无条件做
+Cartesian product。各 level 的完整含义见
+[六维 Task Grammar](docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md#六维-task-grammar-与难度空间)。
 
 ## Public metals snapshot
 

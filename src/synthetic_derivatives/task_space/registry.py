@@ -16,6 +16,8 @@ from synthetic_derivatives.task_space.models import (
 
 @dataclass(frozen=True)
 class CompatibilityDecision:
+    """Result of matching coordinates against the ordered compatibility rules."""
+
     compatible: bool
     rule_id: str | None
     task_family_id: str | None
@@ -24,12 +26,20 @@ class CompatibilityDecision:
 
 @dataclass(frozen=True)
 class CompatibilityRule:
+    """One product-family rule with optional selectors on each task axis.
+
+    An empty selector is a wildcard.  Non-empty selectors enumerate all values
+    accepted on that axis.
+    """
+
     rule_id: str
     task_family_id: str
     coordinates: dict[str, frozenset[int]]
     reason: str
 
     def matches(self, coordinates: TaskCoordinates) -> bool:
+        """Return whether all non-wildcard selectors admit ``coordinates``."""
+
         return all(
             not allowed or getattr(coordinates, axis) in allowed
             for axis, allowed in self.coordinates.items()
@@ -40,6 +50,13 @@ class TaskSpaceRegistry:
     """Validate coordinate bounds and product/model/method compatibility."""
 
     def __init__(self, raw: Mapping[str, Any]):
+        """Validate and compile one task-space registry mapping.
+
+        Rule order is preserved because :meth:`evaluate` returns the first
+        matching rule.  Config authors should therefore place a more specific
+        overlapping rule before a broader one.
+        """
+
         if raw.get("schema_version") != "1.0.0":
             raise ValueError("unsupported task-space schema_version")
         self.registry_id = str(raw["registry_id"])
@@ -67,6 +84,8 @@ class TaskSpaceRegistry:
 
     @classmethod
     def from_path(cls, path: str | Path) -> "TaskSpaceRegistry":
+        """Load a UTF-8 JSON registry from ``path``."""
+
         with Path(path).open(encoding="utf-8") as handle:
             raw = json.load(handle)
         if not isinstance(raw, dict):
@@ -74,6 +93,8 @@ class TaskSpaceRegistry:
         return cls(raw)
 
     def _parse_rule(self, raw: Mapping[str, Any]) -> CompatibilityRule:
+        """Normalize omitted axis selectors to wildcard sets."""
+
         selectors = raw["coordinates"]
         unknown = set(selectors) - set(AXES)
         if unknown:
@@ -90,6 +111,8 @@ class TaskSpaceRegistry:
         )
 
     def _bounds_error(self, coordinates: TaskCoordinates) -> str | None:
+        """Describe the first out-of-range axis, if any."""
+
         for axis, value in coordinates.to_dict().items():
             lower, upper = self.bounds[axis]
             if not lower <= value <= upper:
@@ -99,6 +122,13 @@ class TaskSpaceRegistry:
     def evaluate(
         self, coordinates: TaskCoordinates, task_family_id: str | None = None
     ) -> CompatibilityDecision:
+        """Return the first compatibility decision without raising.
+
+        ``task_family_id`` narrows matching to one family when supplied.  A
+        coordinate may be within global bounds and still be incompatible when
+        no product/model/method rule admits the combination.
+        """
+
         bounds_error = self._bounds_error(coordinates)
         if bounds_error:
             return CompatibilityDecision(False, None, task_family_id, bounds_error)
@@ -120,10 +150,14 @@ class TaskSpaceRegistry:
     def require_compatible(
         self, coordinates: TaskCoordinates, task_family_id: str | None = None
     ) -> CompatibilityDecision:
+        """Return a compatible decision or raise ``ValueError`` with its reason."""
+
         decision = self.evaluate(coordinates, task_family_id)
         if not decision.compatible:
             raise ValueError(f"incompatible task coordinates: {decision.reason}")
         return decision
 
     def validate_task(self, task: TaskSpec) -> CompatibilityDecision:
+        """Validate a task against the rule for its declared family."""
+
         return self.require_compatible(task.coordinates, task.task_family_id)

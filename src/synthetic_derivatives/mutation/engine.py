@@ -12,6 +12,8 @@ from synthetic_derivatives.task_space import AXES, TaskSpaceRegistry, TaskSpec
 
 @dataclass(frozen=True)
 class MutationOperator:
+    """Axes, cardinality, and direction allowed by one mutation operation."""
+
     operator_id: str
     allowed_axes: frozenset[str]
     max_changed_axes: int
@@ -20,6 +22,8 @@ class MutationOperator:
 
 @dataclass(frozen=True)
 class MutationLineage:
+    """Replayable record connecting an immutable parent and child task."""
+
     parent_task_id: str
     child_task_id: str
     operator: str
@@ -30,6 +34,8 @@ class MutationLineage:
     compatibility_rule_id: str
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the JSON-ready lineage record."""
+
         return {
             "parent_task_id": self.parent_task_id,
             "child_task_id": self.child_task_id,
@@ -44,10 +50,14 @@ class MutationLineage:
 
 @dataclass(frozen=True)
 class MutatedTask:
+    """A generated child task bundled with its required lineage."""
+
     task: TaskSpec
     lineage: MutationLineage
 
     def to_dict(self) -> dict[str, Any]:
+        """Return the JSON-ready child and lineage payload."""
+
         return {"task": self.task.to_dict(), "lineage": self.lineage.to_dict()}
 
 
@@ -55,6 +65,8 @@ class MutationEngine:
     """Change declared task coordinates without changing scheduler state."""
 
     def __init__(self, raw: Mapping[str, Any], registry: TaskSpaceRegistry):
+        """Validate operator definitions and bind their compatibility registry."""
+
         if raw.get("schema_version") != "1.0.0":
             raise ValueError("unsupported mutation schema_version")
         self.engine_id = str(raw["engine_id"])
@@ -89,6 +101,8 @@ class MutationEngine:
         path: str | Path,
         registry: TaskSpaceRegistry,
     ) -> "MutationEngine":
+        """Load a UTF-8 JSON mutation config and bind ``registry``."""
+
         with Path(path).open(encoding="utf-8") as handle:
             raw = json.load(handle)
         if not isinstance(raw, dict):
@@ -108,7 +122,12 @@ class MutationEngine:
         snapshot_id: str | None = None,
         snapshot_revision: int | None = None,
     ) -> MutatedTask:
-        """Create one child and its reproducible lineage record."""
+        """Create one compatible child and its reproducible lineage record.
+
+        ``changes`` supplies the new coordinate values; this version does not
+        sample them.  ``seed`` is part of child identity and lineage, but does
+        not influence the supplied values in the current implementation.
+        """
 
         if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
             raise ValueError("mutation seed must be a non-negative integer")
@@ -154,6 +173,9 @@ class MutationEngine:
         coordinate_id = "-".join(
             f"{axis}{value}" for axis, value in coordinates.to_dict().items()
         )
+        # Encode every permitted identity override, not just coordinates.  Two
+        # children that point at different snapshots or methods must never
+        # collapse to the same task ID.
         mutation_id = "-".join(
             (
                 self.engine_id,
@@ -189,6 +211,8 @@ class MutationEngine:
 
     @staticmethod
     def _validate_direction(parent, child, changed_axes, operator) -> None:
+        """Enforce monotone operators on every axis that actually changed."""
+
         if operator.direction == "any":
             return
         for axis in changed_axes:
