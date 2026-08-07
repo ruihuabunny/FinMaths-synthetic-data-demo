@@ -1,4 +1,9 @@
-"""DuckDB schema and transactional incremental insert primitives."""
+"""Define DuckDB storage, visibility views, and deterministic MERGE contracts.
+
+Schema 2.4 still creates the legacy ``option_pricing_audit`` table so existing
+databases remain readable.  Current authoring does not include that table in
+``TABLE_SPECS`` and therefore cannot stage new IV-answer rows into it.
+"""
 
 from __future__ import annotations
 
@@ -83,8 +88,8 @@ CREATE TABLE IF NOT EXISTS market.underlyings (
     physical_volatility DOUBLE NOT NULL CHECK (physical_volatility > 0),
     risk_free_rate DOUBLE NOT NULL,
     dividend_yield DOUBLE NOT NULL,
-    -- Deprecated latent input for config <=1.4. Config 1.5 derives quote IV from
-    -- the canonical price and leaves this private legacy column NULL.
+    -- Deprecated latent input for config <=1.4. Config 1.5+ derives Q pricing
+    -- volatility from the declared diffusion and leaves this legacy column NULL.
     base_implied_volatility DOUBLE CHECK (
         base_implied_volatility IS NULL OR base_implied_volatility > 0
     ),
@@ -208,8 +213,9 @@ CREATE TABLE IF NOT EXISTS market.option_daily (
     PRIMARY KEY (snapshot_id, date, option_id)
 );
 
--- Private authoring audit. The derived quote IV is intentionally absent from
--- solver_visible.option_daily and can be reconstructed from its canonical mid.
+-- Legacy schema-2.4 authoring table. Current pipelines do not solve IV or add
+-- rows here; existing snapshots retain historical rows without exposing them
+-- through solver_visible views.
 CREATE TABLE IF NOT EXISTS market.option_pricing_audit (
     snapshot_id VARCHAR NOT NULL,
     date DATE NOT NULL,
@@ -298,6 +304,10 @@ class TableSpec:
     keys: tuple[str, ...]
 
 
+# Only tables produced by the current authoring contract belong here.  The
+# schema-retained option_pricing_audit table is intentionally absent: replay
+# compares current materialized rows, while manifest counts can still report
+# historical audit rows in a legacy database.
 TABLE_SPECS = {
     "underlying_dependence": TableSpec(
         "market.underlying_dependence",
@@ -359,17 +369,6 @@ TABLE_SPECS = {
             "strike", "expiry", "exercise_style", "settlement_type",
             "contract_multiplier", "bid", "ask", "mid", "settlement_price",
             "volume", "open_interest", "generated_run_id",
-        ),
-        ("snapshot_id", "date", "option_id"),
-    ),
-    "option_pricing_audit": TableSpec(
-        "market.option_pricing_audit",
-        (
-            "snapshot_id", "date", "option_id", "risk_neutral_measure_id",
-            "numeraire_id", "rate_path_id", "measure_change",
-            "volatility_mapping", "q_effective_volatility",
-            "theoretical_price", "canonical_mid", "implied_volatility",
-            "iv_status", "iv_error", "iv_solver", "generated_run_id",
         ),
         ("snapshot_id", "date", "option_id"),
     ),

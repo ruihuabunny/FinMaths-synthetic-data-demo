@@ -7,6 +7,19 @@ Task variant 可以进一步收紧权限，但不得扩大这里的允许范围�
 在 dependency lock、trusted DuckDB adapter、import/API audit 和 sandbox tests 全部落位前，不得把
 Solver environment 标记为 production-ready。
 
+## 当前仓库状态
+
+| 部件 | 当前状态 | 含义 |
+|:---|:---:|:---|
+| 本 README | 目标合同 | 描述最终允许的 distributions、imports、tools 与 APIs。 |
+| [`requirements.lock`](requirements.lock) | 部分实现 | 目前只锁定 `duckdb==1.5.5`，尚未包含下列 NumPy/Pandas 及其依赖。 |
+| Trusted DuckDB adapter | 未实现 | 现在没有可供不受信 Solver 使用的 `query_public_child_v1`。 |
+| Import/API audit | 未实现 | README 中的 allow/deny 规则尚未由 runtime gate 强制执行。 |
+| Sandbox acceptance tests | 未实现 | 不能仅凭依赖文件推断网络、filesystem 或 extension 已隔离。 |
+
+因此本目录当前不能单独构建可运行的 F2A Solver。仓库根目录的 `.venv` 是 authoring/test
+环境，包含 QuantLib，不能复用为 Solver image，也不能作为权限隔离通过的证据。
+
 ## F2A target distributions
 
 Python 固定为 `3.12.x`。F2A Solver image 计划只安装以下第三方 distributions，包括显式锁定的
@@ -49,6 +62,9 @@ itertools
 raw `DuckDBPyConnection`、创建新 connection、注册 UDF 或直接调用 DuckDB module-level API。
 Import audit 检查的是 Solver 源码中的 direct imports；允许包的内部传递 imports 不计作 Solver
 主动扩权。
+
+这里的列表是源码 capability contract，不代表当前 lock 已经安装对应 distribution。
+在 NumPy/Pandas 被锁定并通过 import/API audit 之前，依赖它们的 Solver 代码仍不可发布。
 
 ## Data and tool allowlist
 
@@ -130,3 +146,13 @@ DuckDB 自身的安全设置属于 defense in depth，不能替代只读 mount�
 - 每题 query count 不超过 contract，DataFrame/arrays 不含 private columns；
 - fixed public child 在 SQL-to-memory 路径上可 deterministic replay；
 - NumPy/Pandas 实现和 trusted verifier 产生相同 canonical F2A ORM answer。
+
+## 变更规则
+
+- 新增 distribution、direct import、tool 或 API 都是权限扩大，必须同时更新 lock、runtime
+  gate、正向测试和至少一个拒绝该能力的负向测试。
+- 版本升级必须重新冻结完整 transitive dependency set；不能只改本文中的版本号。
+- Solver-visible schema 改动必须同步 query adapter 的列 allowlist 和数据泄漏测试。
+- Authoring/verifier 依赖不得复制进本目录；尤其不能为了方便安装 QuantLib 或现成
+  option/arbitrage package。
+- Task variant 可以减少权限，但任何 variant 都不能覆盖本文件扩大权限。

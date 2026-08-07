@@ -19,8 +19,15 @@
 | Seed | `20260806` |
 | Business-date range | `2026-08-03` through `2026-10-30` |
 
-对应的可重放配置是
+对应的历史生成合同是
 [`configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json`](../../configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json)。
+该 config 带有已经退役的 authoring-time IV solver；当前代码只允许读取这份 legacy identity，
+不允许用它重新生成、追加或再次冻结。
+
+这份 public DB 只用于公开 schema/query 示例和明确针对 checked-in snapshot 的回归测试。
+它不是 active development database 的 fallback：默认开发、数据检查和端到端验证仍应使用
+`snapshots/generated/quantlib_bsm_metals_option_chain_smoke_v1_20260807.duckdb`；若该文件缺失，
+应报告缺失而不是改连本文件。
 
 ## Logical size
 
@@ -58,7 +65,7 @@ DuckDB 包含三个 SQL schemas：
 | `market.option_contracts` | Authoring | snapshot/option | 1,232 个 frozen listed contracts 与 listing provenance。 |
 | `market.underlying_dependence` | Private provenance | snapshot/dependence spec | P-measure $\Lambda/D/R$ 及 driver order。 |
 | `market.option_chain_specs` | Private provenance | snapshot/chain | Candidate grid、liquidity filter、quote model 与 listing/roll rules。 |
-| `market.option_pricing_audit` | Private provenance | snapshot/date/option | Q identity/mapping、effective volatility、未舍入理论价、canonical mid 和 QuantLib IV 反解状态。 |
+| `market.option_pricing_audit` | Legacy private provenance | snapshot/date/option | 历史 Q identity/mapping、effective volatility、未舍入理论价、canonical mid 和 QuantLib IV 反解状态；当前 pipeline 不写入。 |
 | `metadata.snapshots` | Audit | snapshot | Schema/config/generator version、status、seed 和 revision。 |
 | `metadata.generation_runs` | Audit | run | Operation、date range、table stats、status 和 error。 |
 | `metadata.snapshot_revisions` | Audit | snapshot/revision | 每个 revision 的逻辑 row counts。 |
@@ -123,7 +130,7 @@ Moneyness 只在 listing date 用 initial spot 转换一次，并以 0.5 strike 
 `ROUND_HALF_EVEN` 冻结 absolute strike。后续 spot 变化不会重新定 strike，也不会让
 合约动态进出 liquidity band。
 
-## Q-measure BSM pricing, IV audit, and quote noise
+## Q-measure BSM pricing, legacy IV audit, and quote noise
 
 全部 option mid 使用：
 
@@ -144,12 +151,14 @@ $\sigma_{Q,\mathrm{eff}}=\sqrt{(T-t)^{-1}\int_t^T\sigma_Q^2(u)du}$ 在 European 
 到 `[0.5, 1.5]`。Noise 只作用于 half-spread，不修改 BSM mid、volatility、discounting
 或 underlying path，且所有 rows 满足 `0 <= bid <= mid <= ask`。
 
-每条 quote 都在 private `market.option_pricing_audit` 中保存未舍入理论价，并用
+这份已有 schema 2.4 snapshot 的每条 quote 都在 private
+`market.option_pricing_audit` 中保存未舍入理论价，并用
 `QuantLib.VanillaOption.impliedVolatility` 对实际 canonical mid 反解 IV（bracket
-`[1e-6, 4.0]`，accuracy `1e-12`，最多 1,000 evaluations）。59,860 条为 `CONVERGED`；
-508 条临近到期、深度价内 quote 因 8 位 mid 落在所声明有限-vol bracket 的可达价格区间
+`[1e-6, 4.0]`，accuracy `1e-12`，最多 1,000 evaluations）。59,836 条为 `CONVERGED`；
+532 条临近到期、深度价内 quote 因 8 位 mid 落在所声明有限-vol bracket 的可达价格区间
 之外而记为 `NO_FINITE_IV`，不会用 hidden pricing volatility 填充假答案。该 audit table
-没有 solver-visible view。
+没有 solver-visible view。当前 authoring pipeline 不再生成这些 IV audit rows；它们只是
+这份 checked-in legacy snapshot 的历史内容。
 
 当前验收结果：put-call parity 最大绝对误差约 `1.0e-8`（来自 8 位价格量化），贴现
 European call/put bounds 无违规。这里的 no-arbitrage 来自合法 BSM pricing model、共同
@@ -181,7 +190,7 @@ chain、spot moneyness、pricing context 和 generation audit 查询。默认返
 | `option_spot_moneyness.sql` | 56 | Solver-safe |
 | `option_pricing_context.sql` | 56 | Solver-safe |
 | `option_iv_task_inputs.sql` | 56 | Solver-safe |
-| `option_iv_authoring_answers.sql` | 56 | Authoring/trusted |
+| `option_iv_authoring_answers.sql` | 56 | Legacy trusted |
 | `generation_audit.sql` | 1 | Authoring/audit |
 | `underlying_dynamics_authoring_audit.sql` | 22 | Authoring/audit |
 
@@ -231,23 +240,25 @@ FROM market.option_contracts;
 expiry/moneyness 只保存在 `market.option_chain_specs`，不会作为空壳 contracts 出现在
 master table。
 
-## Rebuild without mutating the public file
+## Build the successor without mutating the public file
 
-Public snapshot 已冻结。重放时写到新路径：
+Public snapshot 已冻结。当前 pipeline 不再生成它的 legacy IV audit，因此必须
+使用 successor config 的新 identity 并写到新路径：
 
 ```bash
 .venv/bin/python scripts/edit_snapshot.py \
-  --database /tmp/metals-liquid-tdgbm-q-v2.duckdb \
-  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json \
+  --database /tmp/metals-liquid-tdgbm-q-v4.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json \
   create-smoke
 
 .venv/bin/python scripts/edit_snapshot.py \
-  --database /tmp/metals-liquid-tdgbm-q-v2.duckdb \
-  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json \
+  --database /tmp/metals-liquid-tdgbm-q-v4.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json \
   freeze
 ```
 
-固定 config、seed 和 RNG namespace 会重放相同 solver-visible market rows。若修改
+新 config 保留相同的市场模型和 RNG 法则，但由于 authoring output contract 已改变，
+使用独立的 `DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v4` identity。若修改
 underlyings、physical function nodes、P-to-Q mapping、$\Lambda$、liquidity rule、quote
 model 或已挂牌合约，必须使用新的
 `snapshot_id`，不能在现有逻辑 snapshot 内改写。

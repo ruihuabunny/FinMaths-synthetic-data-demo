@@ -1,6 +1,6 @@
 -- Generated development snapshot summary; edit snapshot_id for another snapshot.
 WITH parameters(snapshot_id) AS (
-    VALUES ('DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v1')
+    VALUES ('DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2')
 ),
 underlying_stats AS (
     SELECT
@@ -75,9 +75,10 @@ SELECT
     option_stats.quoted_option_count,
     option_stats.option_daily_count,
     metadata_stats.pricing_metadata_count,
-    iv_audit_stats.option_pricing_audit_count,
-    iv_audit_stats.converged_iv_count,
-    iv_audit_stats.no_finite_iv_count
+    coalesce(iv_audit_stats.option_pricing_audit_count, 0)
+        AS option_pricing_audit_count,
+    coalesce(iv_audit_stats.converged_iv_count, 0) AS converged_iv_count,
+    coalesce(iv_audit_stats.no_finite_iv_count, 0) AS no_finite_iv_count
 FROM metadata.snapshots AS snapshot
 JOIN parameters
   ON parameters.snapshot_id = snapshot.snapshot_id
@@ -87,6 +88,6 @@ JOIN option_stats
   ON option_stats.snapshot_id = snapshot.snapshot_id
 JOIN metadata_stats
   ON metadata_stats.snapshot_id = snapshot.snapshot_id
-JOIN iv_audit_stats
+LEFT JOIN iv_audit_stats
   ON iv_audit_stats.snapshot_id = snapshot.snapshot_id
 ORDER BY snapshot.snapshot_id;

@@ -1,6 +1,6 @@
 -- Authoring-only query: inspect the candidate grid, liquidity rule and quote model.
 WITH parameters(snapshot_id) AS (
-    VALUES ('DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v1')
+    VALUES ('DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2')
 ),
 contract_stats AS (
     SELECT

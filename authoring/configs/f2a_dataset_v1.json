@@ -2,8 +2,8 @@
   "schema_version": "1.0.0",
   "dataset_config_id": "f2a-dataset-v1",
   "status": "DRAFT",
-  "parent_generator_config_id": "quantlib-randomized-tdgbm-metals-f2a-parent-v1",
-  "parent_snapshot_id": "DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v1",
+  "parent_generator_config_id": "quantlib-randomized-tdgbm-metals-f2a-parent-v2",
+  "parent_snapshot_id": "DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2",
   "parent_required_status": "FROZEN",
   "task_family_id": "bsm_arbitrage_finding_f2a_v1",
   "variant_id": "bsm-arbitrage-finding-f2a-v1",
@@ -50,7 +50,7 @@
     ]
   },
   "artifacts": {
-    "public_child_root": "snapshots/generated/f2a",
+    "public_child_root": "snapshots/generated/f2a/children",
     "private_lineage_root": "snapshots/private/f2a",
     "public_task_manifest_root": "datasets/manifests/tasks/f2a",
     "split_manifest": "datasets/manifests/splits/f2a_v1.json",

@@ -19,7 +19,7 @@
 |:---|:---|
 | [`test_authoring_smoke.py`](test_authoring_smoke.py) | 5-underlying baseline、初次生成、NOOP rerun、append 单日、legacy additive underlying/option template、freeze 和 failed-run audit。 |
 | [`test_authoring_template.py`](test_authoring_template.py) | Checked-in QuantLib template 可运行、deterministic time functions 写入 metadata、one-shot/append equality 和 existing-definition behavior。 |
-| [`test_snapshot_schema.py`](test_snapshot_schema.py) | `solver_visible` 三个 views 覆盖 framework 字段，以及 checked-in DuckDB 与 manifest 的 status/revision/counts 一致。 |
+| [`test_snapshot_schema.py`](test_snapshot_schema.py) | `solver_visible` 三个 views、checked-in DuckDB/manifest identity 与 BSM bounds/parity；另验证 config 1.6 使用新 identity 且不生成 IV audit。 |
 | [`test_sql_queries.py`](test_sql_queries.py) | `snapshots/public/sql_query` 文件集合、只读约束、DuckDB 可执行性和固定结果行数。 |
 
 ## Public contract
@@ -60,9 +60,14 @@ Public pipeline 必须满足：
 Checked-in snapshot 的 manifest 位于
 [`quantlib_bsm_smoke_v1.manifest.json`](../../snapshots/public/quantlib_bsm_smoke_v1.manifest.json)。
 更新 snapshot 时必须同步 status、revision、日期范围和各表 row counts。
-当前逻辑 snapshot 是 config `1.5.0` 的 22-metal、65-business-day liquid option-chain
-profile，包含 sampled-and-frozen physical functions、Q pricing contract 和 private
-canonical-mid IV audit；legacy 5-underlying config 只服务快速 incremental regression tests。
+当前逻辑 snapshot 是 config `1.5.0` materialize 的 legacy 22-metal、65-business-day liquid
+option-chain profile，包含 sampled-and-frozen physical functions、Q pricing contract 和
+private canonical-mid IV audit。当前 authoring config `1.6.0` 使用新的 v4 identity，并验证
+不再写入 IV answers；5-underlying config 只服务快速 incremental regression tests。
+
+根级约定把 generated v3 DRAFT 设为一般开发检查的 active database；本目录是一个明确例外，
+因为这些 tests 的目标就是 checked-in public contract。不得把这一例外扩展为应用代码或其他
+测试在 active DB 缺失时静默 fallback 到 public file。
 
 ## Public SQL queries
 
@@ -97,6 +102,8 @@ SQL 中的 `generation_audit.sql` 是 authoring audit 查询，不表示对应�
 - 新字段先判断属于 solver-visible market fact 还是 private authoring provenance。
 - 新增 schema/table 时补充 visibility test，明确“应出现”和“不应出现”的对象。
 - 不修改 checked-in snapshot，除非任务明确要求重新发布 snapshot 与 manifest。
+- Legacy v3 config 可用于加载/identity assertions，但当前 pipeline 的写操作应被拒绝；新
+  authoring behavior 使用 config 1.6/v4 和 `tmp_path`。
 - 大规模压力测试保留可运行 config；常规 public suite 应控制运行时间和临时文件大小。
 
 ## 完成检查

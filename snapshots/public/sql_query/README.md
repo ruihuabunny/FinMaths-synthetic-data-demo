@@ -14,7 +14,7 @@
 | `option_spot_moneyness.sql` | 56 rows | Solver-safe | 同一 chain 加当日 spot 和 `strike / spot_close`。 |
 | `option_pricing_context.sql` | 56 rows | Solver-safe | 同一 chain 联表 spot、rate/dividend、day count、BSM model/engine 和 Q identity；不返回完整 latent dynamics JSON。 |
 | `option_iv_task_inputs.sql` | 56 rows | Solver-safe | IV agent task 输入：canonical mid、BSM inputs、Q identity、时间与 root-solver contract，不含答案或生成 volatility。 |
-| `option_iv_authoring_answers.sql` | 56 rows | Authoring/trusted | 与上述默认 slice 对齐的 QuantLib IV、状态、raw price 和 Q effective volatility；只供 trusted verifier。 |
+| `option_iv_authoring_answers.sql` | 56 rows | Legacy trusted | 读取该 schema-2.4 snapshot 已有的历史 QuantLib IV audit；当前 authoring pipeline 不再生成它。 |
 | `generation_audit.sql` | 1 row | Authoring/audit | Generation run、逐表 stats、revision 和时间戳。 |
 | `option_chain_authoring_spec.sql` | 1 row | Authoring/audit | Candidate grid、liquidity filter、quote model 和 materialized chain shape。 |
 | `underlying_dependence.sql` | 1 row | Authoring/audit | P-measure driver order、$\Lambda/D/R$、factorization 和 regime。 |
@@ -70,24 +70,36 @@ bid, mid, ask, bid_ask_spread, relative_bid_ask_spread,
 settlement_price, volume, open_interest
 ```
 
-这些 SQL 查询单个 DuckDB 内部的数据与 provenance。若要从当前 generator JSON 完整重放并
-与 public DuckDB 做跨库精确比较，请运行：
+执行前先把数据库作为只读文件打开，并核对 `metadata.snapshots.snapshot_id`、status 和
+revision；文件名本身不构成 logical identity。查询模板只适用于 v3 schema/layout，不能仅替换
+路径后用于另一 snapshot identity。自动化调用还应限制为单条 statement，禁止把用户文本拼接
+进 `parameters` CTE。
+
+这些 SQL 查询单个 DuckDB 内部的数据与 provenance。该 schema-2.4 public DB 包含已退役的
+authoring IV audit，当前 pipeline 不能在旧 v3 identity 下重建它。要对 v4 snapshot 做精确
+跨库重放，必须显式提供同 identity 的 reference：
 
 ```bash
-.venv/bin/python scripts/replay_snapshot.py
+.venv/bin/python scripts/replay_snapshot.py \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json \
+  --reference /path/to/frozen-v4-reference.duckdb
 ```
 
-该脚本比较 8 张 `market` 表、4 张 `metadata` 表和 manifest；run UUID、审计时间戳及
+该脚本比较当前 `TABLE_SPECS`、4 张 `metadata` 表和 manifest；run UUID、审计时间戳及
 DuckDB 物理布局不属于生成的逻辑市场数据，因此不参与一致性判定。
 
 构造 IV agent task 时，优先使用 `option_iv_task_inputs.sql`。它只给求解所需公开输入；
-`option_iv_authoring_answers.sql` 必须留在 trusted authoring/verifier 边界，不能拼入 prompt、
+`option_iv_authoring_answers.sql` 仅用于检查这份 legacy snapshot，且必须留在 trusted
+authoring/verifier 边界，不能拼入 prompt、
 tool output 或 Solver 可访问的数据文件。默认日期的 56 条 Gold options 均有 finite IV；
 改变日期/underlying 后必须保留 `iv_status`，不能给 `NO_FINITE_IV` 行补造答案。
 
 使用其他 snapshot、日期或标的时，只修改目标 SQL 顶部的 `parameters` CTE，不要删除
 稳定 `ORDER BY`。Solver 任务仍须由 task contract 固定查询范围、列和排序；这些文件是
 公共查询模板，不是 hidden verifier 或 canonical answer。
+
+其中“使用其他 snapshot”只指结构兼容且被任务明确选择的只读数据库。默认开发数据库缺失时，
+不能把 public v3 当作静默 fallback；F2A/new-v4 也必须使用与其 identity 配套的 query contract。
 
 ## Expected semantics
 

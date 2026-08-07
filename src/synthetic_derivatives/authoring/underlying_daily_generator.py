@@ -327,7 +327,6 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
                 "volatility_measure_change": (
                     "same deterministic diffusion coefficient under Girsanov"
                 ),
-                "quote_iv_source": "QuantLib inversion of canonical option mid",
             }
         if has_market_price_increments:
             pricing_dynamics_value["option_minimum_price_increment"] = str(

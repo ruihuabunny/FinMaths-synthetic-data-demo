@@ -181,7 +181,7 @@ def test_f2a_generator_variant_and_mutation_contract_share_tick_semantics(
 ) -> None:
     authoring = load_generator_config(
         repository_root
-        / "configs/generators/quantlib_bsm_metals_f2a_parent_v1.json"
+        / "configs/generators/quantlib_bsm_metals_f2a_parent_v2.json"
     )
     variant = json.loads(
         (

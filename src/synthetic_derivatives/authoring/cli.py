@@ -16,7 +16,8 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the supported snapshot-editing command contract.
 
     Defaults target a disposable ``/tmp`` database so an unqualified command
-    cannot mutate the checked-in FROZEN public snapshot.
+    cannot mutate the checked-in FROZEN public snapshot or the legacy active
+    development database.  They use the config-1.6 successor identity.
     """
 
     parser = argparse.ArgumentParser(
@@ -26,14 +27,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--database",
         type=Path,
-        default=Path("/tmp/metals-liquid-tdgbm-q-v2.duckdb"),
+        default=Path("/tmp/metals-liquid-tdgbm-q-v4.duckdb"),
         help="DuckDB file to create or edit",
     )
     parser.add_argument(
         "--config",
         type=Path,
         default=Path(
-            "configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json"
+            "configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json"
         ),
         help="versioned generator configuration",
     )

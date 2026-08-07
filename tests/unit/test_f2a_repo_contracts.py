@@ -10,17 +10,29 @@ def _read_json(path: Path) -> dict:
 
 
 def test_f2a_uses_existing_repo_boundaries(repository_root: Path) -> None:
+    generator_path = repository_root / (
+        "configs/generators/quantlib_bsm_metals_f2a_parent_v2.json"
+    )
+    authoring_path = repository_root / "authoring/configs/f2a_dataset_v1.json"
     assert not (repository_root / "configs/arbitrage").exists()
-    assert (
-        repository_root
-        / "configs/generators/quantlib_bsm_metals_f2a_parent_v1.json"
-    ).is_file()
+    assert generator_path.is_file()
     assert (
         repository_root
         / "configs/variants/bsm_arbitrage_finding_f2a_v1.json"
     ).is_file()
     assert (repository_root / "configs/mutations/f2a_point_v1.json").is_file()
-    assert (repository_root / "authoring/configs/f2a_dataset_v1.json").is_file()
+    assert authoring_path.is_file()
+
+    generator = _read_json(generator_path)
+    authoring = _read_json(authoring_path)
+    assert authoring["parent_generator_config_id"] == generator[
+        "generator_config_id"
+    ]
+    assert authoring["parent_snapshot_id"] == generator["snapshot_id"]
+    assert authoring["parent_required_status"] == "FROZEN"
+    assert authoring["artifacts"]["public_child_root"] == (
+        "snapshots/generated/f2a/children"
+    )
 
 
 def test_f2a_execution_contract_is_not_zero_transaction_cost(

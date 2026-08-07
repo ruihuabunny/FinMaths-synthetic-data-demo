@@ -25,6 +25,8 @@
 | [`test_authoring_config.py`](test_authoring_config.py) | Deterministic piecewise-linear drift/volatility 的插值、精确区间缩约、flat extrapolation、schema version 和 positive-volatility validation。 |
 | [`test_underlying_simulator.py`](test_underlying_simulator.py) | $\Lambda/D/R$ 规范派生、factor/idiosyncratic shock、private dependence persistence、schema migration、append invariance、snapshot immutability，以及 option generator 不消费 underlying correlation。 |
 | [`test_option_chain_builder.py`](test_option_chain_builder.py) | Expiry × grid × call/put 展开、liquidity filtering、quote-noise replay、moneyness/absolute-strike 互斥、listing strike 冻结、stable contract ID、append/`sync-config` invariance 和 22-underlying public config 结构。 |
+| [`test_q_pricing.py`](test_q_pricing.py) | Config 1.5/1.6 边界、legacy authoring-IV config 只读、P/Q metadata、integrated-variance BSM quote、tick quantization 和不生成 IV answers。 |
+| [`test_f2a_repo_contracts.py`](test_f2a_repo_contracts.py) | F2A generator/variant/mutation/authoring config、v2 schemas、tick/fee/candidate contract 与 repo 路径约束。 |
 | [`test_task_space.py`](test_task_space.py) | 六维 task coordinates、registry compatibility 和 documented axes。 |
 | [`test_mutation.py`](test_mutation.py) | Deterministic single-axis mutation、snapshot lineage、incompatible child rejection 和 method identity。 |
 | [`test_curriculum.py`](test_curriculum.py) | 20/60/20 stage mass、mastery-adaptive sampling，以及 diagnostics 不改变 binary reward。 |
@@ -64,6 +66,18 @@ generator。
 Legacy config 的明确 additive 行为应单独测试，不能无意套用到 immutable
 `underlying_simulation` 或 option-chain contract。
 
+### Config 1.5 / 1.6 与 IV 边界
+
+Config `1.5.0` 只为读取已有 snapshot identity 保留。若其中存在
+`q_pricing.implied_volatility_solver`，当前 pipeline 必须拒绝 create/append/freeze，避免在同一
+identity 下混合有、无 IV audit 的两种 output contract。Config `1.6.0` 保留共同 Q pricing
+context 和 deterministic diffusion mapping，但生成结果只到 canonical option quote；测试不得
+期待 `market.option_pricing_audit` 新增行。
+
+Canonical IV method/answer 属于 task variant 与 trusted verifier。测试 authoring 时只能断言
+公开 pricing inputs、quote law、absence of answer leakage 和 legacy table row count，不得把 hidden
+pricing volatility 重新包装成 expected IV。
+
 ## Pytest fixtures 与临时数据
 
 共享 fixtures 定义在 [`tests/conftest.py`](../conftest.py)：
@@ -85,6 +99,8 @@ DuckDB。
 - DuckDB 查询必须显式限定 `snapshot_id`，多行比较必须固定 `ORDER BY`。
 - Failure test 同时验证 transaction rollback 或 snapshot revision 未变化。
 - 若修改 solver-visible contract，还必须在 `tests/public` 增加相应 public schema test。
+- F2A repo-contract tests 只验证已落位的声明式合同；不能据此声称 child materialization、
+  Solver、verifier 或 training runtime 已实现。
 
 ## 完成检查
 

@@ -152,9 +152,9 @@ IV task 的 target 必须从 Solver 实际看到的 canonical `mid` 反解，不
 - invalid bracket：返回明确、canonical 的 failure status；
 - canonicalization：固定小数位、round-half-even、禁止科学计数法和负零。
 
-现有 `market.option_pricing_audit.implied_volatility` 可用于 authoring feasibility audit，
-但若其方法与本 task method 不同，就不能作为 canonical task answer。Trusted verifier
-必须从 canonical mid 重新执行相同的 80-step method。
+Authoring pipeline 不再求解或写入 IV。Feasibility gate 和 canonical answer 都由
+Trusted verifier 从 canonical mid 执行同一个 80-step method；已有 schema 2.4
+snapshot 的 legacy `market.option_pricing_audit.implied_volatility` 不能作为新任务答案。
 
 ### 3.3 Greek task
 

@@ -6,8 +6,10 @@
 > underlying path；config `1.3.0` 生成 expiry × listing-moneyness × call/put 完整网格，
 > 并冻结挂牌 strike；config `1.4.0` 从 candidate grid 只挂牌近月、近价合约，并以
 > deterministic quote noise 扰动 BSM bid/ask；config `1.5.0` 使用 sampled-and-frozen
-> piecewise-linear physical functions、显式 drift-only Girsanov Q mapping，并从 canonical
-> mid 调用 QuantLib 反解 IV；authoring schema `2.4.0` 另保存 private option pricing audit。
+> piecewise-linear physical functions与显式 drift-only Girsanov Q mapping；config `1.6.0`
+> 从 authoring contract 删除 IV solver。当前 authoring
+> 生成 canonical quotes 后停止，不再反解或持久化 IV 答案；schema `2.4.0` 仅为
+> 已有 snapshot 保留 legacy `market.option_pricing_audit` 表。
 > Option/derivative pricing 不读取 underlying 相关矩阵，原有 v1/v1.1/v1.2 pipeline
 > 保持兼容。
 
@@ -249,7 +251,7 @@ Option-chain provenance 首次由 schema `2.2.0` 引入；当前 schema `2.4.0` 
 |:---|:---|
 | `market.option_chain_specs` | 私有保存 chain candidate grid、listing/roll、strike rounding、合约约定、liquidity/quote model 与 lineage；无 solver view。 |
 | `market.option_contracts` | 新增 nullable `chain_id, listing_date, listing_spot, strike_moneyness`；legacy 已有行不改写。 |
-| `market.option_pricing_audit` | 私有保存 Q identity/mapping、effective volatility、未舍入理论价、canonical mid、derived IV/状态和 solver contract；无 solver view。 |
+| `market.option_pricing_audit` | Schema 2.4 legacy IV audit；历史 snapshot 保留已有行，当前 authoring pipeline 不再写入，且无 solver view。 |
 | `metadata.snapshot_revisions` / manifest | 保存 `option_chain_spec_count` 与 `option_pricing_audit_count`。 |
 
 一个 `1.3.0` snapshot 将 chain spec、underlying 集合和全部已挂牌 contracts 视为不可变
@@ -296,7 +298,8 @@ discounting 或 underlying simulation。完整 filter 与 quote model 均写入 
 |:---|:---|
 | `configs/generators/quantlib_bsm_smoke_v1.json` | 固定 seed、模型、underlyings、option templates 与 quote rules。 |
 | `authoring/templates/quantlib_bsm_correlated_underlyings.template.json` | 可运行的 config `1.2.0` correlated-underlying 示例。 |
-| `configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json` | config `1.5.0` 的 22-underlying、sampled physical functions、Q pricing/IV audit、1,232-contract、65-day public profile。 |
+| `configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json` | Legacy config `1.5.0`；对应 checked-in schema-2.4 public snapshot 及其历史 IV audit。 |
+| `configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json` | Current config `1.6.0`；使用新 v4 identity 生成同类 22-underlying profile，不包含 authoring IV solver。 |
 | `snapshots/public/quantlib_bsm_smoke_v1.duckdb` | 已冻结的 metals public snapshot；文件路径为向后兼容保留名。 |
 | `snapshots/public/quantlib_bsm_smoke_v1.manifest.json` | 当前 logical revision、版本标识和行数。 |
 | `scripts/edit_snapshot.py` | 仓库本地 `.venv` 使用的编辑入口。 |
@@ -324,7 +327,7 @@ discounting 或 underlying simulation。完整 filter 与 quote model 均写入 
 | `market.underlying_daily` | `(snapshot_id, date, underlying_id)` | Framework 要求的 underlying daily panel。 |
 | `market.option_daily` | `(snapshot_id, date, option_id)` | Framework 要求的 option daily quotes。 |
 | `market.pricing_metadata` | `(snapshot_id, valuation_timestamp, underlying_id)` | 每个 valuation slice 的 P/Q dynamics、curves、engine、seed、RNG 和 canonicalization。 |
-| `market.option_pricing_audit` | `(snapshot_id, valuation_date, option_id)` | Private Q pricing inputs、raw/canonical prices、QuantLib IV result/status 与 solver contract。 |
+| `market.option_pricing_audit` | `(snapshot_id, valuation_date, option_id)` | Schema 2.4 legacy table；当前 pipeline 不求 IV、不新增行。 |
 
 daily/metadata 表包含 framework 指定的全部字段。内部表额外保存 run id，用于 lineage
 和审计；幂等写入直接依赖业务主键。
@@ -400,9 +403,9 @@ transition 的 $Z_t$；range、volume 与 option activity 仍使用各自的稳�
 
 QuantLib NPV 先按 `ROUND_HALF_EVEN` 量化到 8 位小数，作为
 `mid = settlement_price`；side-specific deterministic noise 只改变 bid/ask half-spread。
-随后调用 `QuantLib.VanillaOption.impliedVolatility` 对同一个 canonical mid 反解；输入 Q
-volatility、raw NPV、derived IV 或 `NO_FINITE_IV` 状态写入 private
-`market.option_pricing_audit`。Pricing volatility 不被当成下游 IV 答案。
+Authoring 不再对 canonical mid 反解 IV，也不将 derived IV 或 solver status 写入
+DuckDB。Pricing volatility 是 Q-measure quote-generation input，不是下游 IV 答案；答案由
+trusted verifier 从 frozen task-visible price 独立重算。
 
 ## 增量写入语义（当前实现）
 
@@ -432,8 +435,9 @@ validate DRAFT/config
   缺失 daily rows，不能改变 listing strike 或 contract identity。
 - config `1.4.0` 的 liquidity filter 与 quote model 同属 immutable chain provenance；
   修改边界、spread 或 noise namespace 必须使用新的 `snapshot_id`。
-- config `1.5.0` 的 sampled physical nodes、sampling provenance、Q identity/mapping 与 IV
-  solver contract 都属于 snapshot identity；修改任一项必须使用新的 `snapshot_id`。
+- config `1.6.0` 的 sampled physical nodes、sampling provenance 与 Q identity/mapping 都属于
+  snapshot identity；修改任一项必须使用新的 `snapshot_id`。IV method 属于
+  task/verifier contract。
 
 ## 命令
 
@@ -484,18 +488,19 @@ validate DRAFT/config
 
 `DRAFT` 可以增量编辑；`FROZEN` 会拒绝任何后续写入。若要扩展已发布 snapshot，复制配置并使用新的 `snapshot_id` 创建新数据库。
 
-### 重放 22 品种 public metals profile
+### 生成 22 品种 successor metals profile
 
 ```bash
 .venv/bin/python scripts/edit_snapshot.py \
-  --database /tmp/metals-liquid-tdgbm-q-v2.duckdb \
-  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json \
+  --database /tmp/metals-liquid-tdgbm-q-v4.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json \
   create-smoke
 ```
 
 期望规模为 22 个 underlyings、1,232 个 option contracts、65 个 business dates、1,430
-条 underlying daily、60,368 条 expiry 前 option daily、1,430 条 pricing metadata 与
-60,368 条 private option pricing audit。
+条 underlying daily、60,368 条 expiry 前 option daily、1,430 条 pricing metadata，以及
+0 条 legacy option pricing audit。Successor 使用新 snapshot/config/generator identity，不用
+旧 v3 identity 表示改变后的 authoring output。
 Candidate grid 是 6 expiries × 11 moneyness × call/put，filter 实际保留 4 × 7 × 2。
 该 profile 验证规模、liquidity selection、确定性和 BSM pricing sanity，不代表真实金属
 交易所 calendar/carry/settlement profile。不同 valuation/expiry 区间因 integrated variance

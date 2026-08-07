@@ -6,19 +6,24 @@
   data inspection, examples, and end-to-end verification on
   `snapshots/generated/quantlib_bsm_metals_option_chain_smoke_v1_20260807.duckdb`.
 - Use `configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json` as the
-  generator contract for that database and
+  legacy generator contract for that database and
   `snapshots/generated/quantlib_bsm_metals_option_chain_smoke_v1_20260807.manifest.json`
   as its materialized snapshot metadata.
 - Do not silently fall back to
   `snapshots/public/quantlib_bsm_smoke_v1.duckdb` or another convenient database
   when the active development database is expected. If the active database is
-  missing, report it or regenerate it from the declared config with the authoring
-  pipeline.
+  missing, report it; the current authoring pipeline must not regenerate that
+  legacy identity because authoring-time IV solving has been retired.
 - The active database is snapshot
   `DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3`, revision `1`, currently in
   `DRAFT` state. Do not describe it as frozen or use it where a frozen parent is
-  mathematically required. Freezing, mutating, or regenerating it must remain an
-  explicit task action and must follow the snapshot-identity rules below.
+  mathematically required. Treat it as read-only under the current pipeline.
+- New authoring uses
+  `configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json`, config
+  schema `1.6.0`, generator `0.8.0`, and snapshot
+  `DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v4`. It preserves the market
+  model but does not solve or persist IV answers. Materialize it to a new file;
+  never append those rows under the legacy v3 identity.
 
 ## Follow mathematical facts
 

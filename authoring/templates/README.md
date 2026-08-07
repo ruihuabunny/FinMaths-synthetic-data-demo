@@ -1,5 +1,8 @@
 # Authoring templates
 
+本目录提供小型、可复制的教学模板；它们用于理解字段和快速 smoke，不代表当前 22-metal
+生产配置。新 authoring 优先从 config `1.6.0` 的 successor 配置复制，再更换完整 identity。
+
 `quantlib_bsm_generator.template.json` 是与当前
 `synthetic_derivatives.authoring` v1 实现同步的最小可运行配置。它包含一个
 underlying 和一组平值 European call/put option templates；每个 option template
@@ -9,10 +12,24 @@ underlying 和一组平值 European call/put option templates；每个 option te
 示例。它只用 factor-loading correlation 改变 $\mathbb P$-measure underlying close
 paths；option pricing 不读取该相关矩阵。
 
-完整 option-chain 例子见
-`configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json`。它使用 config
-`1.4.0` 的 static candidate grid、liquidity filter 和 quote noise，实际生成
-22 × 4 × 7 × 2 个流动性合约，并继续保证相关矩阵只排列 22 个 underlyings。
+完整、当前可写的 option-chain 例子见
+[`configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json`](../../configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json)。
+它使用 config `1.6.0` 的 static candidate grid、liquidity filter、quote noise 和共同 Q
+pricing identity，实际生成 22 × 4 × 7 × 2 个流动性合约，并继续保证相关矩阵只排列
+22 个 underlyings。相邻的 `...smoke_v1.json` 是 legacy v3 snapshot 的历史合同；当前
+pipeline 可以读取它，但拒绝用它创建、追加或冻结数据。
+
+## 如何选择起点
+
+| 目标 | 推荐起点 | 说明 |
+|:---|:---|:---|
+| 最小单标的 smoke | `quantlib_bsm_generator.template.json` | Legacy scalar 参数与逐条 option templates，适合快速理解表结构。 |
+| 两标的 P-measure dependence | `quantlib_bsm_correlated_underlyings.template.json` | 展示 `Lambda/D/R`，不改变 option pricing。 |
+| 当前完整 authoring | `configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json` | Config 1.6、static liquid chain、共同 Q identity，不生成 IV answer。 |
+
+复制完整配置时，`snapshot_id`、`generator_config_id` 和 `generator_version` 是一组
+materialization identity。改变经济参数、随机法则、价格 increment 或 output contract 时，
+必须同时启用新的 identity，并写入新 DuckDB 文件。
 
 ## 使用方式
 
@@ -29,6 +46,11 @@ cp authoring/templates/quantlib_bsm_generator.template.json \
 - `snapshot_id`：修正已有实体或历史数据时必须使用新的 ID；
 - `seed`、`start_date` 和 `business_days`；
 - `underlyings` 与 `option_templates`（legacy）或 `option_chain`（`1.3.0+`）中的示例定义。
+
+若复制 config `1.6.0`，还应检查 `underlying_minimum_price_increment`、
+`option_minimum_price_increment`、`underlying_simulation`、`q_pricing` 和 `quote_model`。
+`q_pricing` 只声明定价测度、numeraire、rate path 与 P-to-Q diffusion mapping；IV root
+method 和 canonical answer 属于 task/verifier 配置，不能放回 generator JSON。
 
 创建 DRAFT snapshot：
 
@@ -57,16 +79,18 @@ cp authoring/templates/quantlib_bsm_generator.template.json \
 
 | 字段 | 当前实现约束 |
 |:---|:---|
-| `schema_version` | `1.0.0` 支持 scalar physical 参数；`1.1.0` 增加 deterministic time functions；`1.2.0` 增加 P-measure `underlying_simulation`；`1.3.0` 使用 static `option_chain`；`1.4.0` 增加 liquidity filter 与 bid/ask noise。 |
+| `schema_version` | `1.0.0` 支持 scalar physical 参数；`1.1.0` 增加 deterministic time functions；`1.2.0` 增加 P-measure `underlying_simulation`；`1.3.0` 使用 static `option_chain`；`1.4.0` 增加 liquidity filter 与 bid/ask noise；`1.5.0` 是带 legacy authoring-IV contract 的历史版本；`1.6.0` 删除该 solver/answer。 |
 | `calendar` / `day_count` | 只支持 `WeekendsOnly` / `Actual365Fixed`。 |
 | `start_date` | 使用工作日；首条 underlying path 必须从该日开始。 |
 | `quote_decimal_places` | 使用 `8`，与当前价格量化精度一致。 |
+| `underlying_minimum_price_increment` / `option_minimum_price_increment` | 必须为正、可由声明的 decimal scale 精确表示；二者分别控制 restart spot state 与公开 option quote tick。 |
 | `underlying_id` | 配置内唯一；spot 和两类 volatility 必须为正数。 |
 | `physical_drift` / `physical_volatility` | 可使用 scalar，或 `piecewise_linear` 时间函数；volatility 的所有节点必须为正数。 |
 | `underlying_simulation` | `1.2.0+` 必需；`measure=P`，`driver_order` 恰好覆盖全部 underlying，$\Lambda$ 每行 norm 不超过 1。 |
 | `option_chain` | `1.3.0+` 必需，且不能与 `option_templates` 混用；expiry/moneyness 严格递增、call/put 成对，当前只支持 `snapshot_start/static`。 |
 | `liquidity_filter` | `1.4.0` 必需；按 maximum candidate expiry 与 inclusive listing-moneyness band 选择挂牌合约。 |
 | `quote_model.bid_ask_noise` | `1.4.0` 必需；deterministic clipped-Gaussian multiplier 只扰动 bid/ask half-spread。 |
+| `q_pricing` | `1.5.0+` 必需；当前只支持 common USD Q/money-market numeraire、`girsanov_drift_only` 和 `same_deterministic_diffusion`。Config `1.6.0` 禁止 `implied_volatility_solver`。 |
 | `template_id` | 配置内唯一；会与 `underlying_id` 拼成稳定的 `option_id`。 |
 | `call_put` | 只能是 `call` 或 `put`。 |
 | `exercise_style` | v1 只支持 `european`。 |
@@ -103,3 +127,19 @@ config `1.3.0` 还把 chain spec 与全部 listed contracts 视为整体不可�
 `sync-config` 不能重算 strike、改变 contract ID 或替换 listing/roll rule。
 Config `1.4.0` 同时冻结 candidate grid、liquidity filter、baseline spread 与 noise
 namespace/bounds；任何修改都需要新 `snapshot_id`。
+
+## 创建后的最小验收
+
+```bash
+.venv/bin/python scripts/edit_snapshot.py \
+  --database snapshots/generated/my_snapshot_v1.duckdb \
+  --config authoring/configs/my_generator_v1.json \
+  summary
+
+.venv/bin/pytest -q tests/public/test_authoring_template.py
+git diff --check
+```
+
+Summary 至少应确认 identity、`DRAFT` status、revision、日期范围和 logical row counts。
+冻结前还应完成与所选模型对应的数学/quality gates；不要把模板生成的 smoke 数据描述为真实
+交易所市场，也不要把 P-measure volatility 或 hidden pricing volatility称为 implied volatility。

@@ -1,6 +1,6 @@
 -- Authoring/audit query: edit snapshot_id for another generated snapshot.
 WITH parameters(snapshot_id) AS (
-    VALUES ('DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v1')
+    VALUES ('DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2')
 )
 SELECT
     snapshot.snapshot_id,

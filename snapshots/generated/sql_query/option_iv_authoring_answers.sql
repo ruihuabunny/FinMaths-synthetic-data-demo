@@ -1,7 +1,7 @@
 -- Trusted authoring/verifier query. Do not expose this result to the Solver.
 WITH parameters(snapshot_id, market_date, underlying_id) AS (
     VALUES (
-        'DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v1',
+        'DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2',
         DATE '2026-08-03',
         'SYNTH-METAL-GOLD'
     )

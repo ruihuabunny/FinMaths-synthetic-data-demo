@@ -1,7 +1,7 @@
 -- Authoring-only: inspect the distinct deterministic P/Q functions by underlying.
 WITH parameters(snapshot_id, market_date) AS (
     VALUES (
-        'DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v1',
+        'DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2',
         DATE '2026-08-03'
     )
 )

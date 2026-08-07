@@ -21,16 +21,43 @@
 | Seed | `20260806` |
 | Business-date range | `2026-08-03` through `2026-10-30` |
 
-可重放配置为
+该 legacy snapshot 的历史配置为
 [`configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json`](../../configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json)。
 根级 [`AGENTS.md`](../../AGENTS.md) 是 active snapshot identity 和生命周期约束的权威来源。
 
 这个数据库当前是 `DRAFT`，不能描述成 frozen parent，也不能直接用于要求 frozen parent 的 F2A
 materialization。Freeze、mutation 或 regeneration 必须是显式任务，并遵守新的 config/snapshot
-identity 规则。数据库缺失时应报告或从声明的 generator config 重建，不能静默 fallback 到
+identity 规则。数据库缺失时应报告，不能用当前 pipeline 重建旧 identity，也不能静默 fallback 到
 `snapshots/public/quantlib_bsm_smoke_v1.duckdb`。
 
-## Logical size
+当前 pipeline 已移除 authoring-time IV solver，所以这份 v3/schema-2.4 DB 虽为
+`DRAFT`，也必须保持只读，避免在同一 identity 下混合两种 output contract。新生成使用
+[`quantlib_bsm_metals_option_chain_smoke_v2.json`](../../configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json)
+和 v4 snapshot identity，写入新 DuckDB。
+
+## F2A frozen parent
+
+F2A 明确选择以下 tick-aligned clean parent；它不是默认 active development database：
+
+| 字段 | 当前值 |
+|:---|:---|
+| Database | `f2a/parents/DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2/parent.duckdb` |
+| Manifest | 同目录 `parent.manifest.json` |
+| `snapshot_id` | `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2` |
+| Status / revision | `FROZEN` / `1` |
+| Generator config | `quantlib-randomized-tdgbm-metals-f2a-parent-v2` |
+| Generator version | `0.8.0` |
+| Config schema | `1.6.0` |
+| Minimum price increments | Underlying `0.01 USD`; option `0.01 USD` |
+| Business-date range | `2026-08-03` through `2026-10-30` |
+
+对应配置是
+[`configs/generators/quantlib_bsm_metals_f2a_parent_v2.json`](../../configs/generators/quantlib_bsm_metals_f2a_parent_v2.json)。
+它在当前 pipeline 下从新 identity materialize，经过 quality gates 后冻结；没有生成
+authoring-time IV answers。该 parent 不得原地追加、同步或 mutation。每个 child 使用
+`f2a/children/<child_snapshot_id>/` 下的新 identity、manifest 和 private lineage。
+
+## Active v3 logical size
 
 当前 manifest 声明：
 
@@ -49,6 +76,9 @@ identity 规则。数据库缺失时应报告或从声明的 generator config �
 underlying 在 listing date 有 `4 expiries × 7 strikes × call/put = 56` 个 liquid contracts；
 到期后不再生成 option daily quote，因此 option daily count 小于 `1,232 × 65`。
 
+F2A frozen parent 的 underlyings、contracts、daily rows 和 metadata counts 与上表相同，唯一区别是
+`market.option_pricing_audit` 为 schema-retained empty table，row count 为 `0`。
+
 ## Visibility boundary
 
 常用 Solver-safe views：
@@ -66,7 +96,7 @@ market.underlyings
 market.option_contracts
 market.underlying_dependence
 market.option_chain_specs
-market.option_pricing_audit
+market.option_pricing_audit  # schema-2.4 legacy rows; current pipeline does not append
 metadata.snapshots
 metadata.generation_runs
 metadata.snapshot_revisions
@@ -76,9 +106,14 @@ metadata.snapshot_revisions
 生产任务必须只导出或挂载 solver-visible child，并隔离 parent、authoring tables、private lineage 和
 hidden verifier。
 
-## Common read-only queries
+## Active v3 的只读查询
 
-[`sql_query/`](sql_query/README.md) 提供：
+Active v3 与 public v3 使用相同 logical snapshot ID 和 schema，因此应把
+[`snapshots/public/sql_query/`](../public/sql_query/README.md) 中的查询连接到本目录的 active
+database。不要使用本目录的 [`sql_query/`](sql_query/README.md)：后者参数固定为另一个
+F2A tick-aligned frozen parent。
+
+Public v3 query catalog 提供：
 
 - snapshot identity、row counts 和 IV status summary；
 - underlying OHLCV time series；
@@ -101,7 +136,7 @@ database = (
     "quantlib_bsm_metals_option_chain_smoke_v1_20260807.duckdb"
 )
 query = Path(
-    "snapshots/generated/sql_query/option_chain.sql"
+    "snapshots/public/sql_query/option_chain.sql"
 ).read_text(encoding="utf-8")
 
 connection = duckdb.connect(database, read_only=True)
@@ -117,9 +152,10 @@ finally:
 
 - 默认以 `read_only=True` 打开现有 development DB。
 - 检查 identity 时同时读取数据库内 `metadata.snapshots` 和旁边的 manifest；文件名不是逻辑 identity。
-- `DRAFT` 允许显式 authoring 操作，但任何经济参数、随机法则、increment 或 generator/backend 变化都必须
-  创建新的 config/snapshot identity。
-- Frozen parent 不允许原地 mutation；每个 materialized child 必须使用新 identity/revision 和 private lineage。
+- 这份 legacy `DRAFT` 在当前 pipeline 下只读；新 authoring 使用 v4 config/snapshot identity。
+- F2A v2 parent 是 `FROZEN` revision `1`，IV audit count 为 `0`；不得原地写入或 mutation。
+- 每个 materialized child 必须位于 `f2a/children/<child_snapshot_id>/`，使用新 identity/revision
+  和 private lineage。
 - SQL 查询结果是 inspection output，不是 canonical hidden answer；authoring-only query 不能进入 Solver bundle。
 - Generated DuckDB、manifest、WAL、private lineage 和 derived datasets 不提交 Git；只提交本目录文档和 SQL 模板。
 

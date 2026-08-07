@@ -17,7 +17,7 @@ from synthetic_derivatives.authoring.pipeline import AuthoringPipeline
 def _small_q_config(repository_root: Path):
     config = load_generator_config(
         repository_root
-        / "configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json"
+        / "configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json"
     )
     return replace(
         config,
@@ -26,6 +26,24 @@ def _small_q_config(repository_root: Path):
         business_days=2,
         option_templates=config.option_templates[:2],
     )
+
+
+def test_legacy_authoring_iv_config_is_read_only(
+    tmp_path: Path, repository_root: Path
+) -> None:
+    config = load_generator_config(
+        repository_root
+        / "configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json"
+    )
+    assert config.q_pricing is not None
+    assert config.q_pricing.legacy_authoring_iv_solver_present
+
+    with AuthoringPipeline(tmp_path / "legacy-write.duckdb", config) as pipeline:
+        with pytest.raises(
+            RuntimeError,
+            match="legacy authoring-IV config is read-only",
+        ):
+            pipeline.create_smoke_snapshot()
 
 
 def test_physical_node_sampling_script_is_replayable(
@@ -132,7 +150,7 @@ def test_physical_node_sampling_script_is_replayable(
     )
 
 
-def test_q_snapshot_materializes_initial_state_and_quote_iv_audit(
+def test_q_snapshot_materializes_initial_state_without_authoring_iv_answers(
     tmp_path: Path, repository_root: Path
 ) -> None:
     config = _small_q_config(repository_root)
@@ -164,15 +182,21 @@ def test_q_snapshot_materializes_initial_state_and_quote_iv_audit(
                 [config.underlyings[0].underlying_id],
             ).fetchall()
         ]
-        audit = pipeline.connection.execute(
-            """
-            SELECT count(*),
-                   count(*) FILTER (WHERE iv_status = 'CONVERGED'),
-                   count(*) FILTER (WHERE implied_volatility IS NULL),
-                   max(abs(implied_volatility - q_effective_volatility))
-            FROM market.option_pricing_audit
-            """
-        ).fetchone()
+        pricing_rows = [
+            json.loads(row[0])
+            for row in pipeline.connection.execute(
+                """
+                SELECT pricing_dynamics
+                FROM market.pricing_metadata
+                WHERE underlying_id = ?
+                ORDER BY valuation_date
+                """,
+                [config.underlyings[0].underlying_id],
+            ).fetchall()
+        ]
+        audit_count = pipeline.connection.execute(
+            "SELECT count(*) FROM market.option_pricing_audit"
+        ).fetchone()[0]
         solver_audit_view_count = pipeline.connection.execute(
             """
             SELECT count(*) FROM information_schema.views
@@ -187,10 +211,13 @@ def test_q_snapshot_materializes_initial_state_and_quote_iv_audit(
     assert "interval_start" not in physical_rows[0]
     assert physical_rows[1]["state_role"] == "interval_transition"
     assert physical_rows[1]["interval_start"] == config.start_date.isoformat()
-    assert audit[0] == result["summary"]["option_daily_count"]
-    assert audit[1] == audit[0]
-    assert audit[2] == 0
-    assert audit[3] < 1e-6
+    assert all("quote_iv_source" not in row for row in pricing_rows)
+    assert all(
+        "implied_volatility_solver" not in row["q_pricing"]
+        for row in pricing_rows
+    )
+    assert result["summary"]["option_daily_count"] > 0
+    assert audit_count == result["summary"]["option_pricing_audit_count"] == 0
     assert solver_audit_view_count == 0
 
 
@@ -251,7 +278,6 @@ def test_option_quotes_use_rounded_underlying_and_option_increments(
 
     assert first is not None and second is not None
     assert first.quote_row == second.quote_row
-    assert first.pricing_audit_row == second.pricing_audit_row
     assert all(
         value % Decimal("0.01") == 0
         for value in first.quote_row[10:14]
