@@ -267,6 +267,58 @@
 
 ### Arbitrage and no-arbitrage definitions
 
+#### Mandatory classification protocol
+
+- Before any arbitrage conclusion, separate the following claims and report every
+  applicable one; they are not synonyms and they may coexist:
+  1. **Model-relative mispricing or inconsistency:** an observed quote differs from
+     the value, calibration, or surface restriction of one selected pricing model
+     or one selected pricing measure.
+  2. **Executable static or semi-static arbitrage:** a declared portfolio of traded
+     instruments has executable entry cashflows and statewise future cashflows that
+     satisfy the task's arbitrage definition after bid/ask, option fees, underlying
+     transaction costs, funding, carry, settlement, and position constraints.
+  3. **Catalogue-scoped F2A arbitrage:** at least one canonical candidate in the
+     frozen F2A strategy catalogue has a positive exact net certificate when
+     recomputed from the public child and public variant.
+  4. **Full-market dynamic or replication arbitrage:** an admissible self-financing
+     strategy exists in the complete declared strategy class, possibly using
+     dynamic trading.
+- A disagreement with BSM, stochastic-volatility, stochastic-rate, or any other
+  chosen model establishes item 1 only. It establishes item 4 only when the stated
+  market assumptions actually give the relevant unique replication price and the
+  replicating strategy is executable under the declared frictions. In particular,
+  a frictionless complete-BSM conclusion must not be carried unchanged into an
+  incomplete or transaction-cost market.
+- Conversely, stochastic volatility, stochastic rates, model incompleteness, or
+  non-uniqueness of an equivalent martingale measure do not invalidate an explicit
+  item-2 certificate. A different model or pricing measure cannot rescue a jointly
+  quoted panel whose executable portfolio already has non-positive initial cost
+  and non-negative statewise payoff with the required strict gain.
+- “Noisy market” describes how a quote was observed or generated; it is not an
+  exemption from no-arbitrage. If the noisy mutation becomes an executable bid or
+  ask, test the actual panel with all declared costs. If only a non-executable mid,
+  latent value, or noisy signal is supplied, report model/surface inconsistency;
+  do not promote it to executable arbitrage without executable sides.
+- Bid/ask spreads, option fees, and underlying transaction costs create economic
+  no-arbitrage bands. They are not floating-point tolerances. Charge each cost only
+  on the legs to which the public execution contract applies, and evaluate the
+  resulting exact net cashflow or profit with the task's declared arithmetic.
+- In F2A, a one-quote mutation may activate any subset of the enabled
+  `(calendar, cross_sectional, cross_asset)` families. Always rescan every enabled
+  family and derive the family-hit vector from public-child certificates; never
+  copy the mutation author's intended family as truth. Changing fees or transaction
+  costs may suppress some certificates and leave others, but only the recomputed
+  net certificates determine whether exactly one, two, or all three families hit.
+- An F2A negative result means only “no positive candidate exists in the declared
+  finite catalogue under this public variant.” It does not prove global market
+  no-arbitrage. If only model mismatch was tested, say “model inconsistency” or
+  “executable arbitrage not established,” not “no arbitrage.”
+- Before writing “arbitrage” or “no arbitrage,” identify the traded universe,
+  executable prices, cost rules, strategy class, cashflow dates, and the explicit
+  portfolio certificate or violated invariant. For calendar claims, the existing
+  prohibition on raw same-strike maturity price ordering still applies.
+
 - The current F2A arbitrage-finding phase is not a zero-transaction-cost market.
   Option trades execute directionally at the declared bid or ask and incur the
   versioned nonzero per-contract, per-side fee in the public execution contract.
