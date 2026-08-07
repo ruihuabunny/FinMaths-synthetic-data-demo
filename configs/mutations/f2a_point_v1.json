@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0.0",
+  "engine_id": "f2a-point-mutation-v1",
+  "task_family_id": "bsm_arbitrage_finding_f2a_v1",
+  "price_increment_source": "generator_config",
+  "max_mutated_points": 1,
+  "absolute_tick_grid": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    32,
+    64,
+    128,
+    256,
+    512,
+    1024,
+    2048,
+    4096
+  ],
+  "sign_order": [
+    -1,
+    1
+  ],
+  "target_order": "valuation_date_then_underlying_id_then_expiry_then_strike_then_call_put_then_option_id",
+  "operators": [
+    {
+      "operator_id": "mutate_option_price_point_v1",
+      "target": "option_quote",
+      "logical_field": "mid",
+      "derived_fields": [
+        "bid",
+        "ask"
+      ],
+      "delta_unit": "option_ticks",
+      "max_changed_points": 1,
+      "direction": "any"
+    },
+    {
+      "operator_id": "mutate_underlying_spot_point_v1",
+      "target": "underlying_spot",
+      "logical_field": "spot",
+      "derived_fields": [],
+      "delta_unit": "underlying_ticks",
+      "max_changed_points": 1,
+      "direction": "any"
+    }
+  ],
+  "authoring_domain_gates": [
+    "child_bid_nonnegative",
+    "child_option_price_in_model_domain",
+    "child_spot_strictly_positive"
+  ]
+}

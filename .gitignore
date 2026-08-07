@@ -49,7 +49,12 @@ data/interim/
 data/cache/
 data/tmp/
 datasets/generated/
-snapshots/generated/
+# Generated databases/manifests remain local, but their operator documentation
+# and reusable read-only SQL are tracked.
+snapshots/generated/*
+!snapshots/generated/README.md
+!snapshots/generated/sql_query/
+!snapshots/generated/sql_query/**
 snapshots/private/
 *.parquet
 *.feather

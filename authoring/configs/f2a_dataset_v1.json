@@ -1,0 +1,59 @@
+{
+  "schema_version": "1.0.0",
+  "dataset_config_id": "f2a-dataset-v1",
+  "status": "DRAFT",
+  "parent_generator_config_id": "quantlib-randomized-tdgbm-metals-f2a-parent-v1",
+  "parent_snapshot_id": "DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v1",
+  "parent_required_status": "FROZEN",
+  "task_family_id": "bsm_arbitrage_finding_f2a_v1",
+  "variant_id": "bsm-arbitrage-finding-f2a-v1",
+  "mutation_engine_id": "f2a-point-mutation-v1",
+  "selection": {
+    "valuation_dates": "stable_ascending",
+    "underlyings": "stable_underlying_id_ascending",
+    "require_complete_chain": true,
+    "required_expiry_count": 4,
+    "required_strikes_per_expiry": 7,
+    "require_call_put_pairs": true,
+    "skip_incomplete_slice": true
+  },
+  "authoring_guard": {
+    "oracle_role": "sample_selection_only",
+    "canonical_decision_rule": "candidate_spread_strictly_greater_than_zero",
+    "minimum_positive_spread": "1.00",
+    "minimum_positive_spread_unit": "USD_per_candidate_strategy",
+    "near_boundary_policy": "reject"
+  },
+  "label_balance": {
+    "positive": 0.5,
+    "negative": 0.5
+  },
+  "operator_balance": {
+    "mutate_option_price_point_v1": 0.5,
+    "mutate_underlying_spot_point_v1": 0.5
+  },
+  "profiles": {
+    "smoke": {
+      "task_count": 8
+    },
+    "pilot": {
+      "task_count": 128
+    }
+  },
+  "split": {
+    "grouping_key": "parent_snapshot_id",
+    "assignment": "deterministic_manifest_order",
+    "names": [
+      "train",
+      "validation",
+      "test"
+    ]
+  },
+  "artifacts": {
+    "public_child_root": "snapshots/generated/f2a",
+    "private_lineage_root": "snapshots/private/f2a",
+    "public_task_manifest_root": "datasets/manifests/tasks/f2a",
+    "split_manifest": "datasets/manifests/splits/f2a_v1.json",
+    "training_export_root": "datasets/generated/f2a"
+  }
+}

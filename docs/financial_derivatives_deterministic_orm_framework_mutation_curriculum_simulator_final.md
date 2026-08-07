@@ -16,7 +16,7 @@
 
 Solver 的核心训练目标是自己实现 Greeks、implied volatility、volatility smile/surface 与 arbitrage search 计算。其执行环境不得调用 QuantLib、py_vollib、mibian、rateslib 等现成衍生品定价接口，也不得用封装好的 IV/Greek/smile API 绕过推导；允许的基础数值原语由 task contract 明确列出。Trusted verifier 不受这一限制：它直接以 `pytest` 调用固定版本且与题目方法一致的权威数值/金融包复算标准答案，再强制转换为题目指定 dtype 并按 canonical schema 序列化。Hard verifier 不设置绝对或相对 tolerance，而是逐字段执行 exact equality；全部测试通过时 outcome reward 为 $1$，否则为 $0$。
 
-在此基础上，本文进一步把任务表示为七维坐标 $\tau=(L,P,M,A,D,R,F)$：推理复杂度、产品族、模型假设、数值方法、数据/工具环境、风险输出与 arbitrage-finding 难度。$F$ 轴按 frozen snapshot 中 pricing-model 来源数量、候选数据规模、mutated 数据数量与类型，以及需要扫描的 no-arbitrage invariant families 分级；从 F2 起再用 A/B 后缀区分“判断套利并分类”和“判断套利并求 maximal spread”。Task-space registry 规定合法组合，mutation engine 沿一个或少数坐标以及联合依赖配置生成带 lineage 的受控变体，curriculum scheduler 再根据 rollout 的分项通过率与错误类型调整采样分布。七维坐标同时充当难度描述、task mutation grammar 与能力归因工具；`arbitrage_finding` 的 LLM 输出保留完整 trajectory，F0/F1 的 ORM 验收 `(arbitrage_opportunity: bool)`，F2A--F6A 验收 `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR calendar)`，F2B--F6B 验收 `(arbitrage_opportunity: bool, maximal_spread: float)`，且都不对 trajectory 内容打分。最终 reward 仍由 all-pass hard verifier 给出，不因 curriculum 引入主观软分。本阶段明确排除 FX、quanto、cross-currency derivatives、多币种利率与 numeraire conversion。
+在此基础上，本文进一步把任务表示为七维坐标 $\tau=(L,P,M,A,D,R,F)$：推理复杂度、产品族、模型假设、数值方法、数据/工具环境、风险输出与 arbitrage-finding 难度。$F$ 轴按 frozen snapshot 中 pricing-model 来源数量、候选数据规模、mutated 数据数量与类型，以及需要扫描的 no-arbitrage invariant families 分级；从 F2 起再用 A/B 后缀区分“判断套利并分类”和“判断套利并求 maximal spread”。Task-space registry 规定合法组合，mutation engine 沿一个或少数坐标以及联合依赖配置生成带 lineage 的受控变体，curriculum scheduler 再根据 rollout 的分项通过率与错误类型调整采样分布。七维坐标同时充当难度描述、task mutation grammar 与能力归因工具；`arbitrage_finding` 的 LLM 输出保留完整 trajectory，F0/F1 的 ORM 验收 `(arbitrage_opportunity: bool)`，F2A--F6A 验收 `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR cross-asset AND/OR calendar)`，F2B--F6B 验收 `(arbitrage_opportunity: bool, maximal_spread: float)`，且都不对 trajectory 内容打分。最终 reward 仍由 all-pass hard verifier 给出，不因 curriculum 引入主观软分。本阶段明确排除 FX、quanto、cross-currency derivatives、多币种利率与 numeraire conversion。
 
 **关键词：** financial derivatives；multi-asset simulator；correlation matrix；risk-neutral measure；task grammar；task mutation；arbitrage finding；curriculum learning；Greeks；implied volatility；volatility smile；synthetic market data；pytest；outcome reward model；hard verifier
 
@@ -24,7 +24,7 @@ Solver 的核心训练目标是自己实现 Greeks、implied volatility、volati
 
 #### 最终方案
 
-金融衍生品市场单独建域：authoring 端用 pinned QuantLib 统一生成 underlying daily prices、option daily prices 与定价元数据；每个 variant 固定 generator、seed 与全部市场约定，生成后冻结 snapshot；Greeks/IV/smile/surface/VaR/ES 都从该快照派生。同币种多资产 snapshot 使用共同 $\mathbb Q$、共同 numeraire、共享利率路径与合法边际模型，并以合法相关矩阵耦合 underlying/model drivers，而不是 derivative contracts。每个任务再注册为七维坐标 $\tau=(L,P,M,A,D,R,F)$，其中 $F$ 单独刻画在 mutated frozen snapshot 中发现套利的难度。Task-space registry 定义各级含义与 compatibility constraints；mutation engine 产生可追踪变体；curriculum scheduler 根据模型 mastery 选择训练分布。Task contract 同时约束 solver 与 verifier 的公式/算法、dtype、操作顺序和输出 schema；solver 禁止调用现成 Greeks/IV/smile 包，trusted verifier 用 `pytest` 调固定版本、同方法的金融包复算并以 `==` 精确验收。`arbitrage_finding` 要求 LLM 生成完整 trajectory；F0/F1 的 outcome ORM 比较 bool，F2A--F6A 比较 bool 与 cross-sectional/calendar 类型集合，F2B--F6B 比较 bool 与 maximal spread。全部适用 tests pass 才有 $R_{\mathrm{ORM}}=1$。
+金融衍生品市场单独建域：authoring 端用 pinned QuantLib 统一生成 underlying daily prices、option daily prices 与定价元数据；每个 variant 固定 generator、seed 与全部市场约定，生成后冻结 snapshot；Greeks/IV/smile/surface/VaR/ES 都从该快照派生。同币种多资产 snapshot 使用共同 $\mathbb Q$、共同 numeraire、共享利率路径与合法边际模型，并以合法相关矩阵耦合 underlying/model drivers，而不是 derivative contracts。每个任务再注册为七维坐标 $\tau=(L,P,M,A,D,R,F)$，其中 $F$ 单独刻画在 mutated frozen snapshot 中发现套利的难度。Task-space registry 定义各级含义与 compatibility constraints；mutation engine 产生可追踪变体；curriculum scheduler 根据模型 mastery 选择训练分布。Task contract 同时约束 solver 与 verifier 的公式/算法、dtype、操作顺序和输出 schema；solver 禁止调用现成 Greeks/IV/smile 包，trusted verifier 用 `pytest` 调固定版本、同方法的金融包复算并以 `==` 精确验收。`arbitrage_finding` 要求 LLM 生成完整 trajectory；F0/F1 的 outcome ORM 比较 bool，F2A--F6A 比较 bool 与 cross-sectional/cross-asset/calendar 类型集合，F2B--F6B 比较 bool 与 maximal spread。全部适用 tests pass 才有 $R_{\mathrm{ORM}}=1$。
 
 ### 为什么金融子域允许造数据
 
@@ -406,20 +406,20 @@ $$
 |---|---|---|---|
 | F0 | 该轴默认不激活；arbitrage task 采用单一模型 | 小型 clean snapshot，`mutated_cells=0`，作为无套利负对照 | `(arbitrage_opportunity: bool)` |
 | F1 | 单一模型，如全量 BSM | 小型候选集；1 个 cell、1 种 target type、1 个 invariant family | `(arbitrage_opportunity: bool)` |
-| F2A | 单一模型 | 完整 option chain；至多 1 个隐藏的 option-price 或 underlying-spot point mutation | `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR calendar)` |
+| F2A | 单一模型 | 完整 option chain；至多 1 个隐藏的 option-price 或 underlying-spot point mutation | `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR cross-asset AND/OR calendar)` |
 | F2B | 与 F2A 相同 | 与 F2A 相同；增加 exact argmax/reduction 要求 | `(arbitrage_opportunity: bool, maximal_spread: float)` |
-| F3A | 单一模型 | 多个 mutated cells、多个 target types 与 invariant families | `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR calendar)` |
+| F3A | 单一模型 | 多个 mutated cells、多个 target types 与 invariant families | `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR cross-asset AND/OR calendar)` |
 | F3B | 与 F3A 相同 | 与 F3A 相同；增加 exact argmax/reduction 要求 | `(arbitrage_opportunity: bool, maximal_spread: float)` |
-| F4A | 多个 coherent marginal pricing models | 各模型分区显式；少量 mutation 混入跨模型候选集 | `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR calendar)` |
+| F4A | 多个 coherent marginal pricing models | 各模型分区显式；少量 mutation 混入跨模型候选集 | `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR cross-asset AND/OR calendar)` |
 | F4B | 与 F4A 相同 | 与 F4A 相同；增加 exact argmax/reduction 要求 | `(arbitrage_opportunity: bool, maximal_spread: float)` |
-| F5A | 多个 pricing models | 大型 snapshot；多个 mutated cells、target types、产品族与期限 | `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR calendar)` |
+| F5A | 多个 pricing models | 大型 snapshot；多个 mutated cells、target types、产品族与期限 | `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR cross-asset AND/OR calendar)` |
 | F5B | 与 F5A 相同 | 与 F5A 相同；增加 exact argmax/reduction 要求 | `(arbitrage_opportunity: bool, maximal_spread: float)` |
-| F6A | 多模型、多资产 joint snapshot | 跨 quote/contract/tradeable funding tables 的多类型 mutation 与大规模候选集 | `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR calendar)` |
+| F6A | 多模型、多资产 joint snapshot | 跨 quote/contract/tradeable funding tables 的多类型 mutation 与大规模候选集 | `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR cross-asset AND/OR calendar)` |
 | F6B | 与 F6A 相同 | 与 F6A 相同；增加 exact argmax/reduction 要求 | `(arbitrage_opportunity: bool, maximal_spread: float)` |
 
 因此 A/B 不是新的第八轴，而是 $F$ 轴内部的两种 outcome projection。F2A/F2B、...、F6A/F6B
 可以共享完全相同的 frozen child snapshot、候选模板和 mutation lineage，只改变 $o_F$；A 类
-测试“是否能发现套利，并把所有已发现类型归为 cross-sectional 和/或 calendar”，B 类测试
+测试“是否能发现套利，并把所有已发现类型归为 cross-sectional、cross-asset 和/或 calendar”，B 类测试
 “是否能按冻结归约合同求出最大 spread”。这些 levels 形成部分序而不是简单总序：例如 F3A 的
 搜索范围可以大于 F2B，但两者验收的第二字段不同，curriculum 应分别记录 detection/type
 mastery 与 spread mastery。
@@ -460,14 +460,20 @@ $$
 每个候选模板还必须在 authoring 时被唯一路由到下列类型之一：
 
 - `cross-sectional`：在同一 valuation time 下，对同一 maturity/settlement bucket 内的
-  可交易 claims 进行 bounds、parity、strike shape、same-maturity replication 或其他横截面比较；
+  option claims 进行 strike shape 或其他纯 option 横截面比较；
+- `cross-asset`：在同一 valuation time 下，用 executable underlying、funding/carry 与 option
+  claims 构造 bounds、put-call parity 或其他 underlying-option 策略，并计入每条腿的交易成本；
 - `calendar`：候选策略或复制关系跨越两个或以上 maturity/cashflow dates，并使用
   声明的 funding、carry、exercise 与 settlement 合同将不同日期的价值放到同一基准下比较。
 
+唯一路由按 `calendar`（跨 cashflow dates）、`cross-asset`（同日期 bucket 的 underlying-option）、
+`cross-sectional`（纯 option 横截面）的优先级决定；一个 output array 出现多个类型，表示不同的
+positive candidate 分别命中了这些类型。
+
 对 F2A--F6A，`arbitrage_type` 是所有 $s_j>0$ 候选模板类型的并集，序列化为固定顺序
-`["cross-sectional", "calendar"]` 的子序列。因此只有四个 canonical 结果：`[]`、
-`["cross-sectional"]`、`["calendar"]` 或 `["cross-sectional", "calendar"]`。这一数组
-表示 AND/OR，不得用顺序不定的 set 或自由文本替代。并且必须满足
+`["cross-sectional", "cross-asset", "calendar"]` 的子序列。因此 canonical 结果为 `[]` 或该
+三元素固定序列的任一非空子序列，共八种。这个数组表示 AND/OR，不得用顺序不定的 set 或
+自由文本替代。并且必须满足
 
 $$
 \texttt{arbitrage\_opportunity}
@@ -475,8 +481,8 @@ $$
 $$
 
 这个类型集合由 verifier 从 solver-visible child 和冻结候选模板重算，不得从 mutation
-intention 或 private expected violation id 直接复制。F2A--F6A 不得包含无法归入这两类
-的 positive 候选模板；如果后续需要第三种类型，必须版本化扩展 output contract。
+intention 或 private expected violation id 直接复制。F2A--F6A 不得包含无法归入这三类
+的 positive 候选模板；继续增加类型时必须再次版本化扩展 output contract。
 
 令
 
@@ -611,7 +617,7 @@ gap；提高 base level 后失败主要指向套利搜索或模型路由能力�
 | 4 非 BS dynamics | L3--L4 × P0--P5 × M1--M6 × A3--A7 × D2--D4 × R4/R7/R8 × F0 | model--product--method matching、校准、model risk |
 | 5 Exotic/path-dependent | L3--L5 × P6--P7 × M0--M6 × A4--A6 × D3--D5 × R4--R8 × F0 | barrier、monitoring、path construction |
 | 6 随机利率/同币种多资产/hybrid | L4--L5 × P0--P8 × M0--M8 × A3--A8 × D3--D7 × R4--R9 × F0 | 共享利率路径、PSD 相关结构、联合定价、joint calibration |
-| 7 Arbitrage finding | L2--L6 × P0--P8 × M0--M9 × A0--A8 × D1--D8 × R2--R9 × {F1, F2A/F2B, ..., F6A/F6B} | 先学 bool detection，A variant 再学 cross-sectional/calendar 分类，B variant 学 maximal spread |
+| 7 Arbitrage finding | L2--L6 × P0--P8 × M0--M9 × A0--A8 × D1--D8 × R2--R9 × {F1, F2A/F2B, ..., F6A/F6B} | 先学 bool detection，A variant 再学 cross-sectional/cross-asset/calendar 分类，B variant 学 maximal spread |
 | 8 Agentic risk workflow | L5--L6 × P0--P8 × M0--M9 × A0--A8 × D4--D8 × R5--R9 × {F0, F1, F2A/F2B, ..., F6A/F6B} | DuckDB→识别→校准/套利扫描→定价→风险→artifact |
 
 Stage 4 的推荐内部顺序为：
@@ -642,7 +648,7 @@ $$
 | B1 | BS + IV + complete Greeks | 测试逆问题与多字段 all-pass |
 | B2 | straddle/spread/butterfly/CNO/ANO | 测试结构识别、聚合与静态复制 |
 | B3 | multi-asset option chains + mixture/Heston + PSD correlation + DuckDB | 展示联合市场与完整 agentic workflow |
-| B4 | mutated frozen snapshots；先 F1/F2A，再做同 snapshot 的 F2B，随后逐级推进 F3A/F3B--F5A/F5B | 将 bool detection、cross-sectional/calendar 分类与 maximal-spread 归约拆开评估 |
+| B4 | mutated frozen snapshots；先 F1/F2A，再做同 snapshot 的 F2B，随后逐级推进 F3A/F3B--F5A/F5B | 将 bool detection、cross-sectional/cross-asset/calendar 分类与 maximal-spread 归约拆开评估 |
 
 冻结基础模型即可先评估 `pass@1`、`pass@N`、verifier-guided retry、分层成功率、失败类型、固定 seed 重跑一致性与 verifier mutation-test 拦截率。若中间难度存在 rollout variance 且 retry 明显提升，就说明该环境具有可探索、可验证的 reward landscape。
 
@@ -928,7 +934,7 @@ Package oracle 本身不自动解决语义和方法错配。Authoring 时必须�
 
 #### 一句话总结
 
-金融衍生品市场：**出题端用 pinned QuantLib 统一生成并冻结 underlying/option snapshot；同币种多资产市场由 coherent marginal pricing models、共同 $\mathbb Q$/numeraire、共享利率路径与 underlying-driver PSD correlation perturbation 组成，derivative contracts 不进入相关矩阵，single-asset consistency 由边际模型继承，多资产 payoff 必须由同一 joint underlying process 定价；以 $\tau=(L,P,M,A,D,R,F)$ 定义七维 task grammar，其中 $F$ 按 pricing-model 来源、候选数据量及 snapshot mutation 的数量与类型控制 arbitrage-finding 难度，并从 F2 起用 A/B pair 分离 type classification 与 exact spread reduction；通过 compatibility-constrained mutation 扩题，通过 adaptive curriculum 按 mastery 采样；LLM 必须手搓规定方法并输出完整 trajectory。普通任务由 pytest 按相同模型、方法、dtype、操作顺序和 schema exact equality 验收；`arbitrage_finding` 的 F0/F1 ORM 验收 `(arbitrage_opportunity: bool)`，F2A--F6A 验收 `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR calendar)`，F2B--F6B 验收 `(arbitrage_opportunity: bool, maximal_spread: float)`，trajectory 不参与该 outcome equality。最终 reward 始终是二值 ORM；七维 diagnostics 只用于能力归因、task mutation 与 curriculum 调度，不引入 verifier tolerance。本阶段不考虑 FX、quanto 或 cross-currency derivatives。**
+金融衍生品市场：**出题端用 pinned QuantLib 统一生成并冻结 underlying/option snapshot；同币种多资产市场由 coherent marginal pricing models、共同 $\mathbb Q$/numeraire、共享利率路径与 underlying-driver PSD correlation perturbation 组成，derivative contracts 不进入相关矩阵，single-asset consistency 由边际模型继承，多资产 payoff 必须由同一 joint underlying process 定价；以 $\tau=(L,P,M,A,D,R,F)$ 定义七维 task grammar，其中 $F$ 按 pricing-model 来源、候选数据量及 snapshot mutation 的数量与类型控制 arbitrage-finding 难度，并从 F2 起用 A/B pair 分离 type classification 与 exact spread reduction；通过 compatibility-constrained mutation 扩题，通过 adaptive curriculum 按 mastery 采样；LLM 必须手搓规定方法并输出完整 trajectory。普通任务由 pytest 按相同模型、方法、dtype、操作顺序和 schema exact equality 验收；`arbitrage_finding` 的 F0/F1 ORM 验收 `(arbitrage_opportunity: bool)`，F2A--F6A 验收 `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR cross-asset AND/OR calendar)`，F2B--F6B 验收 `(arbitrage_opportunity: bool, maximal_spread: float)`，trajectory 不参与该 outcome equality。最终 reward 始终是二值 ORM；七维 diagnostics 只用于能力归因、task mutation 与 curriculum 调度，不引入 verifier tolerance。本阶段不考虑 FX、quanto 或 cross-currency derivatives。**
 
 ## 参考资料
 

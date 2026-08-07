@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trajectory.schema.json",
+  "title": "F2A complete agent trajectory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "Problem",
+    "Context",
+    "Assumptions",
+    "Skills",
+    "Evidence",
+    "Intermediate Reasoning",
+    "Verification",
+    "Confidence",
+    "Outcome"
+  ],
+  "properties": {
+    "Problem": {"type": "string", "minLength": 1},
+    "Context": {"type": "string", "minLength": 1},
+    "Assumptions": {"type": "string", "minLength": 1},
+    "Skills": {"type": "string", "minLength": 1},
+    "Evidence": {"type": "string", "minLength": 1},
+    "Intermediate Reasoning": {"type": "string", "minLength": 1},
+    "Verification": {"type": "string", "minLength": 1},
+    "Confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "Outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["orm_answer"],
+      "properties": {
+        "orm_answer": {"$ref": "#/$defs/orm_answer"}
+      }
+    }
+  },
+  "$defs": {
+    "orm_answer": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["arbitrage_opportunity", "arbitrage_type"],
+          "properties": {
+            "arbitrage_opportunity": {"const": false},
+            "arbitrage_type": {"const": []}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["arbitrage_opportunity", "arbitrage_type"],
+          "properties": {
+            "arbitrage_opportunity": {"const": true},
+            "arbitrage_type": {
+              "enum": [
+                ["cross-sectional"],
+                ["cross-asset"],
+                ["calendar"],
+                ["cross-sectional", "cross-asset"],
+                ["cross-sectional", "calendar"],
+                ["cross-asset", "calendar"],
+                ["cross-sectional", "cross-asset", "calendar"]
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

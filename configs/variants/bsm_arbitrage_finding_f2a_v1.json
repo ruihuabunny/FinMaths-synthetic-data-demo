@@ -1,0 +1,151 @@
+{
+  "schema_version": "1.0.0",
+  "variant_id": "bsm-arbitrage-finding-f2a-v1",
+  "task_family_id": "bsm_arbitrage_finding_f2a_v1",
+  "coordinates": {
+    "L": 5,
+    "P": 0,
+    "M": 0,
+    "A": 0,
+    "D": 4,
+    "R": 3,
+    "F": "F2A"
+  },
+  "market_contract": {
+    "currency": "USD",
+    "underlying_minimum_price_increment": "0.01",
+    "option_minimum_price_increment": "0.01",
+    "rounding": "ROUND_HALF_EVEN",
+    "option_quote_fields": [
+      "bid",
+      "ask",
+      "mid"
+    ],
+    "max_mutated_points": 1
+  },
+  "pricing_contract": {
+    "pricing_model": "Black-Scholes-Merton",
+    "pricing_engine": "QuantLib.AnalyticEuropeanEngine",
+    "risk_neutral_measure_id": "USD-MONEY-MARKET-Q-v1",
+    "numeraire_id": "USD-MONEY-MARKET-ACCOUNT-v1",
+    "rate_path_id": "USD-FLAT-CONTINUOUS-RATE-v1",
+    "q_volatility_source": "child.pricing_metadata",
+    "q_volatility_interpolation": "piecewise_linear_instantaneous_annualized_volatility",
+    "q_volatility_extrapolation": "flat",
+    "variance_reduction": "exact_integrated_variance",
+    "calendar": "WeekendsOnly",
+    "day_count": "Actual365Fixed",
+    "exercise_style": "european",
+    "settlement_type": "cash"
+  },
+  "execution_contract": {
+    "execution_contract_id": "us-options-underlying-5bps-options-flat-050-v2",
+    "transaction_cost_model": "directional_option_bid_ask_plus_option_per_contract_fee_plus_underlying_proportional_cost",
+    "currency": "USD",
+    "option_contract_multiplier_source": "child.option_contract.contract_multiplier",
+    "option_fee_per_contract_per_side": "0.50",
+    "option_execution": "directional_bid_ask",
+    "option_holding": "hold_to_cash_settlement",
+    "settlement_fee": "0.00",
+    "underlying_execution": "single_price_plus_proportional_cost",
+    "underlying_trading_cost_rate_per_side": "0.0005",
+    "underlying_trading_cost_basis": "absolute_traded_notional",
+    "underlying_trading_cost_scope": "every_trade_including_dynamic_rebalancing",
+    "cash_account_transaction_cost": "0.00"
+  },
+  "candidate_catalogue": {
+    "candidate_catalogue_id": "bsm-f2a-candidate-catalogue-v2",
+    "canonical_type_order": [
+      "cross-sectional",
+      "cross-asset",
+      "calendar"
+    ],
+    "cross_sectional_families": [
+      "strike_monotonicity",
+      "nonuniform_strike_convexity"
+    ],
+    "cross_asset_families": [
+      "discounted_price_bounds",
+      "executable_put_call_parity"
+    ],
+    "calendar_family": null,
+    "calendar_family_status": "deferred_until_a_transaction_cost_aware_self_financing_strategy_is_versioned",
+    "frictionless_bsm_dynamic_replication_is_executable": false,
+    "underlying_cost_application": "all_underlying_trades_in_candidate_strategy",
+    "option_positions": "finite_integer",
+    "admissibility": "discounted_wealth_uniformly_bounded_below",
+    "decision_rule": "candidate_spread_strictly_greater_than_zero",
+    "dtype": "float64",
+    "reduction_order": "declared_candidate_order"
+  },
+  "output_contract": {
+    "output_contract_id": "arbitrage-opportunity-type-trajectory-v2",
+    "trajectory_schema": "schemas/trajectory.schema.json",
+    "submission_schema": "schemas/submission.schema.json",
+    "orm_projection": [
+      "arbitrage_opportunity",
+      "arbitrage_type"
+    ],
+    "arbitrage_type_values": [
+      "cross-sectional",
+      "cross-asset",
+      "calendar"
+    ],
+    "arbitrage_type_order": [
+      "cross-sectional",
+      "cross-asset",
+      "calendar"
+    ],
+    "comparison": "exact",
+    "accepts_maximal_spread": false
+  },
+  "solver_permissions": {
+    "dependency_policy": "allowlist_only",
+    "allowed_python_distributions": [
+      "duckdb==1.5.5"
+    ],
+    "read": [
+      "public_child_snapshot",
+      "public_task_manifest",
+      "public_variant_contract",
+      "trajectory_schema",
+      "submission_schema"
+    ],
+    "deny": [
+      "parent_snapshot",
+      "private_lineage",
+      "mutation_config",
+      "authoring_config",
+      "trusted_verifier",
+      "hidden_tests"
+    ],
+    "denied_python_imports": [
+      "QuantLib",
+      "py_vollib",
+      "vollib",
+      "py_lets_be_rational",
+      "mibian",
+      "rateslib",
+      "financepy",
+      "pyfeng",
+      "optionprice",
+      "opstrat",
+      "pysabr",
+      "tf_quant_finance"
+    ],
+    "denied_capabilities": [
+      "prebuilt_option_pricing",
+      "prebuilt_implied_volatility",
+      "prebuilt_option_greeks",
+      "prebuilt_volatility_smile_or_surface",
+      "prebuilt_static_or_calendar_arbitrage_scanner"
+    ],
+    "enforcement": [
+      "isolated_solver_environment",
+      "network_disabled",
+      "dynamic_install_disabled",
+      "subprocess_disabled",
+      "import_and_runtime_audit_required"
+    ]
+  }
+}

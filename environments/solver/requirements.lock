@@ -1,0 +1,4 @@
+# Solver image is allowlist-only. Python standard-library modules are supplied by
+# the pinned interpreter; no derivative pricing, IV, Greek, volatility-surface or
+# arbitrage-scanning package may be installed.
+duckdb==1.5.5

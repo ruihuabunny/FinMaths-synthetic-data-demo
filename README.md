@@ -18,7 +18,7 @@
 | Single-asset $\mathbb Q$ pricing | 已实现 | 共同 measure/numeraire/rate-path identity；canonical mid 由 QuantLib 反解 IV 并写入 private audit。 |
 | Static option chain | 已实现 | 固定 listing strike、到期日/价内外筛选、可重放 bid/ask spread noise。 |
 | Task space / mutation / curriculum | 最小版本已实现 | 六维 compatibility registry、确定性 lineage 与 adaptive sampling weights。 |
-| F2A arbitrage-finding | 兼容计划已冻结，未实现 | 复用现有 package/权限边界；七维 v2 与六维 v1 并行，不原地迁移旧 task identity。 |
+| F2A arbitrage-finding | Repo contract 已落位，runtime 未实现 | Generator/variant/mutation/authoring configs 与 v2 schemas 已按既有边界拆分；七维 v2 与六维 v1 并行。 |
 | Solver / trusted verifier / dataset export | 未实现 | 目录边界已预留，但还没有可运行实现。 |
 | 多资产 $\mathbb Q$ dependence 与 joint payoff | 未实现 | Basket/index/spread 不能由当前 single-asset baseline 推断或定价。 |
 
@@ -57,7 +57,9 @@ DATABASE=/tmp/my-synthetic-market.duckdb make smoke
 ```
 
 常用的只读 SQL 位于
-[`snapshots/public/sql_query/`](snapshots/public/sql_query/README.md)。完整 CLI、schema、
+[`snapshots/public/sql_query/`](snapshots/public/sql_query/README.md)；active development snapshot 的
+本地数据库说明和同构查询位于
+[`snapshots/generated/`](snapshots/generated/README.md)。完整 CLI、schema、
 增量规则与冻结语义见 [Authoring Pipeline](docs/authoring_pipeline.md)；authoring 包的模块边界
 见 [`src/synthetic_derivatives/authoring/README.md`](src/synthetic_derivatives/authoring/README.md)。
 
@@ -97,8 +99,8 @@ data/tool 和 risk output。坐标必须先通过 compatibility registry；不�
 Cartesian product。各 level 的完整含义见
 [六维 Task Grammar](docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md#六维-task-grammar-与难度空间)。
 
-上述六维流程是当前可运行 v1 baseline。规划中的 F2A 不原地改写 v1 schema、registry、
-manifests 或 deterministic child IDs；它使用并行的 task-space v2，在同一顶层 repo 设计中增加
+上述六维流程是当前可运行 v1 baseline。F2A 不原地改写 v1 schema、registry、manifests
+或 deterministic child IDs；它使用并行的 task-space v2，在同一顶层 repo 设计中增加
 string enum F 轴。F2A 市场数据 child 由 Authoring 边界物化和冻结；Mutation 层只生成
 immutable spec、identity 和 lineage，Trusted verifier 再从 public child 独立复算 ORM truth。
 
@@ -614,9 +616,16 @@ F2A 是在现有 single-asset common-$\mathbb Q$ BSM baseline 上的并行 task-
   第四个市场价格 `task_price`。BSM method、deterministic Q-volatility function、execution fee、
   candidate catalogue 和 ORM schema 是 public task convention，由 variant config 声明，不冒充为第二份
   market DGP。
+- F2A 不是零交易成本任务：option 按方向使用 bid/ask，并按 public execution contract 对每条腿
+  收取 `0.50 USD/contract/side`；underlying 每次成交按绝对 traded notional 收取单边 `5 bps`，
+  cash account 保持无摩擦。非零 underlying cost 下不把 frictionless BSM dynamic replication
+  当作可执行套利策略。
 - Trusted verifier 只从 public child、public task/variant contract 和 submission 独立重算
   `(arbitrage_opportunity, arbitrage_type)`；它不导入 Solver，不读 parent、private lineage、mutation
   intention 或 stored label。
+- Solver 采用 allowlist-only image；variant 同时列出已知 banned imports 和 capability-based deny。
+  禁止范围包括 QuantLib、py_vollib、mibian、rateslib 等现成 option pricing/IV/Greek/surface
+  package，以及预制的 static/calendar arbitrage scanner；仅靠 package 名黑名单不构成隔离保证。
 - Training 只导出已验证的 public task、trajectory、outcome 和 snapshot grouping，不打包
   private lineage、hidden diagnostics 或 oracle traces。
 
@@ -651,12 +660,13 @@ F2A 不增加 `configs/arbitrage/` 或 `src/synthetic_derivatives/arbitrage/` �
 | `schemas/` | V2 difficulty/task/mutation、F2A private-lineage 形状、trajectory 和 submission schemas。 |
 | `authoring/` | Read-only parent selection、copy-on-write child materialization、market field 派生、quality gates、private lineage 和 freeze。 |
 | `mutation/` | 纯 immutable spec、identity 与 lineage records；不持有 DB write 或 oracle 权限。 |
-| `solver/` | 从 public child/variant 手工枚举 cross-sectional/calendar candidates 并生成 trajectory/submission。 |
+| `solver/` | 从 public child/variant 手工枚举 cross-sectional/cross-asset candidates 并生成 trajectory/submission；calendar 在 transaction-cost-aware 策略合同冻结后启用。 |
 | `verifier/` | Verifier-owned independent oracle、submission projection 和 canonical exact equality。 |
 | `training/` | Verified records、snapshot-grouped split 和 JSONL/Parquet export。 |
 | `scripts/` | 统一非交互 materialization/verification/manifest 编排入口；不存业务数学。 |
 
-上表只是实施计划；在对应阶段开始前，不需要提前创建或移动 repo 目录。
+上述 config/schema 边界已经按表中路径落位；F2A Python 业务模块、child snapshots 和训练
+artifacts 仍在实现阶段按同一边界创建。Repo 不提交空的 generated/private artifact 目录。
 
 ### Snapshot、manifest 与训练 artifact
 
@@ -681,8 +691,8 @@ task/child IDs 不编码 operator、target、`arbitrage_type` 或 positive/negat
 
 ### 计划中的验收分层
 
-- `tests/unit/`：v1/v2 schema/registry/curriculum、pure mutation spec、tick materialization、candidate
-  mathematics 与 canonical type order。
+- `tests/unit/`：v1/v2 schema/registry/curriculum、pure mutation spec、tick materialization、option fee、
+  underlying 单边 `5 bps`、candidate mathematics 与 canonical type order。
 - `tests/integration/`：parent read-only、child new identity/freeze/replay、task manifest 仅引用 child
   snapshot，private lineage 不影响 public-child truth。
 - `tests/public/`：public child/variant/schema 与 child -> submission -> verifier smoke。
@@ -700,9 +710,9 @@ task/child IDs 不编码 operator、target、`arbitrage_type` 或 positive/negat
 │   └── templates/                 # 新 generator、snapshot 和 variant 的模板
 ├── configs/
 │   ├── generators/                # 可发布的 generator 配置与版本声明
-│   ├── task_space/                # 六维坐标范围和 compatibility registry
-│   ├── mutations/                 # 受约束 mutation operators
-│   ├── curricula/                 # stage、mastery bands 和采样 mixture
+│   ├── task_space/                # 六维 v1 与并行七维 v2 compatibility registries
+│   ├── mutations/                 # 坐标 mutation 与 F2A integer-tick point operators
+│   ├── curricula/                 # v1/v2 stage、mastery bands 和采样 mixture
 │   └── variants/                  # Solver 可见的 task/method/output contracts
 ├── datasets/
 │   ├── generated/                 # 构建出的训练 JSONL/Parquet，不提交 Git
@@ -721,12 +731,14 @@ task/child IDs 不编码 operator、target、`arbitrage_type` 或 positive/negat
 ├── schemas/                       # Snapshot、variant、trajectory、submission schemas
 ├── scripts/                       # venv、生成、校验和数据集构建入口脚本
 ├── snapshots/
+│   ├── generated/                 # 本地开发快照；仅 README/通用 SQL 提交 Git
+│   │   └── sql_query/             # active DRAFT DuckDB 的参数化只读查询
 │   └── public/                    # 小型、可公开且带 revision 的 DRAFT/FROZEN 快照
 │       └── sql_query/             # 可复用、只读且显式排序的常用 DuckDB 查询
 ├── src/
 │   └── synthetic_derivatives/
 │       ├── authoring/             # 市场快照生成与冻结实现
-│       ├── task_space/            # 六维 task grammar 与 compatibility
+│       ├── task_space/            # 六维 v1 runtime；七维 v2 runtime 待实现
 │       ├── mutation/              # 确定性 child task 与 lineage
 │       ├── curriculum/            # 不改 task/reward 的 adaptive sampling
 │       ├── solver/                # 受限环境中的公式、求根、Greeks 与拟合实现
@@ -755,16 +767,19 @@ task/child IDs 不编码 operator、target、`arbitrage_type` 或 positive/negat
 保存可复现行为所需的声明式配置：
 
 - `generators/` 描述模型、参数、随机数生成器、draw order、定价 engine 和 generator version。
-- `task_space/` 描述 $L/P/M/A/D/R$ 六个轴与合法 product--model--method 组合。
-- `mutations/` 描述允许改变的轴、单次最大变更轴数和方向约束。
-- `curricula/` 描述 stage、20/60/20 replay/current/explore mixture 与 mastery 调度区间。
+- `task_space/` 保留 $L/P/M/A/D/R$ 六轴 v1，并行描述含 string enum $F$ 的七轴 v2 与合法组合。
+- `mutations/` 描述允许改变的坐标轴，以及 F2A logical point mutation 的 integer-tick grid、顺序和 domain gates。
+- `curricula/` 分别描述 v1/v2 stage、20/60/20 replay/current/explore mixture 与 mastery 调度区间。
 - `variants/` 描述某一道任务的 snapshot、金融约定、method IDs、数值顺序、舍入规则、Solver 权限和输出格式。
 
 配置文件只描述合同，不存放实现代码或 hidden reference answer。
 
 ### `snapshots/`
 
-保存生成后冻结的市场快照。`public/` 仅提交小型 demo；批量快照与私有快照不进入 Git。当前 public demo 使用 DuckDB，配套内容包括：
+保存市场快照。`public/` 仅提交小型 demo；`generated/` 保存本地 DRAFT/派生快照，
+其 DuckDB、manifest 和 lineage 不进入 Git，但目录说明与参数化只读 SQL 可提交。当前 active
+development snapshot 的 identity、visibility boundary 和查询目录见
+[`snapshots/generated/README.md`](snapshots/generated/README.md)。当前 public demo 使用 DuckDB，配套内容包括：
 
 - `quantlib_bsm_smoke_v1.duckdb`：market、metadata 和 solver-visible views；
 - `quantlib_bsm_smoke_v1.manifest.json`：snapshot/config 版本标识、revision 与行数；
@@ -781,7 +796,7 @@ IV、Greeks、smile、surface、VaR 和 ES 是从统一快照派生的任务结�
 项目的 Python 源码根目录。权限边界模块与训练编排模块分开：
 
 - `authoring/`：允许使用 QuantLib，负责生成、质量门控、冻结与 revision。
-- `task_space/`：只判断六维坐标和 task family 是否兼容，不生成任务、不决定采样。
+- `task_space/`：当前 runtime 只判断六维 v1 坐标；并行七维 v2 config/schema 已落位，runtime dispatch 待实现。
 - `mutation/`：从不可变母题生成确定性 child task 和 lineage，不读取模型表现。
 - `curriculum/`：根据 stage 与 `pass@1` diagnostics 计算采样权重，不修改 frozen task 或二值 hard reward。
 - `solver/`：只使用合同允许的基础原语，自行实现指定计算方法。
@@ -793,6 +808,9 @@ IV、Greeks、smile、surface、VaR 和 ES 是从统一快照派生的任务结�
 ### `environments/`
 
 保存三个隔离环境的依赖与容器定义。Authoring/verifier 可以安装固定版本的金融包，Solver 环境只安装 allowlist 依赖，并禁用网络、动态安装和 hidden verifier 访问。
+Solver 的 distribution、direct-import、NumPy/Pandas API、DuckDB query adapter 和 enforcement
+验收合同统一记录在 [Solver Environment Allowlist](environments/solver/README.md)。当前该文档
+已冻结目标设计，但 dependency lock 和 runtime enforcement 尚未完成。
 
 ### `datasets/`
 

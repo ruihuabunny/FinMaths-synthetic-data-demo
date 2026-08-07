@@ -262,10 +262,14 @@
 
 ### Arbitrage and no-arbitrage definitions
 
-- For the current arbitrage-finding phase, use a frictionless market with zero
-  transaction costs and one declared executable price for each traded claim. The
-  task contract must identify that price field. Bid/ask execution asymmetry and
-  spread costs are outside the current phase and must not be introduced silently.
+- The current F2A arbitrage-finding phase is not a zero-transaction-cost market.
+  Option trades execute directionally at the declared bid or ask and incur the
+  versioned nonzero per-contract, per-side fee in the public execution contract.
+  Apply the option multiplier and fee to every leg using `abs(position)`. The
+  underlying and cash account may remain frictionless only when that simplifying
+  assumption is declared explicitly and is required by the frozen BSM replication
+  contract; it must not be described as zero transaction costs for the task as a
+  whole.
 - Fix a finite horizon, a filtered probability space
   `(Omega, F, (F_t), P)`, a strictly positive numeraire, the traded assets and
   their cash distributions, and a class of admissible predictable self-financing
@@ -329,11 +333,14 @@
   theorem. None is a universal substitute for the arbitrage definition. In
   particular, never label `longer maturity price < shorter maturity price` as an
   arbitrage without proving that implication under the task's actual contracts.
-- Current F2A work must use the existing frozen parent snapshot and its declared
-  nonzero rate and dividend/carry inputs. Do not generate a zero-rate or
-  zero-dividend replacement merely to make a convenient calendar inequality true.
-  The parent remains immutable; each mutated child receives a new snapshot
-  identity and records its complete private mutation lineage.
+- Current F2A work must preserve the existing nonzero rate and dividend/carry
+  inputs and the declared P/Q dynamics, but its `0.01 USD` minimum price increments
+  require a new tick-aligned parent generator config and a new snapshot identity.
+  Do not overwrite or relabel an existing snapshot, and do not generate a zero-rate
+  or zero-dividend replacement merely to make a convenient calendar inequality
+  true. Once the new parent is materialized and frozen it remains immutable; each
+  mutated child receives a new snapshot identity and records its complete private
+  mutation lineage.
 - An `arbitrage_opportunity` task must freeze the traded universe, observation and
   trading times, information available at each time, strategy class, position and
   shorting constraints, funding and cash-distribution rules, exercise and

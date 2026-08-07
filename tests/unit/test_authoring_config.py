@@ -176,28 +176,48 @@ def test_market_prices_round_to_configured_minimum_increments(
     ) == Decimal("1.00000000")
 
 
-def test_f2a_and_ticked_authoring_config_use_the_same_price_increments(
-    repository_root: Path, smoke_config_path: Path
+def test_f2a_generator_variant_and_mutation_contract_share_tick_semantics(
+    repository_root: Path,
 ) -> None:
-    authoring = load_generator_config(smoke_config_path)
-    f2a = json.loads(
+    authoring = load_generator_config(
+        repository_root
+        / "configs/generators/quantlib_bsm_metals_f2a_parent_v1.json"
+    )
+    variant = json.loads(
         (
-            repository_root / "configs/arbitrage/f2a_us_options_v1.json"
+            repository_root
+            / "configs/variants/bsm_arbitrage_finding_f2a_v1.json"
+        ).read_text(encoding="utf-8")
+    )
+    mutation = json.loads(
+        (
+            repository_root / "configs/mutations/f2a_point_v1.json"
         ).read_text(encoding="utf-8")
     )
 
+    market_contract = variant["market_contract"]
     assert authoring.underlying_minimum_price_increment == Decimal(
-        f2a["underlying_minimum_price_increment"]
+        market_contract["underlying_minimum_price_increment"]
     )
     assert authoring.option_minimum_price_increment == Decimal(
-        f2a["option_minimum_price_increment"]
+        market_contract["option_minimum_price_increment"]
     )
-    assert Decimal(f2a["option_price_mutation_increment"]) % (
-        authoring.option_minimum_price_increment
-    ) == 0
-    assert Decimal(f2a["spot_mutation_increment"]) % (
-        authoring.underlying_minimum_price_increment
-    ) == 0
+    assert mutation["price_increment_source"] == "generator_config"
+    assert all(
+        isinstance(ticks, int) and not isinstance(ticks, bool) and ticks > 0
+        for ticks in mutation["absolute_tick_grid"]
+    )
+    assert variant["execution_contract"]["option_execution"] == (
+        "directional_bid_ask"
+    )
+    assert Decimal(
+        variant["execution_contract"]["option_fee_per_contract_per_side"]
+    ) > 0
+    assert Decimal(
+        variant["execution_contract"][
+            "underlying_trading_cost_rate_per_side"
+        ]
+    ) == Decimal("0.0005")
 
 
 @pytest.mark.parametrize(
