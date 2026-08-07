@@ -1,9 +1,15 @@
 # Install only inside this repository's .venv.
+attrs==26.1.0
 duckdb==1.5.5
 iniconfig==2.3.0
+jsonschema==4.25.0
+jsonschema-specifications==2025.9.1
 packaging==26.2
 pluggy==1.6.0
 Pygments==2.20.0
 QuantLib==1.39
+referencing==0.37.0
+rpds-py==0.30.0
 pytest==8.4.1
 setuptools==80.9.0
+typing-extensions==4.16.0

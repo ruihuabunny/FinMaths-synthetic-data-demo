@@ -1,0 +1,377 @@
+{
+  "dataset_config_id": "f2a-dataset-v4",
+  "parent_grouping_key": "DERIVATIVES-METALS-F2A-V4-CI-FIXTURE-v1",
+  "publication_signatures": [
+    "000",
+    "100",
+    "010",
+    "001",
+    "110",
+    "101",
+    "011",
+    "111"
+  ],
+  "publication_task_count": 8,
+  "reachability_audit": {
+    "audit_id": "f2a-calendar-enabled-reachability-v4",
+    "execution_profile_id": "us-options-underlying-5bps-options-flat-050-v4",
+    "requested_signature_order": [
+      "000",
+      "100",
+      "010",
+      "001",
+      "110",
+      "101",
+      "011",
+      "111"
+    ],
+    "results": {
+      "000": {
+        "active_candidates": [],
+        "diagnostic": null,
+        "domain_gate_interval": [
+          0,
+          0
+        ],
+        "exact_integer_tick_intervals": [
+          {
+            "maximum_absolute_tick": 0,
+            "minimum_absolute_tick": 0,
+            "signature": "000"
+          }
+        ],
+        "nearest_inactive_candidates": [
+          {
+            "candidate_id": "cross-sectional-monotonicity|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|call|120.0|130.0|100",
+            "family": "cross-sectional",
+            "guard_distance_usd": 6.0
+          },
+          {
+            "candidate_id": "cross-asset-bound|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|80.0|100|call-lower",
+            "family": "cross-asset",
+            "guard_distance_usd": 15.004968612102857
+          },
+          {
+            "candidate_id": "calendar-call-stock-flip-v1|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|2026-10-02|130.0|100",
+            "family": "calendar",
+            "guard_distance_usd": 24.210046302336995
+          }
+        ],
+        "operator": "clean_control_v2",
+        "reachable": true,
+        "selected_delta_ticks": 0,
+        "sign": 0,
+        "target_ids": [],
+        "trusted_verifier_signature": "000"
+      },
+      "001": {
+        "active_candidates": [
+          {
+            "active_candidate_count": 2,
+            "candidate_id": "calendar-call-stock-flip-v1|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|2026-10-02|100.0|100",
+            "family": "calendar",
+            "guard_distance_usd": 124.78995369766301
+          }
+        ],
+        "diagnostic": null,
+        "domain_gate_interval": [
+          1,
+          4096
+        ],
+        "exact_integer_tick_intervals": [
+          {
+            "maximum_absolute_tick": 290,
+            "minimum_absolute_tick": 132,
+            "signature": "001"
+          }
+        ],
+        "nearest_inactive_candidates": [
+          {
+            "candidate_id": "cross-sectional-monotonicity|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|call|120.0|130.0|100",
+            "family": "cross-sectional",
+            "guard_distance_usd": 6.0
+          },
+          {
+            "candidate_id": "cross-asset-bound|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|80.0|100|call-lower",
+            "family": "cross-asset",
+            "guard_distance_usd": 15.004968612102857
+          }
+        ],
+        "operator": "mutate_call_put_pair_equal_shift_v2",
+        "reachable": true,
+        "selected_delta_ticks": 256,
+        "sign": 1,
+        "target_ids": [
+          "F2A-CI-2026-09-02-100-CALL",
+          "F2A-CI-2026-09-02-100-PUT"
+        ],
+        "trusted_verifier_signature": "001"
+      },
+      "010": {
+        "active_candidates": [
+          {
+            "active_candidate_count": 2,
+            "candidate_id": "cross-asset-bound|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|70.0|100|call-lower",
+            "family": "cross-asset",
+            "guard_distance_usd": 0.5323154361485649
+          }
+        ],
+        "diagnostic": null,
+        "domain_gate_interval": [
+          1,
+          3004
+        ],
+        "exact_integer_tick_intervals": [
+          {
+            "maximum_absolute_tick": 29,
+            "minimum_absolute_tick": 16,
+            "signature": "010"
+          }
+        ],
+        "nearest_inactive_candidates": [
+          {
+            "candidate_id": "cross-sectional-monotonicity|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|call|120.0|130.0|100",
+            "family": "cross-sectional",
+            "guard_distance_usd": 6.0
+          },
+          {
+            "candidate_id": "calendar-call-stock-flip-v1|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|2026-10-02|130.0|100",
+            "family": "calendar",
+            "guard_distance_usd": 24.210046302336995
+          }
+        ],
+        "operator": "mutate_option_price_point_v3",
+        "reachable": true,
+        "selected_delta_ticks": -16,
+        "sign": -1,
+        "target_ids": [
+          "F2A-CI-2026-09-02-70-CALL"
+        ],
+        "trusted_verifier_signature": "010"
+      },
+      "011": {
+        "active_candidates": [
+          {
+            "active_candidate_count": 1,
+            "candidate_id": "cross-asset-parity|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|70.0|100|long-call",
+            "family": "cross-asset",
+            "guard_distance_usd": 42.975898743065045
+          },
+          {
+            "active_candidate_count": 2,
+            "candidate_id": "calendar-call-stock-flip-v1|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|2026-10-02|70.0|100",
+            "family": "calendar",
+            "guard_distance_usd": 25.789953697663005
+          }
+        ],
+        "diagnostic": null,
+        "domain_gate_interval": [
+          1,
+          4096
+        ],
+        "exact_integer_tick_intervals": [
+          {
+            "maximum_absolute_tick": 4096,
+            "minimum_absolute_tick": 39,
+            "signature": "011"
+          }
+        ],
+        "nearest_inactive_candidates": [
+          {
+            "candidate_id": "cross-sectional-monotonicity|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|call|120.0|130.0|100",
+            "family": "cross-sectional",
+            "guard_distance_usd": 6.0
+          }
+        ],
+        "operator": "mutate_option_price_point_v3",
+        "reachable": true,
+        "selected_delta_ticks": 64,
+        "sign": 1,
+        "target_ids": [
+          "F2A-CI-2026-09-02-70-CALL"
+        ],
+        "trusted_verifier_signature": "011"
+      },
+      "100": {
+        "active_candidates": [
+          {
+            "active_candidate_count": 1,
+            "candidate_id": "cross-sectional-monotonicity|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|put|70.0|80.0|100",
+            "family": "cross-sectional",
+            "guard_distance_usd": 2.0
+          }
+        ],
+        "diagnostic": null,
+        "domain_gate_interval": [
+          1,
+          4096
+        ],
+        "exact_integer_tick_intervals": [
+          {
+            "maximum_absolute_tick": 38,
+            "minimum_absolute_tick": 6,
+            "signature": "100"
+          }
+        ],
+        "nearest_inactive_candidates": [
+          {
+            "candidate_id": "cross-asset-bound|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|80.0|100|call-lower",
+            "family": "cross-asset",
+            "guard_distance_usd": 15.004968612102857
+          },
+          {
+            "candidate_id": "calendar-call-stock-flip-v1|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|2026-10-02|130.0|100",
+            "family": "calendar",
+            "guard_distance_usd": 24.210046302336995
+          }
+        ],
+        "operator": "mutate_call_put_pair_equal_shift_v2",
+        "reachable": true,
+        "selected_delta_ticks": 8,
+        "sign": 1,
+        "target_ids": [
+          "F2A-CI-2026-09-02-70-CALL",
+          "F2A-CI-2026-09-02-70-PUT"
+        ],
+        "trusted_verifier_signature": "100"
+      },
+      "101": {
+        "active_candidates": [
+          {
+            "active_candidate_count": 2,
+            "candidate_id": "cross-sectional-monotonicity|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|put|70.0|80.0|100",
+            "family": "cross-sectional",
+            "guard_distance_usd": 58.0
+          },
+          {
+            "active_candidate_count": 2,
+            "candidate_id": "calendar-call-stock-flip-v1|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|2026-10-02|70.0|100",
+            "family": "calendar",
+            "guard_distance_usd": 25.789953697663005
+          }
+        ],
+        "diagnostic": null,
+        "domain_gate_interval": [
+          1,
+          4096
+        ],
+        "exact_integer_tick_intervals": [
+          {
+            "maximum_absolute_tick": 4096,
+            "minimum_absolute_tick": 39,
+            "signature": "101"
+          }
+        ],
+        "nearest_inactive_candidates": [
+          {
+            "candidate_id": "cross-asset-bound|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|80.0|100|call-lower",
+            "family": "cross-asset",
+            "guard_distance_usd": 15.004968612102857
+          }
+        ],
+        "operator": "mutate_call_put_pair_equal_shift_v2",
+        "reachable": true,
+        "selected_delta_ticks": 64,
+        "sign": 1,
+        "target_ids": [
+          "F2A-CI-2026-09-02-70-CALL",
+          "F2A-CI-2026-09-02-70-PUT"
+        ],
+        "trusted_verifier_signature": "101"
+      },
+      "110": {
+        "active_candidates": [
+          {
+            "active_candidate_count": 1,
+            "candidate_id": "cross-sectional-convexity|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|call|70.0|80.0|90.0|100",
+            "family": "cross-sectional",
+            "guard_distance_usd": 2.9999999999995453
+          },
+          {
+            "active_candidate_count": 2,
+            "candidate_id": "cross-asset-bound|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|70.0|100|call-lower",
+            "family": "cross-asset",
+            "guard_distance_usd": 16.532315436148565
+          }
+        ],
+        "diagnostic": null,
+        "domain_gate_interval": [
+          1,
+          3004
+        ],
+        "exact_integer_tick_intervals": [
+          {
+            "maximum_absolute_tick": 3004,
+            "minimum_absolute_tick": 30,
+            "signature": "110"
+          }
+        ],
+        "nearest_inactive_candidates": [
+          {
+            "candidate_id": "calendar-call-stock-flip-v1|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|2026-10-02|130.0|100",
+            "family": "calendar",
+            "guard_distance_usd": 24.210046302336995
+          }
+        ],
+        "operator": "mutate_option_price_point_v3",
+        "reachable": true,
+        "selected_delta_ticks": -32,
+        "sign": -1,
+        "target_ids": [
+          "F2A-CI-2026-09-02-70-CALL"
+        ],
+        "trusted_verifier_signature": "110"
+      },
+      "111": {
+        "active_candidates": [
+          {
+            "active_candidate_count": 1,
+            "candidate_id": "cross-sectional-convexity|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|call|70.0|80.0|90.0|100",
+            "family": "cross-sectional",
+            "guard_distance_usd": 99.0
+          },
+          {
+            "active_candidate_count": 1,
+            "candidate_id": "cross-asset-parity|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|80.0|100|long-call",
+            "family": "cross-asset",
+            "guard_distance_usd": 42.51318279131647
+          },
+          {
+            "active_candidate_count": 1,
+            "candidate_id": "calendar-call-stock-flip-v1|SYNTH-METAL-F2A-CI|2026-08-03|2026-09-02|2026-10-02|80.0|100",
+            "family": "calendar",
+            "guard_distance_usd": 22.789953697663005
+          }
+        ],
+        "diagnostic": null,
+        "domain_gate_interval": [
+          1,
+          4096
+        ],
+        "exact_integer_tick_intervals": [
+          {
+            "maximum_absolute_tick": 4096,
+            "minimum_absolute_tick": 42,
+            "signature": "111"
+          }
+        ],
+        "nearest_inactive_candidates": [],
+        "operator": "mutate_option_price_point_v3",
+        "reachable": true,
+        "selected_delta_ticks": 64,
+        "sign": 1,
+        "target_ids": [
+          "F2A-CI-2026-09-02-80-CALL"
+        ],
+        "trusted_verifier_signature": "111"
+      }
+    },
+    "status": "COMPLETE"
+  },
+  "schema_version": "4.0.0",
+  "split_names": [
+    "audit"
+  ],
+  "status": "EXECUTABLE_REACHABILITY_PROVED_SCOPE",
+  "usable_train_validation_test_split": false
+}

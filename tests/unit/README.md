@@ -27,7 +27,10 @@
 | [`test_option_chain_builder.py`](test_option_chain_builder.py) | Expiry × grid × call/put 展开、liquidity filtering、quote-noise replay、moneyness/absolute-strike 互斥、listing strike 冻结、stable contract ID、append/`sync-config` invariance 和 22-underlying public config 结构。 |
 | [`test_q_pricing.py`](test_q_pricing.py) | Config 1.5/1.6 边界、legacy authoring-IV config 只读、P/Q metadata、integrated-variance BSM quote、tick quantization 和不生成 IV answers。 |
 | [`test_f2a_repo_contracts.py`](test_f2a_repo_contracts.py) | F2A legacy/v2/v3 identity mapping、complete-grammar point counts、distribution/single-parent split、`g_j` target、lineage `000/111` 与 operator/signature conditionals、public no-label-leakage。 |
-| [`test_f2a_math_contracts.py`](test_f2a_math_contracts.py) | Candidate-specific open/closed boundary、`g_j`/`W_T2` regression、`A_S/B_S` partition cashflow identities、single-expiry piecewise-affine cells/knots/tails、gcd normalization、complete non-calendar scanner、operator response algebra 与 integer-tick threshold fixtures。它们是已冻结 primitive/algebra 的 regression tests；calendar ledger、interim admissibility、完整 parent reachability 和 runtime 仍未证明。 |
+| [`test_f2a_math_contracts.py`](test_f2a_math_contracts.py) | Candidate-specific open/closed boundary、`g_j`/`W_T2` regression、`A_S/B_S` partition cashflow identities、single-expiry piecewise-affine cells/knots/tails、gcd normalization、multiplier-safe scanner 与 operator response algebra。 |
+| [`test_f2a_calendar_v4.py`](test_f2a_calendar_v4.py) | 42-candidate calendar enumeration、`beta/Delta_0/Delta_1`、unsimplified/piecewise ledgers、boundary/ray/open-set certificate、fee/cost accounting 与 raw-order/model-mismatch/F<1/multiplier/nonfinite negative controls。 |
+| [`test_f2a_repo_v4.py`](test_f2a_repo_v4.py) | V4 executable identities、non-null calendar config、runtime files、tracked complete-chain fixture/manifest、reachability artifact 与 jsonschema/referencing dependency lock。 |
+| [`../integration/test_f2a_v4_runtime.py`](../integration/test_f2a_v4_runtime.py) | 真实 quote mutation 的 `000..111` tick windows、exact `001`/mixed signatures、atomic child、candidate-specific lineage rejection、independent Solver/verifier smoke。 |
 | [`test_task_space.py`](test_task_space.py) | 六维 task coordinates、registry compatibility 和 documented axes。 |
 | [`test_mutation.py`](test_mutation.py) | Deterministic single-axis mutation、snapshot lineage、incompatible child rejection 和 method identity。 |
 | [`test_curriculum.py`](test_curriculum.py) | 20/60/20 stage mass、mastery-adaptive sampling，以及 diagnostics 不改变 binary reward。 |
@@ -100,9 +103,9 @@ DuckDB。
 - DuckDB 查询必须显式限定 `snapshot_id`，多行比较必须固定 `ORDER BY`。
 - Failure test 同时验证 transaction rollback 或 snapshot revision 未变化。
 - 若修改 solver-visible contract，还必须在 `tests/public` 增加相应 public schema test。
-- F2A repo/math contract tests 只验证 candidate predicate、已审核的 single-expiry primitives 与声明式
-  boundaries；calendar evaluator/self-financing/interim-admissibility proofs、child materialization、
-  Solver、independent verifier 和 training runtime 仍未实现。
+- F2A v1/v2/v3 repo tests 只保护 historical identities；v4 tests 使用 tracked complete-chain fixture 和
+  真实 public quote/spot mutation，禁止用抽象 affine trigger 或 finite spot grid 代替 reachability/
+  pathwise certificate。当前 artifact 是单-parent `audit` scope，不得描述成正式 training split。
 
 ## 完成检查
 

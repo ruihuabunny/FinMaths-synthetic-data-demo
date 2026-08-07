@@ -1,0 +1,64 @@
+{
+  "schema_version": "4.0.0",
+  "engine_id": "f2a-complete-mutation-v4",
+  "task_family_id": "bsm_arbitrage_finding_f2a_v1",
+  "status": "EXECUTABLE",
+  "runtime_enabled": true,
+  "price_increment_source": "tracked_v4_fixture_or_explicit_frozen_parent",
+  "absolute_tick_grid": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096],
+  "sign_order": [-1, 1],
+  "target_order": "valuation_date_then_underlying_id_then_expiry_then_strike_then_call_put_then_option_id",
+  "operators": [
+    {
+      "operator_id": "clean_control_v2",
+      "kind": "clean_control",
+      "logical_mutation_groups": 0,
+      "physical_quote_points_changed": 0,
+      "physical_spot_points_changed": 0
+    },
+    {
+      "operator_id": "mutate_option_price_point_v3",
+      "kind": "single_option_quote_shift",
+      "target": "one_option_id",
+      "derived_fields": ["bid", "ask"],
+      "derivation": "equal_tick_shift_preserving_parent_half_spread",
+      "logical_mutation_groups": 1,
+      "logical_quote_points_changed": 1,
+      "physical_quote_points_changed": 1
+    },
+    {
+      "operator_id": "mutate_call_put_pair_equal_shift_v2",
+      "kind": "call_put_pair_equal_shift",
+      "target": "same_valuation_underlying_expiry_strike_multiplier_call_put_pair",
+      "derivation": "apply_one_equal_tick_shift_to_both_quotes_atomically",
+      "logical_mutation_groups": 1,
+      "logical_quote_points_changed": 2,
+      "physical_quote_points_changed": 2,
+      "group_semantics": "same-strike-same-expiry-call-put-equal-shift",
+      "same_pair_parity_surplus_invariant": true
+    },
+    {
+      "operator_id": "mutate_underlying_spot_point_v3",
+      "kind": "underlying_spot_shift",
+      "target": "one_valuation_underlying_spot",
+      "logical_mutation_groups": 1,
+      "logical_quote_points_changed": 0,
+      "physical_quote_points_changed": 0,
+      "physical_spot_points_changed": 1,
+      "cross_sectional_bit_invariant": true
+    }
+  ],
+  "authoring_domain_gates": [
+    "option_bid_and_ask_finite_nonnegative_tick_aligned_and_ordered",
+    "grouped_pair_contract_key_equal_and_atomic",
+    "spot_finite_strictly_positive_and_tick_aligned"
+  ],
+  "forbidden_domain_gates": [
+    "bsm_price_bounds",
+    "put_call_parity",
+    "strike_monotonicity",
+    "strike_convexity",
+    "raw_calendar_price_ordering",
+    "model_repricing_or_clipping"
+  ]
+}

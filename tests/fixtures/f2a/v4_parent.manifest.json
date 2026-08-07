@@ -1,0 +1,23 @@
+{
+  "complete_chain": {
+    "calendar_candidate_count": 42,
+    "expiry_count": 4,
+    "option_type_count": 2,
+    "quote_count": 56,
+    "strike_count_per_expiry": 7
+  },
+  "dividend_yield": 0.01,
+  "fixture_role": "tracked_ci_only_not_production_parent_fallback",
+  "materialization_command": "python scripts/materialize_f2a.py build-fixture",
+  "model": "flat_continuous_rate_dividend_BSM_clean_quote_fixture",
+  "option_half_spread_usd": 0.05,
+  "option_tick_usd": 0.01,
+  "rate": 0.03,
+  "schema": "solver-visible-f2a-json-v1",
+  "sha256": "a6570f73eaf881eba964b0bfb3c1284396c044db5e848e569dd29547a2f661cf",
+  "snapshot_id": "DERIVATIVES-METALS-F2A-V4-CI-FIXTURE-v1",
+  "snapshot_revision": 1,
+  "status": "FROZEN",
+  "underlying_tick_usd": 0.01,
+  "volatility": 0.2
+}

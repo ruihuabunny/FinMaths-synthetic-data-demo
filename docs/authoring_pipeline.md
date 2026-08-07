@@ -44,16 +44,17 @@ F2A 使用并行的七维 v2 contract；其 mutation 层也只应生成 immutabl
 |:---|:---|:---|
 | 默认 active development database | `DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3 / r1 / DRAFT`，位于 `snapshots/generated/quantlib_bsm_metals_option_chain_smoke_v1_20260807.duckdb` | 使用 legacy config `1.5.0`、generator `0.7.0` 和旁边的 manifest 做读取与检查。虽然状态是 `DRAFT`，当前 pipeline 仍将它视为只读；缺失时必须报告，不能重建该 identity 或 fallback 到 public DB。 |
 | 新 ordinary authoring | `DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v4` | 使用 `quantlib_bsm_metals_option_chain_smoke_v2.json`、config `1.6.0`、generator `0.8.0` 写入新文件。默认 CLI/Make 目标是 `/tmp/metals-liquid-tdgbm-q-v4.duckdb`；不生成 IV audit rows。 |
-| F2A clean parent | `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2 / r1 / FROZEN` | 位于 `snapshots/generated/f2a/parents/.../parent.duckdb`，使用独立 config `1.6.0`、generator `0.8.0`，underlying/option increment 都是 `0.01 USD`。它只在 F2A 任务显式选择时使用，禁止 append、sync 或原地 mutation。 |
+| F2A production parent contract | `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2 / r1 / FROZEN` | 运行方须在 `snapshots/generated/f2a/parents/.../parent.duckdb` 显式提供 DB/manifest；当前 Git 只跟踪 CI-only JSON fixture。使用独立 config `1.6.0`、generator `0.8.0`，禁止 fallback、append、sync 或原地 mutation。 |
 
 Checked-in `snapshots/public/quantlib_bsm_smoke_v1.duckdb` 是 frozen legacy v3 public contract，
 不是 active development database 的缺省替代品。Active v3 和 public v3 都保留 60,368 条
 历史 `option_pricing_audit` rows；v4 与 F2A v2 parent 的 schema-retained audit table 为空。
 
-F2A 目前有 frozen parent、legacy replay、blocked v2 first-review contracts，以及新 ID 下的 blocked
-v3 complete grammar。V3 已冻结三 operator grammar、predicate、single-expiry formulas、selector shape
-与 `g_j` calendar review target，但 calendar evaluator/proofs、reachability audit、mutation runtime、child
-materializer、独立 oracle、Solver/verifier 与 dataset 均未完成；因此不能物化 child。
+F2A v1 是 legacy replay，v2/v3 是 superseded historical blocked records。当前 successor 是
+`bsm-arbitrage-finding-f2a-v4`：calendar stock-flip catalogue、三类 mutation、child materializer、
+authoring selector、独立 oracle、Solver/verifier、candidate-specific lineage 和真实 tick reachability
+均已实现。生产路径仍要求显式提供 frozen v2 parent；clean clone 的测试只在显式选择时使用
+`tests/fixtures/f2a/v4_parent.json`，绝不把它 silent fallback 成生产 parent。
 
 ## Underlying simulator 第一阶段
 
@@ -583,7 +584,7 @@ Candidate grid 是 6 expiries × 11 moneyness × call/put，filter 实际保留 
 不同而使用不同 effective volatility；所有 strike 仍来自同一个 coherent deterministic-
 time-varying-diffusion BSM marginal model。
 
-## F2A parent 与计划中的 child authoring
+## F2A parent 与可执行 v4 child authoring
 
 F2A 必须显式选择以下 clean parent，不能使用 ordinary v4、active v3 或 public v3 代替：
 
@@ -598,8 +599,8 @@ increments  = underlying 0.01 USD; option 0.01 USD
 IV audits   = 0
 ```
 
-该 parent 已经 materialize 并冻结，不应重新生成、append、sync 或 mutation。当前仓库也没有
-可运行的 F2A child materializer；目标 authoring flow 是：
+该生产 parent identity 必须 frozen 且只读，不应重新生成、append、sync 或 mutation；若文件未在
+本地提供则失败。V4 reference runtime 的 authoring flow 是：
 
 ```text
 open exact parent read-only
@@ -653,14 +654,20 @@ calendar review target；它明确
 tests 与 baseline signature reachability audit 完成后还必须再升 variant/catalogue identity，不能原地
 打开 blocked v3。
 
+Executable v4 使用 variant v4/catalogue v5/mutation v4/dataset v4/lineage-submission v4 和 output v5。
+它冻结有限日期 semi-static admissibility，并启用
+`transaction-cost-aware-two-expiry-call-stock-flip-v1`。完整 4-expiry × 7-strike chain 枚举 42 个
+calendar candidates；tracked CI fixture 的真实 full-oracle audit 已实现 `000` 与全部七种 positive
+signatures，其中 `001` 的 early ATM equal call+put 正向 tick 窗口是 `[132,290]`。
+
 每个 slice 在 mutation 前先从 solver-visible projection 独立全量扫描，并要求 clean signature `000`；
 否则 deterministic skip。Spot mutation 必须满足 `X_after == X_before`，只有结合 clean-baseline policy
 才能推出 `X_after=false`。Reachability audit 必须逐 requested signature 输出 target/operator/tick windows
 或不可达诊断；不能随机 retry、扩大 grid、修改 parent 或临时改变 fee。Authoring selector 只负责样本
 选择，不能和 Trusted verifier 共用 oracle 实现，也不能把 requested signature 当成 truth。
 
-V3 dataset 明确分配 requested order/mass 与 clean `000` allocation；只发布 reachability-proved scope，
-不可达缺额不回填。当前单一 parent 按 `parent_snapshot_id` 只能形成一个 audit group，不能生成可用
+V4 dataset 只发布 reachability-proved scope，requested signature 仍只是 private selection input。
+当前单一 CI parent 按 `parent_snapshot_id` 只能形成一个 audit group，不能生成可用
 train/validation/test split；后者需要多个独立 parent worlds 或经证明不泄漏 latent world 的新 grouping。
 
 完整 F2A 数学、权限与实施顺序见
@@ -693,9 +700,10 @@ make test
 - ordinary v4 的 1,232 contracts、60,368 quotes 与空 `option_pricing_audit` table；
 - checked-in legacy public v3 的 60,368 条历史 audit rows 与 manifest 保持一致；
 - F2A generator/variant/mutation/private-authoring configs、七维 schemas 和 repo path 合同彼此一致。
+- F2A v4 calendar algebra、42-candidate enumeration、真实八-signature tick windows、lineage rejection、
+  Solver -> independent verifier 的 `001` 端到端 smoke。
 
-最后一项只验证 legacy/blocked successor 声明式 contracts，不证明 blocked catalogue v3 可执行、
-也不证明 child runtime、独立 oracle 或端到端 F2A dataset 已实现。
+V2/v3 tests 只验证历史 immutable records；v4 runtime tests 才是当前 executable capability 的证据。
 
 ## 版本与参考
 

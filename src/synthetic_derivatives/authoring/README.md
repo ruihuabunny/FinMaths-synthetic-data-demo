@@ -15,9 +15,9 @@ snapshot。Solver 不应直接导入本包，也不能访问其中的 private ge
 | Ordinary snapshot pipeline | 已实现 | 支持 DRAFT create/sync/append/NOOP、quality gates、revision、manifest 与 freeze。 |
 | Active development v3 | `DRAFT / r1`，当前 pipeline 下只读 | 使用 legacy config v1；authoring-time IV solving 已退休，不能在同一 identity 下继续写入或重建。 |
 | Successor ordinary authoring | config schema `1.6.0`、generator `0.8.0`、snapshot v4 | 新 materialization 必须写新文件，不得 append 到 legacy v3。 |
-| F2A clean parent | `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2 / r1 / FROZEN` | 已由现有 pipeline 物化并冻结；只允许 read-only selection，不能 append、sync 或原地 mutation。 |
-| F2A child authoring | 未实现 | `f2a_child_materializer.py`、point-mutation runtime、signature selector、private lineage 和 child artifacts 尚不存在。 |
-| F2A contracts | Legacy、blocked v2 review 与 blocked v3 complete grammar 并存 | V3 新增 grouped pair、lineage conditionals、distribution/route/split contract，但仍为 `runtime_enabled = false`、`calendar_family = null`。Calendar proofs、reachability audit 与 runtime 仍 blocking。 |
+| F2A production parent contract | `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2 / r1 / FROZEN` | 生产运行须显式提供 DB/manifest；Git 不跟踪该大文件，缺失时失败。只允许 read-only selection，不能 append、sync 或原地 mutation。 |
+| F2A child authoring | v4 reference runtime 已实现 | `f2a_child_materializer.py` 完成纯 mutation 应用、独立 authoring X/U/T rescan、candidate evidence、冻结前 trusted-oracle 对照与原子 JSON fixture child。 |
+| F2A contracts | v1 legacy；v2/v3 historical blocked；v4 executable | V4 启用 stock-flip calendar family，完整链 42 candidates；tracked CI fixture 已完成全部八种真实 tick signature audit。 |
 
 默认 active development database 是
 `snapshots/generated/quantlib_bsm_metals_option_chain_smoke_v1_20260807.duckdb`。若它缺失，应报告，
@@ -40,10 +40,11 @@ materialization。
 原来的单体 `generator.py` 已拆除。Product-specific generator 只共享基础设施，不互相
 调用，避免 option quote 生成路径意外读取 P-measure correlation contract。
 
-F2A runtime 落地后会新增独立的 `f2a_child_materializer.py`。它不属于现有
+F2A v4 的独立 [`f2a_child_materializer.py`](f2a_child_materializer.py) 不属于现有
 `AuthoringPipeline` 的普通 quote-generation 路径：它只读 frozen parent，按 allowlist 构建新 child、
 执行 authoring-side signature selection/quality gates、写 private lineage 并 freeze 新 identity；
-不会重新运行 QuantLib repricing。该文件当前尚未创建，不得从本表推断 F2A child 已可物化。
+不会重新运行 QuantLib repricing。Reference smoke 使用明确的 tracked JSON fixture；生产 DuckDB adapter
+仍必须显式选择 frozen v2 parent，缺失时不能 fallback。
 
 ## 生成顺序
 
@@ -68,7 +69,7 @@ validate DRAFT snapshot and immutable config
 记录。Revision 在 market transaction 内更新；相邻 manifest 只在 commit 成功后原子替换。
 重复运行相同范围应返回 `NOOP`，不增加 revision。
 
-F2A child 使用另一条计划中的 copy-on-write 流程：
+F2A child 使用另一条可执行的 copy-on-write 流程：
 
 ```text
 open exact F2A v2 parent read-only
@@ -94,7 +95,7 @@ Authoring-side selector 与 verifier-owned oracle 不共享实现。
 | Legacy active development | `quantlib_bsm_metals_option_chain_smoke_v1.json` | `DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3 / r1` | `DRAFT`，当前只读；不能重建旧 identity。 |
 | New ordinary authoring | `quantlib_bsm_metals_option_chain_smoke_v2.json` | `DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v4` | 在新文件中从 DRAFT 开始，可按普通 pipeline sync/freeze。 |
 | F2A clean parent | `quantlib_bsm_metals_f2a_parent_v2.json` | `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2 / r1` | `FROZEN`，immutable mutation source。 |
-| F2A child | 由 parent、public variant、mutation spec 与 private authoring contract 联合确定 | 每个 child 一个不泄露 label 的新 identity | 计划中：DRAFT materialization 通过 gates 后 freeze；尚无已物化 child。 |
+| F2A child | 由 parent、public variant、mutation spec 与 private authoring contract 联合确定 | 每个 child 一个不泄露 label 的新 identity | V4 reference runtime：DRAFT in-memory projection 经独立 verifier exact-match 后原子写为 FROZEN；CI 产物写临时目录。 |
 
 改变经济参数、minimum price increment、随机 law、quote law、generator version 或 numerical
 convention 都必须使用新 generator/snapshot identity。F2A child 的 point mutation 也绝不能写回 parent；
@@ -202,13 +203,13 @@ F2A 不增加新的顶层 config 分类。各 source of truth 保持分离：
 | Config | Authoring 使用方式 |
 |:---|:---|
 | [`quantlib_bsm_metals_f2a_parent_v2.json`](../../../configs/generators/quantlib_bsm_metals_f2a_parent_v2.json) | Frozen parent DGP、`0.01 USD` underlying/option increments、rounding 与 generator/snapshot identity。 |
-| [`bsm_arbitrage_finding_f2a_v1.json`](../../../configs/variants/bsm_arbitrage_finding_f2a_v1.json) / [`v2`](../../../configs/variants/bsm_arbitrage_finding_f2a_v2.json) / [`v3`](../../../configs/variants/bsm_arbitrage_finding_f2a_v3.json) | V1 是 legacy，v2 是首次 blocked review，v3 是 blocked complete-grammar public contract。 |
-| [`f2a_point_v1.json`](../../../configs/mutations/f2a_point_v1.json) / [`v2`](../../../configs/mutations/f2a_point_v2.json) / [`f2a_complete_v3.json`](../../../configs/mutations/f2a_complete_v3.json) | V3 冻结 single quote、equal call+put group 与 spot，并公开 logical/physical counts。 |
-| [`f2a_dataset_v1.json`](../../../authoring/configs/f2a_dataset_v1.json) / [`v2`](../../../authoring/configs/f2a_dataset_v2.json) / [`v3`](../../../authoring/configs/f2a_dataset_v3.json) | V3 冻结 signature order/counts、clean allocation、operator routing、reachability gating 与 single-parent audit-only split。 |
+| [`bsm_arbitrage_finding_f2a_v1.json`](../../../configs/variants/bsm_arbitrage_finding_f2a_v1.json) / [`v2`](../../../configs/variants/bsm_arbitrage_finding_f2a_v2.json) / [`v3`](../../../configs/variants/bsm_arbitrage_finding_f2a_v3.json) / [`v4`](../../../configs/variants/bsm_arbitrage_finding_f2a_v4.json) | V1 是 legacy，v2/v3 是 blocked history，v4 是 executable calendar-enabled public contract。 |
+| [`f2a_complete_v3.json`](../../../configs/mutations/f2a_complete_v3.json) / [`v4`](../../../configs/mutations/f2a_complete_v4.json) | V3 是 historical grammar；v4 的纯 runtime 实现 single quote、equal call+put group 与 spot，并公开 logical/physical counts。 |
+| [`f2a_dataset_v3.json`](../../../authoring/configs/f2a_dataset_v3.json) / [`v4`](../../../authoring/configs/f2a_dataset_v4.json) | V3 保留 blocked audit target；v4 记录真实 reachability-proved 单-parent audit scope 与 `publication_task_count=8`。 |
 
-旧 files 不迁移。Blocked successor 也不能直接发布：calendar target 虽已有 cash-ledger/grid/cell-order
-review spec，但 evaluator、interim admissibility proof tests 与 reachability audit 尚未完成。启用时必须
-使用新的 variant/catalogue identity，不能原地修改 catalogue v3。
+旧 files 不迁移，blocked v2/v3 也不能直接发布。V4 已用新 variant/catalogue identity 落地 evaluator、
+finite-date admissibility proof tests、真实 reachability 和 independent verifier；不得把这些能力回写或
+重标到历史 catalogue。
 
 当前 authoring schema 为 `2.4.0`，支持从 `2.0.0/2.1.0/2.2.0/2.3.0` additive migration。
 所有 generator configs 还必须显式声明可由 DuckDB `DECIMAL(24,8)` 表示的正数
@@ -322,10 +323,11 @@ signature `000`，否则 deterministic skip；所以 accepted spot child 才进�
 Before/after 不相等才是 routing/implementation failure。Requested signature、selector trace 和 guard
 evidence 只写 private lineage，不能进入 public task/child identity，也不能成为 stored truth。
 
-V3 的 requested signature 顺序固定为 `000,100,010,001,110,101,011,111`。Smoke `8` 与 pilot
-`128` 分别请求每个 signature `1` 与 `16` 条，clean allocation 只由 `000` 提供；operator balance
-只对 reachability-gated positives 生效。任何 signature 无 exact tick window 时保留缺额，不回填或
-重配权重。当前 audit 未运行、calendar 为 null，所以两个 profile 的 publication count 都是零。
+V4 的 requested signature 顺序固定为 `000,100,010,001,110,101,011,111`。Tracked CI fixture 通过
+真实 option/spot mutation 和 full authoring oracle 已证明全部八种 signature 可达；smoke
+`publication_task_count=8`。`001` 由 early ATM equal call+put 正向 shift 实现，其 exact integer tick
+窗口为 `[132,290]`。Audit 记录位于
+[`f2a_v4.json`](../../../datasets/manifests/splits/f2a_v4.json)，不使用抽象 affine trigger。
 
 当前只有一个 parent snapshot。按 `parent_snapshot_id` grouping 时只允许一个 `audit` split；在至少
 三个独立 parent worlds（或经版本化证明无 latent-world leakage 的更细 grouping）存在前，不能生成或
@@ -346,9 +348,16 @@ requested/realized signature、execution/candidate contract IDs、每个 family 
 guard evidence。若现有 `additionalProperties: false` schema 没有字段，必须先 version schema；不能
 私自附加字段。删除或篡改 private lineage 不得改变 Trusted verifier 从 public child 得到的 truth。
 
-目前不存在 `scripts/materialize_f2a.py` 或 F2A child runtime，所以没有可执行的 child materialization
-命令。Blocked catalogue v3 不是运行授权；calendar evaluator/proof tests、reachability audit 和独立
-oracle 完成并分配后继 identity 前，禁止手工复制/编辑 parent 来模拟 child。
+V4 的非交互入口是 [`scripts/materialize_f2a.py`](../../../scripts/materialize_f2a.py)：
+
+```bash
+.venv/bin/python scripts/materialize_f2a.py build-fixture
+.venv/bin/python scripts/materialize_f2a.py audit
+.venv/bin/python scripts/materialize_f2a.py smoke --signature 001
+```
+
+Blocked catalogue v3 仍不是运行授权；新任务必须路由到 executable v4，且 child 只能在 independent
+verifier exact-match 后冻结。
 
 ## 使用方式
 
@@ -426,8 +435,8 @@ public v3 后继续声称执行 F2A authoring。
   common-Q identity、exact integrated-variance pricing、price increments、legacy config
   read-only guard，以及 config 1.6 不生成 IV answers。
 - [`test_f2a_repo_contracts.py`](../../../tests/unit/test_f2a_repo_contracts.py)：
-  当前只验证 F2A config/schema/path/execution-cost/allowlist 的声明式骨架；不证明 child materializer、
-  signature selector、calendar oracle、Solver/verifier 或 dataset 已实现。
+  验证 F2A v1/v2/v3 historical contracts；v4 coverage 另见 `test_f2a_repo_v4.py`、
+  `test_f2a_calendar_v4.py` 与 integration `test_f2a_v4_runtime.py`。
 
 修改 generator 时至少应保证：
 
@@ -438,7 +447,7 @@ public v3 后继续声称执行 F2A authoring。
 5. 旧 v3/带 authoring-IV solver 的 config 只能读取；任何新 materialization 使用 config
    `1.6.0` 与新的 config/generator/snapshot identity。
 
-F2A runtime 实现还必须增加独立测试，至少覆盖：
+F2A v4 runtime tests 已覆盖：
 
 1. 精确选择 F2A v2 parent path/DB/manifest identity；缺失时失败且不 fallback；
 2. parent 始终 read-only，child 用新 identity 从 DRAFT 经过 gates 后 freeze，并可由完整输入重放；

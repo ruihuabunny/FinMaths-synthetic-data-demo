@@ -25,6 +25,26 @@
   model but does not solve or persist IV answers. Materialize it to a new file;
   never append those rows under the legacy v3 identity.
 
+## Executable F2A successor
+
+- F2A v1 is legacy replay; v2/v3 are superseded historical blocked review
+  records. New F2A work uses executable variant
+  `bsm-arbitrage-finding-f2a-v4`, catalogue
+  `bsm-f2a-candidate-catalogue-v5`, mutation engine
+  `f2a-complete-mutation-v4`, and dataset `f2a-dataset-v4`.
+- V4 has `runtime_enabled=true` and calendar family
+  `transaction-cost-aware-two-expiry-call-stock-flip-v1`. Its conclusion is a
+  catalogue-scoped executable result under the finite-date semi-static v4
+  contract, not a full-market `NFLVR` claim.
+- Production authoring must still explicitly select the frozen F2A v2 parent
+  and fail if its DuckDB/manifest is absent. CI and replay may explicitly select
+  `tests/fixtures/f2a/v4_parent.json`; that tracked fixture is never a silent
+  production-parent fallback.
+- A complete four-expiry, seven-strike chain has 42 deterministic calendar
+  candidates. Truth is recomputed from the public child by the independent v4
+  oracle; requested signatures and mutation intention are private authoring
+  inputs only.
+
 ## Follow mathematical facts
 
 - Treat mathematical facts as hard constraints. Implementations, tests, fixtures,

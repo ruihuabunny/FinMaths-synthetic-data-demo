@@ -1,8 +1,8 @@
-"""Small, runtime-independent primitives from the blocked F2A v2 contract.
+"""Runtime-independent cashflow primitives shared by F2A contract versions.
 
-This module does not implement the F2A oracle or the calendar catalogue.  It
-only centralizes the exact candidate predicate and already-reviewed
-single-expiry cashflow formulas so their zero boundary can be unit tested.
+The immutable v1--v3 identities use a subset of these formulas.  The executable
+v4 runtime also uses the terminal-spot segment primitives, while keeping its
+family-bit decision independent in authoring, Solver, and trusted-verifier code.
 """
 
 from __future__ import annotations
@@ -32,6 +32,11 @@ class OptionQuote:
     bid: float
     ask: float
     multiplier: float
+    underlying_id: str = ""
+    valuation_date: str = ""
+    currency: str = "USD"
+    exercise_style: str = "european"
+    settlement_type: str = "cash"
 
 
 @dataclass(frozen=True)
@@ -314,27 +319,30 @@ def scan_single_expiry_families(
     fee_per_contract_per_side: float,
     proportional_cost: float,
 ) -> SingleExpiryScan:
-    """Enumerate the enabled non-calendar v3 catalogue on a complete chain.
+    """Enumerate the single-expiry catalogue with multiplier-safe buckets."""
 
-    This intentionally excludes the blocked two-expiry calendar family.
-    """
-
-    by_expiry: dict[str, dict[Decimal, dict[str, OptionQuote]]] = {}
+    by_expiry_multiplier: dict[
+        tuple[str, float], dict[Decimal, dict[str, OptionQuote]]
+    ] = {}
     for quote in quotes:
         if quote.call_put not in {"call", "put"}:
             raise ValueError("call_put must be call or put")
-        pair = by_expiry.setdefault(quote.expiry, {}).setdefault(quote.strike, {})
+        pair = by_expiry_multiplier.setdefault(
+            (quote.expiry, quote.multiplier), {}
+        ).setdefault(quote.strike, {})
         if quote.call_put in pair:
-            raise ValueError("duplicate quote for expiry/strike/call_put")
+            raise ValueError(
+                "duplicate quote for expiry/multiplier/strike/call_put"
+            )
         pair[quote.call_put] = quote
 
     cross_sectional: list[float] = []
     cross_asset_nonconstant: list[float] = []
     cross_asset_zero: list[float] = []
 
-    for expiry in sorted(by_expiry):
+    for expiry, bucket_multiplier in sorted(by_expiry_multiplier):
         context = expiry_inputs[expiry]
-        strike_pairs = by_expiry[expiry]
+        strike_pairs = by_expiry_multiplier[(expiry, bucket_multiplier)]
         strikes = sorted(strike_pairs)
         if any(set(strike_pairs[strike]) != {"call", "put"} for strike in strikes):
             raise ValueError("every strike must contain one call and one put")
@@ -342,7 +350,10 @@ def scan_single_expiry_families(
         for strike in strikes:
             call = strike_pairs[strike]["call"]
             put = strike_pairs[strike]["put"]
-            if call.multiplier != put.multiplier:
+            if (
+                call.multiplier != put.multiplier
+                or call.multiplier != bucket_multiplier
+            ):
                 raise ValueError("call/put multipliers must match")
             multiplier = call.multiplier
             call_ask = option_ask_amount(

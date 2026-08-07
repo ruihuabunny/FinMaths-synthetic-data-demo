@@ -14,7 +14,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest==8.4.1", "jsonschema==4.10.3"]
+dev = [
+  "jsonschema==4.25.0",
+  "pytest==8.4.1",
+  "referencing==0.37.0",
+]
 
 [project.scripts]
 edit-derivatives-snapshot = "synthetic_derivatives.authoring.cli:main"

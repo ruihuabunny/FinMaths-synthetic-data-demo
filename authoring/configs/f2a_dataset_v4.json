@@ -1,0 +1,98 @@
+{
+  "schema_version": "4.0.0",
+  "dataset_config_id": "f2a-dataset-v4",
+  "status": "EXECUTABLE_REACHABILITY_PROVED_SCOPE",
+  "runtime_enabled": true,
+  "blocking_reasons": [],
+  "task_family_id": "bsm_arbitrage_finding_f2a_v1",
+  "variant_id": "bsm-arbitrage-finding-f2a-v4",
+  "candidate_catalogue_id": "bsm-f2a-candidate-catalogue-v5",
+  "execution_contract_id": "us-options-underlying-5bps-options-flat-050-v4",
+  "output_contract_id": "arbitrage-opportunity-type-trajectory-v5",
+  "mutation_engine_id": "f2a-complete-mutation-v4",
+  "lineage_schema": "schemas/f2a-lineage-v4.schema.json",
+  "submission_schema": "schemas/submission-v4.schema.json",
+  "source": {
+    "ci_fixture_path": "tests/fixtures/f2a/v4_parent.json",
+    "ci_fixture_manifest": "tests/fixtures/f2a/v4_parent.manifest.json",
+    "ci_fixture_snapshot_id": "DERIVATIVES-METALS-F2A-V4-CI-FIXTURE-v1",
+    "ci_fixture_role": "tracked_ci_only_not_production_parent_fallback",
+    "production_parent_path": "snapshots/generated/f2a/parents/DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2/parent.duckdb",
+    "production_parent_required_status": "FROZEN",
+    "missing_production_parent_policy": "fail_without_fallback"
+  },
+  "selection": {
+    "require_complete_chain": true,
+    "required_expiry_count": 4,
+    "required_strikes_per_expiry": 7,
+    "require_call_put_pairs": true,
+    "required_calendar_candidate_count": 42,
+    "clean_slice_policy": "require_realized_signature_000_before_any_mutation",
+    "clean_slice_failure": "deterministic_skip",
+    "spot_mutation_invariant": "X_after_equals_X_before"
+  },
+  "selector": {
+    "selector_id": "f2a-calendar-enabled-signature-selector-v4",
+    "authoring_candidate_evaluator_id": "authoring-independent-candidate-cashflow-v4",
+    "trusted_candidate_evaluator_id": "trusted-verifier-candidate-cashflow-v4",
+    "search_order": [
+      "requested_signature_order",
+      "operator_policy_order",
+      "valuation_date_underlying_expiry_strike_call_put_option_id",
+      "sign_order",
+      "absolute_tick_grid"
+    ],
+    "acceptance": "realized_signature_exactly_equals_requested_signature_after_full_authoring_XUT_rescan",
+    "publication_rule": "publish_only_after_independent_trusted_verifier_exactly_matches_authoring_ORM",
+    "guard_role": "sample_selection_only_not_canonical_verifier_predicate",
+    "guard_vector": {
+      "setup_boundary_distance": "candidate_specific_open_or_closed_boundary",
+      "calendar_terminal_guard": "all_structural_booleans_true_and_boundary_slack_nonnegative",
+      "calendar_exposure_buffer_ratio": 1e-8
+    }
+  },
+  "requested_signature_order": ["000", "100", "010", "001", "110", "101", "011", "111"],
+  "operator_policy_by_signature": {
+    "000": ["clean_control_v2"],
+    "100": ["mutate_call_put_pair_equal_shift_v2"],
+    "010": ["mutate_option_price_point_v3", "mutate_underlying_spot_point_v3"],
+    "001": ["mutate_call_put_pair_equal_shift_v2", "mutate_underlying_spot_point_v3"],
+    "110": ["mutate_option_price_point_v3"],
+    "101": ["mutate_call_put_pair_equal_shift_v2"],
+    "011": ["mutate_option_price_point_v3", "mutate_underlying_spot_point_v3"],
+    "111": ["mutate_option_price_point_v3"]
+  },
+  "profiles": {
+    "smoke": {
+      "requested_task_count": 8,
+      "publication_task_count": 8,
+      "publication_signatures": ["000", "100", "010", "001", "110", "101", "011", "111"]
+    }
+  },
+  "reachability_audit": {
+    "status": "COMPLETE",
+    "artifact": "datasets/manifests/splits/f2a_v4.json",
+    "audit_id": "f2a-calendar-enabled-reachability-v4",
+    "execution_profile_id": "us-options-underlying-5bps-options-flat-050-v4",
+    "actual_public_quote_mutations": true,
+    "full_oracle_rescan": true,
+    "abstract_affine_trigger_used": false,
+    "reachable_signatures": ["000", "100", "010", "001", "110", "101", "011", "111"],
+    "unreachable_signatures": []
+  },
+  "split": {
+    "status": "AUDIT_ONLY_SINGLE_PARENT_GROUP",
+    "grouping_key": "parent_snapshot_id",
+    "current_names": ["audit"],
+    "usable_train_validation_test_split": false,
+    "reason": "the_tracked_CI_fixture_is_one_parent_world",
+    "forbidden_claim": "single_parent_train_validation_test_split"
+  },
+  "artifacts": {
+    "public_child_root": "snapshots/generated/f2a/children",
+    "private_lineage_root": "snapshots/private/f2a",
+    "public_task_manifest_root": "datasets/manifests/tasks/f2a",
+    "split_manifest": "datasets/manifests/splits/f2a_v4.json",
+    "training_export_root": "datasets/generated/f2a"
+  }
+}

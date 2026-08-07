@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "f2a-lineage-v4.schema.json",
+  "title": "Private executable F2A v4 lineage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "parent_task_id",
+    "child_task_id",
+    "parent_snapshot_id",
+    "parent_snapshot_revision",
+    "child_snapshot_id",
+    "child_snapshot_revision",
+    "variant_id",
+    "output_contract_id",
+    "operator",
+    "engine_id",
+    "mutation",
+    "execution_contract_id",
+    "candidate_catalogue_id",
+    "requested_signature",
+    "realized_signature",
+    "oracle_result",
+    "authoring_guard_evidence"
+  ],
+  "properties": {
+    "parent_task_id": {"type": "string", "minLength": 1},
+    "child_task_id": {"type": "string", "minLength": 1},
+    "parent_snapshot_id": {"type": "string", "minLength": 1},
+    "parent_snapshot_revision": {"const": 1},
+    "child_snapshot_id": {"type": "string", "minLength": 1},
+    "child_snapshot_revision": {"const": 1},
+    "variant_id": {"const": "bsm-arbitrage-finding-f2a-v4"},
+    "output_contract_id": {"const": "arbitrage-opportunity-type-trajectory-v5"},
+    "operator": {
+      "enum": [
+        "clean_control_v2",
+        "mutate_option_price_point_v3",
+        "mutate_call_put_pair_equal_shift_v2",
+        "mutate_underlying_spot_point_v3"
+      ]
+    },
+    "engine_id": {"const": "f2a-complete-mutation-v4"},
+    "mutation": {"type": ["object", "null"]},
+    "execution_contract_id": {"const": "us-options-underlying-5bps-options-flat-050-v4"},
+    "candidate_catalogue_id": {"const": "bsm-f2a-candidate-catalogue-v5"},
+    "requested_signature": {"$ref": "#/$defs/signature"},
+    "realized_signature": {"$ref": "#/$defs/signature"},
+    "oracle_result": {"$ref": "trajectory.schema.json#/$defs/orm_answer"},
+    "authoring_guard_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_evidence"],
+      "properties": {
+        "candidate_evidence": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {"$ref": "#/$defs/candidateEvidence"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "signature": {
+      "enum": ["000", "100", "010", "001", "110", "101", "011", "111"]
+    },
+    "terminalCertificate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "beta_positive",
+        "beta_at_most_one",
+        "funding_factor_at_least_one",
+        "left_boundary_nonnegative",
+        "actual_boundary_nonnegative",
+        "low_x_cell_nonnegative",
+        "high_x_low_y_cell_nonnegative",
+        "high_x_high_y_cell_nonnegative",
+        "strict_gain_open_set",
+        "unsimplified_ledger_replayed",
+        "minimum_boundary_slack_usd",
+        "minimum_unbounded_ray_slope"
+      ],
+      "properties": {
+        "beta_positive": {"const": true},
+        "beta_at_most_one": {"const": true},
+        "funding_factor_at_least_one": {"const": true},
+        "left_boundary_nonnegative": {"const": true},
+        "actual_boundary_nonnegative": {"const": true},
+        "low_x_cell_nonnegative": {"const": true},
+        "high_x_low_y_cell_nonnegative": {"const": true},
+        "high_x_high_y_cell_nonnegative": {"const": true},
+        "strict_gain_open_set": {"const": true},
+        "unsimplified_ledger_replayed": {"const": true},
+        "minimum_boundary_slack_usd": {"type": "number", "minimum": 0},
+        "minimum_unbounded_ray_slope": {"type": "number", "minimum": 0}
+      }
+    },
+    "commonEvidence": {
+      "type": "object",
+      "required": [
+        "candidate_id",
+        "family",
+        "template_id",
+        "initial_surplus_usd",
+        "setup_boundary_kind",
+        "terminal_nonnegative",
+        "strict_gain_open_set",
+        "is_arbitrage",
+        "selection_role",
+        "active_candidate_count"
+      ],
+      "properties": {
+        "candidate_id": {"type": "string", "minLength": 1},
+        "family": {"enum": ["cross-sectional", "cross-asset", "calendar"]},
+        "template_id": {"type": "string", "minLength": 1},
+        "initial_surplus_usd": {"type": "number"},
+        "setup_boundary_kind": {"enum": ["open", "closed"]},
+        "terminal_nonnegative": {"type": "boolean"},
+        "strict_gain_open_set": {"type": "boolean"},
+        "is_arbitrage": {"type": "boolean"},
+        "selection_role": {"enum": ["first_active", "nearest_inactive"]},
+        "active_candidate_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "nonCalendarEvidence": {
+      "allOf": [
+        {"$ref": "#/$defs/commonEvidence"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "candidate_id": true,
+            "family": {"enum": ["cross-sectional", "cross-asset"]},
+            "template_id": true,
+            "initial_surplus_usd": true,
+            "setup_boundary_kind": true,
+            "terminal_nonnegative": true,
+            "strict_gain_open_set": true,
+            "is_arbitrage": true,
+            "selection_role": true,
+            "active_candidate_count": true
+          }
+        }
+      ]
+    },
+    "calendarEvidence": {
+      "allOf": [
+        {"$ref": "#/$defs/commonEvidence"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "underlying_id",
+            "valuation_date",
+            "T1",
+            "T2",
+            "strike",
+            "contract_multiplier",
+            "early_option_id",
+            "late_option_id",
+            "early_position",
+            "late_position",
+            "early_bid_amount_after_fee",
+            "late_ask_amount_after_fee",
+            "first_segment_underlying_outflow",
+            "beta_12",
+            "funding_factor_12",
+            "exposure_buffer_ratio",
+            "delta_0",
+            "delta_1_low",
+            "delta_1_high",
+            "terminal_certificate"
+          ],
+          "properties": {
+            "candidate_id": true,
+            "family": {"const": "calendar"},
+            "template_id": {"const": "transaction-cost-aware-two-expiry-call-stock-flip-v1"},
+            "initial_surplus_usd": true,
+            "setup_boundary_kind": {"const": "closed"},
+            "terminal_nonnegative": {"const": true},
+            "strict_gain_open_set": {"const": true},
+            "is_arbitrage": true,
+            "selection_role": true,
+            "active_candidate_count": true,
+            "underlying_id": {"type": "string", "minLength": 1},
+            "valuation_date": {"type": "string", "format": "date"},
+            "T1": {"type": "string", "format": "date"},
+            "T2": {"type": "string", "format": "date"},
+            "strike": {"type": "number", "exclusiveMinimum": 0},
+            "contract_multiplier": {"type": "number", "exclusiveMinimum": 0},
+            "early_option_id": {"type": "string", "minLength": 1},
+            "late_option_id": {"type": "string", "minLength": 1},
+            "early_position": {"const": -1},
+            "late_position": {"const": 1},
+            "early_bid_amount_after_fee": {"type": "number"},
+            "late_ask_amount_after_fee": {"type": "number"},
+            "first_segment_underlying_outflow": {"type": "number"},
+            "beta_12": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+            "funding_factor_12": {"type": "number", "minimum": 1},
+            "exposure_buffer_ratio": {"const": 1e-8},
+            "delta_0": {"type": "number", "exclusiveMinimum": 0},
+            "delta_1_low": {"const": 0},
+            "delta_1_high": {"type": "number", "exclusiveMaximum": 0},
+            "terminal_certificate": {"$ref": "#/$defs/terminalCertificate"}
+          }
+        }
+      ]
+    },
+    "candidateEvidence": {
+      "oneOf": [
+        {"$ref": "#/$defs/nonCalendarEvidence"},
+        {"$ref": "#/$defs/calendarEvidence"}
+      ]
+    }
+  }
+}

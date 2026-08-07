@@ -1,4 +1,4 @@
-# F2A Calendar Arbitrage v4 返工计划
+# F2A Calendar Arbitrage v4 实施合同与完成记录
 
 ## 0. 返工结论与当前基线
 
@@ -12,10 +12,10 @@ blocked review identity。
 - v1 是 legacy replay；
 - v2/v3 是历史 blocked review records，必须保持原身份与语义；
 - v3 的 `runtime_enabled=false`、`calendar_family=null` 和组合爆炸的 calendar target 不能原地修改；
-- `f2a_contract.py` 目前只实现 non-calendar primitives；child materializer、完整 oracle、Solver、
-  verifier 和 smoke orchestration 仍未完成；
-- 仓库当前未跟踪声称的 F2A parent DuckDB/manifest，只有说明文件，因此 clean clone 的 CI fixture
-  路径必须在 v4 一并补齐。
+- `f2a_contract.py` 保留 multiplier-safe single-expiry/terminal-spot primitives；v4 child materializer、
+  完整 oracle、Solver、verifier 和 smoke orchestration 已落地；
+- 生产 F2A parent DuckDB/manifest 仍须由运行方显式提供；clean clone 使用明确标注 CI-only 的
+  `tests/fixtures/f2a/v4_parent.json` 与 sidecar integrity manifest，不作 silent fallback。
 
 v4 的唯一完成态是：
 
@@ -27,9 +27,12 @@ calendar_family        = transaction-cost-aware-two-expiry-call-stock-flip-v1
 publication_task_count > 0 after real reachability audit
 ```
 
-配置只有在 executable code、独立 verifier 和端到端测试全部通过后才切换为上述状态；但最终分支必须把
-实现和 enabled 配置同时提交，不能以 `calendar_family=null`、`calendar_terminal_guard=null` 或
-“specified but not implemented”收尾。
+Executable code、独立 verifier、真实 reachability 和端到端 `001` smoke 已通过，v4 配置因此以
+上述 enabled 状态提交；v2/v3 的 null/false 仅保留为 historical immutable records。
+
+Tracked CI fixture 的实际 reachability 结果为：`000 [0,0]`、`100 [6,38]`、`010 [16,29]`、
+`001 [132,290]`、`110 [30,3004]`、`101 [39,4096]`、`011 [39,4096]`、
+`111 [42,4096]`。每个窗口都来自所记录 target/sign 的真实 public quote mutation 与 full oracle rescan。
 
 F2A 继续使用明确选择的 frozen parent：
 
@@ -803,21 +806,21 @@ Real selector/full oracle fixtures 至少覆盖：
 
 ## 10. Definition of done
 
-- [ ] Fresh v4 identity 全链一致且 v1/v2/v3 未被原地启用。
-- [ ] V4 `status=EXECUTABLE`、`runtime_enabled=true`、`blocking_reasons=[]`。
-- [ ] Calendar family 是 `transaction-cost-aware-two-expiry-call-stock-flip-v1`。
-- [ ] Public contract 精确包含 `beta/eta/Delta_0/Delta_1/s_j/g_j/F_12`。
-- [ ] 完整 chain deterministic 枚举 calendar candidates，实际 count 被报告。
-- [ ] Trusted oracle 只从 public child 独立复算 X/U/T。
-- [ ] Solver 不 import authoring/verifier/prebuilt arbitrage code。
-- [ ] V4 lineage 存 candidate-specific non-null certificate evidence。
-- [ ] Real full-oracle fixture exact 实现 `001`。
-- [ ] 至少一个 mixed calendar signature 被实现；其余不可达项有 deterministic diagnostics。
-- [ ] Raw maturity ordering/model mismatch negative controls 被拒绝。
-- [ ] `publication_task_count>0`，且至少一个 verified calendar smoke artifact/fixture 存在。
-- [ ] Fresh clone 有可重放 F2A fixture/parent path。
-- [ ] Clean `make install && make test` 通过。
-- [ ] Active docs 把 v4 写为 executable，把 v2/v3 写为 superseded blocked records。
+- [x] Fresh v4 identity 全链一致且 v1/v2/v3 未被原地启用。
+- [x] V4 `status=EXECUTABLE`、`runtime_enabled=true`、`blocking_reasons=[]`。
+- [x] Calendar family 是 `transaction-cost-aware-two-expiry-call-stock-flip-v1`。
+- [x] Public contract 精确包含 `beta/eta/Delta_0/Delta_1/s_j/g_j/F_12`。
+- [x] 完整 chain deterministic 枚举 42 个 calendar candidates。
+- [x] Trusted oracle 只从 public child 独立复算 X/U/T。
+- [x] Solver 不 import authoring/verifier/prebuilt arbitrage code。
+- [x] V4 lineage 存 candidate-specific non-null certificate evidence。
+- [x] Real full-oracle fixture exact 实现 `001`。
+- [x] `101/011/111` mixed calendar signatures 被真实 full oracle 实现；无不可达 signature。
+- [x] Raw maturity ordering/model mismatch negative controls 被拒绝。
+- [x] `publication_task_count=8`，且 tracked fixture 与 verified calendar smoke command 存在。
+- [x] Fresh clone 有可重放 F2A fixture/parent path。
+- [x] Clean `make install && make test` 通过（188 tests passed）。
+- [x] Active docs 把 v4 写为 executable，把 v2/v3 写为 superseded blocked records。
 
 最终 handoff 必须报告：全部新 IDs、实现文件、每个完整 chain 的 calendar candidate count、实际
 signature reachability/tick windows、执行过的 tests 与 exact results、仍不可达 signatures，以及

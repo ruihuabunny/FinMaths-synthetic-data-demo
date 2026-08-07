@@ -7,7 +7,7 @@
 | Lane | 坐标/任务 | 数据源 | 当前状态 |
 |:---|:---|:---|:---|
 | Ordinary BSM | 六维 v1 `(L, P, M, A, D, R)`，等价于七维语义中的 `F0` | 已冻结的 legacy public v3 snapshot | Price/IV/Greek/DuckDB task 仍是设计计划，尚无 Solver/verifier/dataset runtime。 |
-| F2A arbitrage-finding | 七维 v2 `(L5, P0, M0, A0, D4, R3, F2A)` | 独立 tick-aligned F2A v2 frozen parent 产生的新 child | Parent、legacy、blocked v2 review 与 blocked v3 complete grammar contracts 已落地；calendar proofs、reachability 与端到端 runtime 尚未实现。 |
+| F2A arbitrage-finding | 七维 v2 `(L5, P0, M0, A0, D4, R3, F2A)` | 显式 frozen production parent 或 CI-only tracked complete-chain fixture 派生的新 child | V4 executable calendar family、mutation/materializer、独立 Solver/oracle/verifier、lineage 与真实 reachability 已落地；v2/v3 是 historical blocked records。 |
 
 普通任务第一版显式选择
 `snapshots/public/quantlib_bsm_smoke_v1.duckdb` 作为 legacy authoring source。它不是默认 active
@@ -246,6 +246,19 @@ dataset/lineage      = v3
 output_contract      = arbitrage-opportunity-type-trajectory-v4
 ```
 
+当前 executable successor 使用独立 v4 identity：
+
+```text
+variant_id           = bsm-arbitrage-finding-f2a-v4
+execution_contract   = us-options-underlying-5bps-options-flat-050-v4
+candidate_catalogue  = bsm-f2a-candidate-catalogue-v5
+calendar_family      = transaction-cost-aware-two-expiry-call-stock-flip-v1
+mutation_engine      = f2a-complete-mutation-v4
+dataset/lineage      = v4
+output_contract      = arbitrage-opportunity-type-trajectory-v5
+runtime_enabled      = true
+```
+
 Public execution contract 不是零交易成本市场：option 按 directional bid/ask 成交，每条 option 腿按
 `abs(position)` 收取 `0.50 USD/contract/side`；underlying 每次成交按绝对 traded notional 收取
 单边 `5 bps`；cash account 无交易费。费用是实际经济 cashflow，不是 verifier tolerance，也不能
@@ -294,7 +307,11 @@ variant/catalogue identity。完整 grammar review 使用
 [`variant v3`](../../../configs/variants/bsm_arbitrage_finding_f2a_v3.json)、
 [`mutation v3`](../../../configs/mutations/f2a_complete_v3.json) 与
 [`dataset v3`](../../../authoring/configs/f2a_dataset_v3.json)，仍保持 blocked。八种 signatures 是待
-reachability audit 的 target，不是当前运行能力。
+reachability audit 的历史 target。Executable
+[`variant v4`](../../../configs/variants/bsm_arbitrage_finding_f2a_v4.json)、
+[`mutation v4`](../../../configs/mutations/f2a_complete_v4.json) 与
+[`dataset v4`](../../../authoring/configs/f2a_dataset_v4.json) 已完成真实 audit：完整链 42 个 calendar
+candidates，八种 signature 全部可达，`001` exact integer tick window 为 `[132,290]`。
 完整公式、operation order 与验收顺序以
 [`f2a_arbitrage_finding_agent_task_plan.md`](../mutation/f2a_arbitrage_finding_agent_task_plan.md) 为准。
 
@@ -599,25 +616,22 @@ data access。
 
 ### 7.2 F2A lane
 
-F2A 不等待 ordinary B0--B5 全部完成，但必须沿自己的依赖顺序推进：
+F2A 不等待 ordinary B0--B5 全部完成；v4 已按以下依赖顺序落地：
 
 1. **已完成：parent 与并行 contract identities。** 保留 F2A v2 frozen parent；legacy v1 与 blocked
    v2 review 不改，blocked v3 complete-grammar variant/catalogue/mutation/dataset/lineage 已落位。
-2. **完成 calendar proofs。** Blocked variant v3/catalogue v4 已冻结 cash ledger、target grids、
-   `g_j` cell/boundary/ray order；仍需
-   实现 exact evaluator 和逐现金流 self-financing/interim admissibility proof tests。完成后分配新的
-   variant/catalogue ID；在此之前保持 calendar disabled。
-3. **完成 deterministic reachability audit。** 逐 signature 输出 reachable target/operator/tick windows
-   或不可达诊断；不可达时缩小发布 scope 或继续 blocking，不调整 parent/grid/fee。
-4. **实现七维 runtime 与独立 oracle。** 保持六维 v1 serialization/IDs 不变；Verifier 从 public
+2. **已完成：calendar proofs。** V4 冻结 finite-date semi-static admissibility、stock-flip cash ledger、
+   `g_j` branches/boundaries/rays 和 closed setup boundary，并有逐现金流 exact tests。
+3. **已完成：deterministic reachability audit。** Tracked fixture 的真实 public mutations 实现全部八种
+   signatures；artifact 记录 target/operator/sign/tick windows 与 active/inactive guards。
+4. **已完成：七维 F2A runtime 与独立 oracle。** 保持六维 v1 serialization/IDs 不变；Verifier 从 public
    child/variant 重算三类 candidate 与 canonical bitmask，不导入 Solver 或 authoring selector。
-5. **实现 mutation 与 child materializer。** `mutation/f2a.py` 只生成 immutable spec/identity/
+5. **已完成：mutation 与 child materializer。** `mutation/f2a.py` 只生成 immutable spec/identity/
    lineage；Authoring 以 copy-on-write 方式派生、门控和 freeze 新 child，不重新运行 QuantLib repricing。
-6. **实现 Solver/verifier/environment。** Solver 手工枚举公开 catalogue；verifier 只投影 ORM answer；
-   实际 dependency lock、DuckDB adapter、import/API gate 和 sandbox acceptance 全部通过后才发布 image。
-7. **物化 feasibility/smoke 与 dataset。** 只覆盖 audit 已证明 reachable 的 scope；若七种 positives
-   全部已证明才可把全覆盖写成 acceptance。随后生成 public task/split manifests 和 verified training
-   export；private lineage、signature 和 selector traces 不导出。
+6. **已完成 v4 reference Solver/verifier 与 test dependency lock。** Solver 手工枚举公开 catalogue；
+   verifier exact-compare ORM。生产 sandbox/image hardening 仍是部署层工作，不改变 v4 数学 truth。
+7. **已完成 audit/smoke scope。** 单-parent artifact 只命名为 `audit`，不冒充可用
+   train/validation/test split；private lineage、signature 和 selector traces 不导出到 public child。
 
 任一步发现数学合同与现有 skeleton 冲突时，应 version config/schema/identity，而不是修改套利定义、
 放宽 exact predicate 或把成本当成 tolerance。
@@ -694,16 +708,12 @@ F2A pilot 另有独立完成定义：
 - feasibility/smoke、integration、public、environment 与 verifier-robustness gates 全部通过；
 - task/split manifests 按 parent snapshot grouping，training export 不含 private lineage/oracle traces。
 
-## 10. 推荐的下一份具体产物
+## 10. 后续具体产物
 
-在当前 F2A branch 上，下一份产物应是**合同升级，不是 child materialization**：
-
-1. 保持新落位的 blocked v2/v3 contracts 不变；
-2. 实现 calendar exact evaluator、self-financing 与 interim admissibility proof tests；
-3. 对 baseline execution profile 运行 deterministic signature reachability audit；
-4. 根据 proof/audit 结果分配新的 executable variant/catalogue identity，并同步 lineage/submission；
-5. 实现 independent verifier 与 authoring selector，确认 public artifacts 不泄露 private state；
-6. 保持 parent byte-identity 不变，并继续禁止物化 child，直到上述 gates 全部通过。
+V4 executable scope 已完成。后续若面向正式 benchmark，应新增至少三个独立 frozen parent worlds、
+完成生产 DuckDB public projection adapter 与 solver sandbox/image hardening，再按 parent grouping 生成
+不泄漏的 train/validation/test split。Margin、bounded borrowing、更多 calendar templates 或 unrestricted
+search 都必须使用新的 candidate/variant identity，不能原地扩大 v4。
 
 Ordinary lane 的下一份具体产物仍是完整的 `bsm_iv_scalar_v1` method/input/output/verifier contract，
 随后才复用同一数学 truth 构建 `duckdb_bsm_iv_batch_v1`。两条 lane 可以并行评审，但不能共享 hidden

@@ -18,8 +18,8 @@
 | Single-asset $\mathbb Q$ pricing | 已实现 | 共同 measure/numeraire/rate-path identity；QuantLib 生成 canonical mid，authoring 不反解或持久化 IV 答案。 |
 | Static option chain | 已实现 | 固定 listing strike、到期日/价内外筛选、可重放 bid/ask spread noise。 |
 | Task space / mutation / curriculum | 最小版本已实现 | 六维 compatibility registry、确定性 lineage 与 adaptive sampling weights。 |
-| F2A arbitrage-finding | Frozen parent、legacy replay 与两代 blocked successor review contracts 已落地，runtime 未实现 | V3 complete grammar 已 versioned；calendar、reachability audit、child/oracle/Solver/verifier、usable split 和 dataset materialization 仍 blocked。 |
-| Solver / trusted verifier / dataset export | 未实现 | 目录边界已预留，但还没有可运行实现。 |
+| F2A arbitrage-finding | v4 可执行 | Calendar stock-flip catalogue、三类 mutation、authoring selector、独立 oracle、Solver/verifier、lineage v4、真实 tick reachability 与 smoke 已实现；v2/v3 保留为历史 blocked records。 |
+| Solver / trusted verifier / dataset export | F2A v4 范围已实现 | Ordinary 数值任务与正式多-parent training export 仍是后续工作；F2A v4 已有独立 Solver/verifier 和 audit-only 单-parent artifact。 |
 | 多资产 $\mathbb Q$ dependence 与 joint payoff | 未实现 | Basket/index/spread 不能由当前 single-asset baseline 推断或定价。 |
 
 当前的 volatility mapping 是一个明确的 baseline 假设：Girsanov change of measure 只改变
@@ -73,6 +73,7 @@ F2A tick-aligned frozen parent，不是默认 active v3 数据库。完整 CLI�
 | `make append-day` | 是 | 向同一个 v4 DRAFT 追加一个 business date。 |
 | `make test` | 仅写临时目录 | 运行完整 pytest suite。 |
 | `scripts/replay_snapshot.py --reference ...` | 是 | 在临时路径重放，并只与显式给出的同 identity reference 比较。 |
+| `scripts/materialize_f2a.py smoke --signature 001` | 仅写 `/tmp` | 从 tracked CI fixture 原子派生 calendar-only child，运行独立 Solver/verifier。 |
 
 默认 active development 数据库仍是
 `snapshots/generated/quantlib_bsm_metals_option_chain_smoke_v1_20260807.duckdb`。它是
@@ -85,7 +86,7 @@ legacy v3 `DRAFT`，在当前 pipeline 下只读；`make smoke` 使用独立 v4 
   [unit-test invariants](tests/unit/README.md)。
 - 想理解完整数学与训练框架：读
   [框架设计文档](docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md)。
-- 想继续实现 F2A：先读
+- 想运行或扩展 F2A v4：先读
   [F2A 当前状态、数学合同与实施顺序](src/synthetic_derivatives/mutation/f2a_arbitrage_finding_agent_task_plan.md)。
 - 想查看可执行查询：读 [public SQL 说明](snapshots/public/sql_query/README.md)；只有任务显式选择
   F2A parent 时才使用 [generated SQL 说明](snapshots/generated/sql_query/README.md)。
@@ -615,24 +616,25 @@ underlying 时间序列、option chain、moneyness、pricing context 和 authori
 ## F2A arbitrage-finding 状态与兼容计划
 
 F2A 是在现有 single-asset common-$\mathbb Q$ BSM baseline 上的并行 task-authoring 支线，
-不改变前述 market-realism roadmap 的阶段顺序，也不声称已实现 Solver、Trusted verifier
-或 dataset export。完整数学、交易和 ORM 合同见
+不改变前述 market-realism roadmap 的阶段顺序。V4 已实现该有限 catalogue 的 Solver、Trusted
+verifier 和 audit-only dataset artifact；它不声称完成 ordinary task runtime 或正式多-parent
+training export。完整数学、交易和 ORM 合同见
 [F2A Arbitrage-Finding Agent Task 计划](src/synthetic_derivatives/mutation/f2a_arbitrage_finding_agent_task_plan.md)。
 
 ### 当前落地状态
 
 | 部分 | 当前状态 |
 |:---|:---|
-| Clean parent | `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2 / r1 / FROZEN` 已物化；报价与 spot 都按 `0.01 USD` tick 对齐。 |
+| Production clean parent contract | `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2 / r1 / FROZEN`；生产运行必须显式提供 DB/manifest，缺失时失败且不 fallback。 |
+| Tracked CI parent | `tests/fixtures/f2a/v4_parent.json` 是明确的 CI-only frozen 完整链，含 sidecar integrity metadata 和确定性重建命令。 |
 | Legacy replay | Variant v1/catalogue v2、mutation engine v1、dataset v1、lineage/submission v1 保持不变；旧统一 strict-positive predicate 只属于该 skeleton。 |
 | Blocked first-successor review | Variant v2/catalogue v3、mutation engine v2、dataset v2、lineage/submission v2 保持 immutable review record；不再作为后续 source of truth。 |
 | Blocked complete grammar | Variant v3/catalogue v4、mutation engine v3、dataset v3、lineage/submission v3 新增 single quote、equal call+put grouped mutation 与 spot 三类 grammar，并修正 `g_j` certificate、lineage ends、distribution、borrow 与 split contract；仍为 `runtime_enabled = false`、`calendar_family = null`。 |
-| 仍待完成 | Calendar evaluator、interim admissibility/self-financing proof tests、完整 binary64 scanner、逐 signature reachability audit 与完整 F2A runtime；完成后必须再升 executable identity，不能原地打开 blocked v2/v3。 |
-| 待实现 runtime | 七维 v2 dispatch、三类 mutation materializer、独立 oracle、Solver/verifier、受限 Solver image、task/split manifests 和 training export 均未实现；尚无 F2A child 或 dataset。 |
+| Executable successor | Variant v4/catalogue v5、mutation engine v4、dataset/lineage/submission v4 与 output v5 已启用；`calendar_family=transaction-cost-aware-two-expiry-call-stock-flip-v1`。 |
+| Runtime evidence | 完整链稳定枚举 42 个 calendar candidates；真实 quote/spot mutation audit 实现全部八种 signatures，`001` 的 grouped-pair 正向 tick 窗口为 `[132,290]`。 |
 
-因此，frozen parent 和 blocked contracts 都不代表端到端 F2A 已完成。在 calendar proof tests 与
-deterministic reachability audit 完成前不得物化任何 child/dataset，也不得把七种 positive signatures
-描述成当前可运行能力。
+V2/v3 的 frozen/blocked contracts 仍不代表运行授权；新工作必须显式路由到 v4。V4 child 先由
+authoring 全量扫描，再由独立 trusted oracle 从 public child 重算，只有 exact ORM 一致后才冻结。
 
 ### 套利结论的作用域
 
@@ -699,7 +701,7 @@ F2A contract migration 同样采用并行 identity：
 legacy replay: variant v1 / catalogue v2 / mutation v1 / dataset v1 / lineage v1
 blocked review: variant v2 / catalogue v3 / mutation v2 / dataset v2 / lineage v2
 complete grammar review: variant v3 / catalogue v4 / mutation v3 / dataset v3 / lineage v3
-executable runtime: 必须分配更新的全套 immutable IDs（尚不存在）
+executable runtime: variant v4 / catalogue v5 / mutation v4 / dataset v4 / lineage v4
 ```
 
 ### 配置和实现归属
@@ -723,13 +725,13 @@ F2A 不增加 `configs/arbitrage/` 或 `src/synthetic_derivatives/arbitrage/` �
 | `training/` | Verified records、snapshot-grouped split 和 JSONL/Parquet export。 |
 | `scripts/` | 统一非交互 materialization/verification/manifest 编排入口；不存业务数学。 |
 
-上述路径边界已经确定。Blocked successor 已补齐 candidate predicate、single-expiry formulas、
-selector contract 和 calendar 的 cash ledger/grid/boundary-ray review spec；尚缺可执行 calendar evaluator、
-interim admissibility proofs、reachability audit 与 runtime。F2A child snapshots 和训练 artifacts 尚未创建。
+上述路径边界已经落地。V4 使用有限日期 semi-static admissibility、可执行 stock-flip calendar
+certificate、真实 tick reachability、candidate-specific lineage 和独立 Solver/verifier；正式训练集仍需
+多个独立 parent worlds，当前只发布单-parent audit scope。
 
 ### 目标 type signatures 与 calendar catalogue
 
-未来新 catalogue 启用后，canonical type order 固定为 `cross-sectional`、`cross-asset`、`calendar`。
+V4 catalogue 的 canonical type order 固定为 `cross-sectional`、`cross-asset`、`calendar`。
 Authoring schema-level target feasibility set 是一个 clean control 与七种 positive signatures：
 
 | Signature `(X, U, T)` | Canonical `arbitrage_type` |
@@ -779,6 +781,7 @@ datasets/manifests/tasks/f2a/<task_id>.json
 datasets/manifests/splits/f2a_v1.json  # legacy only
 datasets/manifests/splits/f2a_v2.json  # blocked v2 only
 datasets/manifests/splits/f2a_v3.json  # blocked v3 audit-only; 尚未物化
+datasets/manifests/splits/f2a_v4.json  # executable reachability-proved audit scope
 datasets/generated/f2a/<dataset_id>.jsonl
 ```
 
