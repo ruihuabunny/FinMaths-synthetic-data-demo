@@ -18,7 +18,7 @@
 | Single-asset $\mathbb Q$ pricing | 已实现 | 共同 measure/numeraire/rate-path identity；QuantLib 生成 canonical mid，authoring 不反解或持久化 IV 答案。 |
 | Static option chain | 已实现 | 固定 listing strike、到期日/价内外筛选、可重放 bid/ask spread noise。 |
 | Task space / mutation / curriculum | 最小版本已实现 | 六维 compatibility registry、确定性 lineage 与 adaptive sampling weights。 |
-| F2A arbitrage-finding | Frozen parent、legacy replay 与 blocked successor contracts 已落地，runtime 未实现 | Successor v2/catalogue v3、mutation/dataset/lineage v2 已 versioned，但 calendar、reachability audit、child/oracle/Solver/verifier 和 dataset materialization 仍 blocked。 |
+| F2A arbitrage-finding | Frozen parent、legacy replay 与两代 blocked successor review contracts 已落地，runtime 未实现 | V3 complete grammar 已 versioned；calendar、reachability audit、child/oracle/Solver/verifier、usable split 和 dataset materialization 仍 blocked。 |
 | Solver / trusted verifier / dataset export | 未实现 | 目录边界已预留，但还没有可运行实现。 |
 | 多资产 $\mathbb Q$ dependence 与 joint payoff | 未实现 | Basket/index/spread 不能由当前 single-asset baseline 推断或定价。 |
 
@@ -625,9 +625,10 @@ F2A 是在现有 single-asset common-$\mathbb Q$ BSM baseline 上的并行 task-
 |:---|:---|
 | Clean parent | `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2 / r1 / FROZEN` 已物化；报价与 spot 都按 `0.01 USD` tick 对齐。 |
 | Legacy replay | Variant v1/catalogue v2、mutation engine v1、dataset v1、lineage/submission v1 保持不变；旧统一 strict-positive predicate 只属于该 skeleton。 |
-| Blocked successor | Variant v2/catalogue v3、mutation engine v2、dataset v2、lineage/submission v2 已用新 ID 落位，冻结 candidate-specific predicate、single-expiry formulas、public support/clock/timeline、selector shape 与 calendar review target；`runtime_enabled = false`、`calendar_family = null`。 |
-| 仍待完成 | Calendar evaluator、interim admissibility/self-financing proof tests、baseline signature reachability audit 与完整 F2A runtime；完成后必须再升 variant/catalogue ID，不能原地打开 blocked v3。 |
-| 待实现 runtime | 七维 v2 dispatch、point mutation、child materializer、独立 oracle、Solver/verifier、受限 Solver image、task/split manifests 和 training export 均未实现；尚无 F2A child 或 dataset。 |
+| Blocked first-successor review | Variant v2/catalogue v3、mutation engine v2、dataset v2、lineage/submission v2 保持 immutable review record；不再作为后续 source of truth。 |
+| Blocked complete grammar | Variant v3/catalogue v4、mutation engine v3、dataset v3、lineage/submission v3 新增 single quote、equal call+put grouped mutation 与 spot 三类 grammar，并修正 `g_j` certificate、lineage ends、distribution、borrow 与 split contract；仍为 `runtime_enabled = false`、`calendar_family = null`。 |
+| 仍待完成 | Calendar evaluator、interim admissibility/self-financing proof tests、完整 binary64 scanner、逐 signature reachability audit 与完整 F2A runtime；完成后必须再升 executable identity，不能原地打开 blocked v2/v3。 |
+| 待实现 runtime | 七维 v2 dispatch、三类 mutation materializer、独立 oracle、Solver/verifier、受限 Solver image、task/split manifests 和 training export 均未实现；尚无 F2A child 或 dataset。 |
 
 因此，frozen parent 和 blocked contracts 都不代表端到端 F2A 已完成。在 calendar proof tests 与
 deterministic reachability audit 完成前不得物化任何 child/dataset，也不得把七种 positive signatures
@@ -646,9 +647,9 @@ variant 重算每个 canonical candidate 的可执行净证书，再输出
 - 完整 admissible strategy class 中的 full-market dynamic/replication arbitrage。
 
 一个 quote 偏离 BSM 只直接说明 model inconsistency；F2A 返回 `false/[]` 也只说明当前 public
-variant 的有限 catalogue 没有 positive candidate，不能写成全市场“无套利”。一次 point mutation
-可能同时激活任意多个已启用 family，最终 type array 必须从 public child 全量重扫，不能从 private
-mutation intention 或 requested signature 复制。
+variant 的有限 catalogue 没有 positive candidate，不能写成全市场“无套利”。Realized subset 取决于
+operator、target、成本与 integer-tick thresholds；最终 type array 必须从 public child 全量重扫，
+不能从 private mutation intention、constructive routing table 或 requested signature 复制。
 
 ### 不变的项目边界
 
@@ -696,8 +697,9 @@ F2A contract migration 同样采用并行 identity：
 
 ```text
 legacy replay: variant v1 / catalogue v2 / mutation v1 / dataset v1 / lineage v1
-blocked spec:  variant v2 / catalogue v3 / mutation v2 / dataset v2 / lineage v2
-calendar runtime: 必须分配新的 variant/catalogue ID（尚不存在）
+blocked review: variant v2 / catalogue v3 / mutation v2 / dataset v2 / lineage v2
+complete grammar review: variant v3 / catalogue v4 / mutation v3 / dataset v3 / lineage v3
+executable runtime: 必须分配更新的全套 immutable IDs（尚不存在）
 ```
 
 ### 配置和实现归属
@@ -728,7 +730,7 @@ interim admissibility proofs、reachability audit 与 runtime。F2A child snapsh
 ### 目标 type signatures 与 calendar catalogue
 
 未来新 catalogue 启用后，canonical type order 固定为 `cross-sectional`、`cross-asset`、`calendar`。
-Authoring target feasibility set 是一个 clean control 与七种 positive signatures：
+Authoring schema-level target feasibility set 是一个 clean control 与七种 positive signatures：
 
 | Signature `(X, U, T)` | Canonical `arbitrage_type` |
 |:---:|:---|
@@ -741,8 +743,15 @@ Authoring target feasibility set 是一个 clean control 与七种 positive sign
 | `011` | `["cross-asset", "calendar"]` |
 | `111` | `["cross-sectional", "cross-asset", "calendar"]` |
 
-每个 positive child 仍至多改变一个 logical quote 或 spot point。Selector 按固定 target/sign/tick
-顺序调用 candidate-specific exact evaluator，只接受 realized signature 精确相等且 setup/terminal
+Constructive routing 只决定搜索顺序，不证明可达性：single quote 面向含 `U` 的
+`010/110/011/111`，equal call+put group 面向 `100/001/101`，spot 提供 `010/001/011` 的冗余路径。
+Single quote 的 logical/physical quote point count 为 `1/1`；pair group 是一个 logical group、两个
+logical/physical quote points；spot 是一个 spot point且 option quote count 为零。所有路径仍须 full
+family rescan 与 exact integer-tick reachability audit。
+
+V3 每个 positive child 至多应用一个 logical mutation group：single quote 改一个 physical quote point，
+spot 改一个 point，equal call+put group 则诚实改变两个 physical quote points。Selector 按固定
+target/sign/tick 顺序调用 candidate-specific exact evaluator，只接受 realized signature 精确相等且 setup/terminal
 guard vector 全部通过的第一个 child。先对 clean slice 独立扫描并要求 signature `000`，不满足就
 deterministic skip。Spot mutation 的无条件不变量是 `X_after == X_before`；由于本 policy 要求 baseline
 `000`，才进一步得到 accepted spot child 的 `X_after=false`。Baseline audit 必须逐 signature 输出
@@ -753,8 +762,9 @@ value 的偏差。它是 catalogue-scoped 的 two-expiry terminal-spot bridge：
 按 bid/ask 建仓并持有到 settlement，underlying 在 `t`、较早到期 `T1` 和较晚到期 `T2` 交易，
 `T1` 只允许一次公开、有限、state-contingent rebalance。Verifier 必须把每次 `5 bps` underlying
 cost 和每条 option fee 纳入 cashflow，并用 piecewise-affine cell vertices、one-sided boundaries
-与 tail slopes 证明 terminal wealth 在完整正状态域上非负；有限 spot grid 或 Monte Carlo sampling
-都不是 exact certificate。
+与 tail slopes 证明排除 initial surplus 的 `g_j` 在完整正状态域上非负；`W_T2` 只展示把 `s_j`
+存入 numeraire 后的总财富，不能替代 frozen `s/g` 分离 predicate。有限 spot grid 或 Monte Carlo
+sampling 都不是 exact certificate。
 
 ### Snapshot、manifest 与训练 artifact
 
@@ -766,9 +776,15 @@ snapshots/generated/f2a/children/<child_snapshot_id>/child.manifest.json
 snapshots/private/f2a/<task_id>/lineage.json
 
 datasets/manifests/tasks/f2a/<task_id>.json
-datasets/manifests/splits/f2a_v1.json
+datasets/manifests/splits/f2a_v1.json  # legacy only
+datasets/manifests/splits/f2a_v2.json  # blocked v2 only
+datasets/manifests/splits/f2a_v3.json  # blocked v3 audit-only; 尚未物化
 datasets/generated/f2a/<dataset_id>.jsonl
 ```
+
+当前只有一个 frozen F2A parent；若 grouping key 是 `parent_snapshot_id`，所有 tasks 必须进入同一
+`audit` group，不能声称已有可用 train/validation/test 三分。训练 split 需要至少三个独立 parent worlds，
+或先 version 并证明不会让同一 clean slice/underlying/path block 跨 split 的更细 grouping unit。
 
 `snapshots/generated/` 与 `snapshots/private/` 已被 `.gitignore` 排除。Public task manifest 只引用
 child snapshot id/revision、registry/rule 和 public contract IDs，不复制 DuckDB、parent、before/after、
@@ -866,7 +882,8 @@ task/child IDs 不编码 operator、target、requested/realized signature 或 mu
 
 - `generators/` 描述模型、参数、随机数生成器、draw order、定价 engine 和 generator version。
 - `task_space/` 保留 $L/P/M/A/D/R$ 六轴 v1，并行描述含 string enum $F$ 的七轴 v2 与合法组合。
-- `mutations/` 描述允许改变的坐标轴，以及 F2A logical point mutation 的 integer-tick grid、顺序和 domain gates。
+- `mutations/` 描述允许改变的坐标轴，以及 F2A single/grouped/spot mutation 的 integer-tick grid、
+  logical/physical point counts、原子顺序和 domain gates。
 - `curricula/` 分别描述 v1/v2 stage、20/60/20 replay/current/explore mixture 与 mastery 调度区间。
 - `variants/` 描述某一道任务的 snapshot、金融约定、method IDs、数值顺序、舍入规则、Solver 权限和输出格式。
 

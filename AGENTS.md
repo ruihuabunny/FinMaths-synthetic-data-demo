@@ -304,13 +304,17 @@
   no-arbitrage bands. They are not floating-point tolerances. Charge each cost only
   on the legs to which the public execution contract applies, and evaluate the
   resulting exact net cashflow or profit with the task's declared arithmetic.
-- In F2A, a one-quote mutation may activate any subset of the enabled
-  `(cross-sectional, cross-asset, calendar)` families, in that canonical order.
-  Always rescan every enabled family and derive the family-hit vector from
-  public-child certificates; never
-  copy the mutation author's intended family as truth. Changing fees or transaction
-  costs may suppress some certificates and leave others, but only the recomputed
-  net certificates determine whether exactly one, two, or all three families hit.
+- In F2A, the realized family subset is threshold- and reachability-dependent. A
+  single option-quote mutation, a parity-preserving equal call+put group, and an
+  underlying-spot mutation have different structural invariants; no operator is
+  entitled to an unconditional signature claim. The grouped operator is one
+  declared logical mutation group but changes two physical quote points. Always
+  rescan every enabled family in canonical `(cross-sectional, cross-asset, calendar)`
+  order and derive the family-hit vector from public-child
+  certificates; never copy the mutation author's intended family as truth.
+  Changing fees or transaction costs may suppress some certificates and leave
+  others, but only a deterministic integer-tick reachability audit under a frozen
+  execution profile can establish which signatures are publishable.
 - Here a positive exact net certificate means the candidate-specific predicate
   `(s_j > 0 and g_j >= 0 P-a.s.) or (s_j == 0 and g_j >= 0 P-a.s. and
   P(g_j > 0) > 0)`; it is not a uniform `candidate_spread > 0` rule.

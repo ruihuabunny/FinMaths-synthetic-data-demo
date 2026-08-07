@@ -29,7 +29,8 @@ dividend/carry、原有 P/Q market model 和新 snapshot identity；它不是通
 ```text
 从新的 tick-aligned frozen parent 抽取一个多 strike、多 expiry 的 clean subset
   -> mutation 层生成纯 mutation spec、child identity 和 lineage
-  -> authoring 层物化并冻结至多修改一个 logical quote/spot point 的 child
+  -> authoring 层按一个原子 mutation group 物化 child；group 可改变一个 quote、一个 spot，
+     或同 strike/expiry 的 call+put 两个 quote points
   -> trusted verifier 从公开 child 和 variant contract 独立复算验收结果
 ```
 
@@ -46,34 +47,39 @@ certificate、type-signature selector、Solver/verifier、受限 Solver image、
 
 ### 2.1 固定身份
 
-后继规范合同固定为以下 identity；它目前是不可执行的 blocked contract，不是已发布 runtime：
+身份分三条并行线，均不能原地改义：
 
 ```text
-task_family_id       = bsm_arbitrage_finding_f2a_v1
-variant_id           = bsm-arbitrage-finding-f2a-v2
-coordinates         = (L5, P0, M0, A0, D4, R3, F2A)
-parent_snapshot      = DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2 / r1 / FROZEN
-pricing_model       = parent snapshot 已有的 deterministic time-inhomogeneous BSM
-execution_contract  = us-options-underlying-5bps-options-flat-050-v2
-candidate_catalogue = bsm-f2a-candidate-catalogue-v3
-underlying_minimum_price_increment = 0.01 USD
-option_minimum_price_increment     = 0.01 USD
-output_contract     = arbitrage-opportunity-type-trajectory-v3
+legacy replay:
+  variant v1 / catalogue v2 / mutation v1 / dataset v1 / lineage/submission v1
+
+blocked first-successor review record:
+  variant v2 / catalogue v3 / mutation v2 / dataset v2 / lineage/submission v2
+
+blocked complete-grammar successor:
+  variant             = bsm-arbitrage-finding-f2a-v3
+  candidate catalogue = bsm-f2a-candidate-catalogue-v4
+  mutation engine     = f2a-complete-mutation-v3
+  dataset             = f2a-dataset-v3
+  lineage/submission  = v3
+  execution contract  = us-options-underlying-5bps-options-flat-050-v3
+  output contract     = arbitrage-opportunity-type-trajectory-v4
 ```
 
 Legacy `bsm-arbitrage-finding-f2a-v1` / catalogue v2 / mutation engine v1 / dataset v1 / lineage v1
-继续按旧 `candidate_spread_strictly_greater_than_zero` skeleton 重放，不能原地迁移。后继 variant v2、
-catalogue v3、mutation engine v2、dataset v2、lineage v2 和 output contract v3 使用新 immutable ID；
-其中 catalogue v3 仍保持 `calendar_family = null` 且 `runtime_enabled = false`。将来 calendar proof 与
-runtime 完成时必须再分配新的 variant/catalogue identity，不能修改 blocked catalogue v3 后声称兼容。
+继续按旧 `candidate_spread_strictly_greater_than_zero` skeleton 重放，不能原地迁移。V2 只保留为首次
+successor 审阅记录。V3 首次完整声明 single quote、equal call+put group 和 spot 三种 operator；它仍
+保持 `calendar_family = null`、`runtime_enabled = false`，不是 executable successor。将来 calendar
+proof、reachability 与 runtime 完成时仍须再分配新的 executable identity，不能打开 v2 或 v3。
 
 - Parent 始终以 read-only 打开；child 使用新的 snapshot/task identity。
 - 使用 parent 已声明的 `Q`、money-market numeraire、实际 `r/q`、calendar、day-count、
   settlement 和 deterministic pricing-volatility curve。
 - Solver 看不到 parent before-value、mutation 位置、private lineage、realized mutation count
   或 hidden label。
-- Public F2A contract 只声明 `max_mutated_points = 1`，不能用 realized mutation count 泄露
-  positive/negative label。
+- Complete grammar 的 public difficulty 明确声明最多一个 logical mutation group、最多两个 logical/
+  physical option quote points，或一个 spot point。Grouped pair 不能伪装成普通 single-point mutation；
+  public identity 也不能用 realized count 泄露 positive/negative label。
 
 套利与无套利的通用定义遵循 [AGENTS.md](../../../AGENTS.md)。完整七维框架见
 [financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md](../../../docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md)。
@@ -158,7 +164,7 @@ doubling strategy。
 因此第一版采用版本化的美国上市期权风格简化费用，而不混入 CNY/A 股规则：
 
 ```text
-execution_contract_id            = us-options-underlying-5bps-options-flat-050-v2
+execution_contract_id            = us-options-underlying-5bps-options-flat-050-v3
 currency                         = USD
 option_contract_multiplier       = parent contract_multiplier
 option_fee_per_contract_per_side = 0.50 USD
@@ -169,8 +175,14 @@ underlying_execution             = single_price_plus_proportional_cost
 underlying_trading_cost_per_side = 0.0005 * absolute traded notional
 underlying_trading_cost_scope    = every trade, including dynamic rebalancing
 cash_account_transaction_cost    = 0
+cash_account_balance             = signed; same numeraire curve for borrowing/lending
+stock_borrow_availability        = unlimited within catalogue position bounds
+incremental_stock_borrow_fee     = 0
+short_sale_proceeds_usage        = credited to the declared signed cash account
 ```
 
+V3 的 option/underlying 数值现金流与 v2 相同，但 stock-borrow 与 signed-cash 语义首次成为 normative
+fields，故使用新的 execution identity；不能把 `r-q` carry 解释成额外 stock-loan fee。
 `0.50 USD/contract/side` 和 underlying 单边 `5 bps` 都只是本 synthetic task 的冻结 variant
 assumption，不声称复刻任何真实交易所、broker 或 clearing fee schedule。
 
@@ -291,15 +303,18 @@ Task convention 不混入 market snapshot。Public task manifest 只引用 child
 task-space v2 rule、public variant contract 和 output contract。Actual valuation timestamp、curves
 和 deterministic Q-volatility nodes 来自 child pricing metadata；Q/numeraire/rate-path identities、
 节点的 time-origin/interpolation/extrapolation/units 解释、execution fee 和 candidate catalogue
-算法来自 `configs/variants/bsm_arbitrage_finding_f2a_v1.json`。Variant 不能复制另一组 curve/vol
+算法来源必须按身份分流：legacy replay 读取
+`configs/variants/bsm_arbitrage_finding_f2a_v1.json`；首次 blocked review 读取
+`configs/variants/bsm_arbitrage_finding_f2a_v2.json`；完整 grammar review 读取
+`configs/variants/bsm_arbitrage_finding_f2a_v3.json`。V3 仍不可执行。Variant 不能复制另一组 curve/vol
 数值，child 也不能覆盖 variant 的 execution 或 algorithm contract。
 
-## 4. 两个单点 mutation operator
+## 4. 三类 mutation operator 与完整 grammar
 
 ### 4.1 Option price
 
 ```text
-mutate_option_price_point_v1
+mutate_option_price_point_v2
 ```
 
 纯 `mutation/f2a.py` 在一个 `(valuation_date, option_id)` 上生成 `delta_ticks` spec，不读写
@@ -315,10 +330,35 @@ numeric/quote domain；不得用 clean-market BSM bounds、parity、monotonicity
 clip 掉。Successor mutation v2 已把 gates 逐项冻结；legacy v1 的
 `child_option_price_in_model_domain` 不得解释成 successor 的 BSM/model-price gate。
 
-### 4.2 Underlying spot
+### 4.2 Parity-preserving equal call+put group
 
 ```text
-mutate_underlying_spot_point_v1
+mutate_call_put_pair_equal_shift_v1
+```
+
+该 operator 原子选择同 valuation time、underlying、expiry、strike 与 multiplier 的 call/put pair，
+对两者的 `mid/bid/ask` 同时施加同一 `delta_ticks`。它是一个 declared logical mutation group，
+但诚实记录：
+
+```text
+logical_mutation_groups       = 1
+logical_quote_points_changed  = 2
+physical_quote_points_changed = 2
+group_semantics = same-strike-same-expiry-call-put-equal-shift
+```
+
+两个 executable parity surplus 中 call 与 put 的等量变化严格相消，option leg count/fees 也不变；
+但 discounted call/put upper bounds 随 shift 增加，lower bounds 随 shift 减少。因此该 group 只严格
+保持 same-pair parity，不保持整个 `cross-asset` family。构造 `100/001/101` 时必须在所有
+cross-asset bounds/parity candidates 都保持 inactive 且 guard 通过的 tick window 内接受。
+
+Materializer 必须把两行 quote copy-on-write 作为一个原子操作：任一 leg、before/after、tick、
+same-pair key 或 domain gate 失败时整组失败，不能留下半个 mutation。
+
+### 4.3 Underlying spot
+
+```text
+mutate_underlying_spot_point_v2
 ```
 
 纯 mutation 层生成一个 `(valuation_date, underlying_id, delta_ticks)` spec；authoring 层只改变
@@ -327,7 +367,7 @@ pricing contract 保持不变。Child 不复制其余 OHLC/adjusted-close 字段
 OHLC inequality 的伪 daily bar。这是该时刻的 task-state mutation，
 不生成或声称生成新的 `P`-measure underlying path。
 
-### 4.3 目标类型签名与控制样本
+### 4.4 目标类型签名与控制样本
 
 Blocked successor authoring contract 不再只抽象成 positive/negative balance，而是先在 private
 dataset config 中选择一个 canonical type signature。类型顺序固定为：
@@ -339,7 +379,7 @@ T = calendar
 signature = (X, U, T)
 ~~~
 
-因此一个完整数据集包含一个 clean control 与七个 positive signatures：
+Schema-level feasibility set 包含一个 clean control 与七个 positive signatures：
 
 ~~~text
 000 -> []
@@ -353,7 +393,8 @@ signature = (X, U, T)
 ~~~
 
 - Clean control：物化同分布 clean child，trusted verifier 必须复算为 `false/[]`。
-- Positive child：仍然至多应用一个 logical option-quote point 或一个 logical spot point；
+- Positive child：至多应用一个 logical mutation group；single quote 改一处，spot 改一处，grouped
+  call+put 明确改两个 quote points；
   trusted verifier 必须从 public child 复算出与目标 signature 完全相同的 canonical type array。
 - Public schema、task id、child snapshot id 和 Solver bundle 都不能暴露目标 signature、是否做过
   mutation、realized mutation count 或 selector failure history。
@@ -361,13 +402,44 @@ signature = (X, U, T)
   cost-adjusted family margins 和最终 guard evidence；requested signature 只是 authoring intention，
   绝不能直接成为 ORM truth。
 
-### 4.4 Transaction-cost-aware 激活阈值与单点类型隔离
+这八种组合不是当前 runtime capability。只有 deterministic reachability audit 给出非空 exact integer
+tick window 的 signature 才能进入 acceptance；当前 v3 audit 对所有 signature 仍为 `NOT_RUN` 或
+`BLOCKED_CALENDAR_FAMILY_NULL`，publication count 为零。
+
+### 4.5 Transaction-cost-aware 激活阈值与类型隔离
 
 Transaction cost 不是 verifier tolerance。Selector 对每个 grid point 直接调用 candidate-specific exact
 cashflow evaluator；bid/ask、fee、underlying cost 已在各腿现金流中逐项出现，不能再抽象成统一
 `alpha + beta * n * Delta - TC` 后重复扣费，也不能假定所有 operator/candidate 对 tick 全局 affine。
 Evaluator 先生成 `s_j` 与完整 terminal certificate，再应用第 5.1 节 predicate；calendar candidate
 还必须先通过全部 cell/boundary/ray checks，不能用 initial surplus 替代 terminal non-negativity。
+
+对 option signed integer position `w_{j,i}`（正数 long、负数 short），valuation-time executable
+cash outflow 是
+
+\[
+O_i(w_{j,i})=w_{j,i}^{+}(M_i ask_i+f_i)-w_{j,i}^{-}(M_i bid_i-f_i),
+\qquad
+s_j=-\left(\sum_iO_i+O_j^{other}\right).
+\]
+
+令 `delta_n = d * n * Delta_p`，其中 `d in {-1,+1}`、`n` 属于冻结 integer grid。Single quote
+mutation 对固定 candidate 的 exact response 为
+
+\[
+s_j(n)=s_j(0)-M_iw_{j,i}\delta_n.
+\]
+
+Grouped quote set `G` 则为
+
+\[
+s_j(n)=s_j(0)-\delta_n\sum_{i\in G}M_iw_{j,i}.
+\]
+
+这些公式只用于推导 response；canonical selector 仍在声明的 binary64 cast/reduction order 下逐 tick
+执行 evaluator。Identically-zero payoff 使用 open trigger `s_j>0`，support-certified nonconstant
+nonnegative payoff 使用 closed trigger `s_j>=0`。Family bit 是所有 candidate predicates 的 union，
+不能用一个 intended candidate 的 threshold 代替 full rescan。
 
 所有可缩放 position vector 先按 joint integer representation 除以正整数 gcd；gcd 不为 1 的 scalar
 multiple 不进入 catalogue。之后为每个 candidate 记录 guard vector，而不是一个 family `max(s_j)`：
@@ -386,7 +458,7 @@ inactive family:
 
 Parity 的 setup trigger 是开边界 `s > 0`；support-certified nonconstant nonnegative payoff 的 trigger
 是闭边界 `s >= 0`。Calendar guard 是 setup USD slack 加 finite-vertex、actual-boundary、one-sided-limit
-和 recession-ray slack 的向量，不能把不同量纲压成一个 USD 标量。后继 private dataset v2 暂只冻结
+和 recession-ray slack 的向量，不能把不同量纲压成一个 USD 标量。完整 grammar dataset v3 暂只冻结
 single-expiry setup separation `1.00 USD`，calendar terminal guard 为 `null`，因此保持 blocked。Guards
 只筛样本，不进入 exact canonical verifier predicate。
 
@@ -422,23 +494,27 @@ Transaction costs 只改变各 family 的激活阈值，不能保证任意节点
 - option fee 会按各模板的 option contract 数量不同地移动阈值，underlying cost 主要移动
   cross-asset/calendar 阈值；两者都不能被当成随意的 label knob。
 
-当前 `us-options-underlying-5bps-options-flat-050-v2` 可以作为所有任务共同的 baseline execution
+当前完整 grammar 只使用 `us-options-underlying-5bps-options-flat-050-v3` baseline execution
 contract。先在该固定合同下跨 target/node/sign/tick 搜索，不为了某个目标 label 临时改 fee。
 若 pilot feasibility audit 证明某些 signature 在整个 parent 上不可达，才允许新增少量
 versioned public execution profiles；profile 必须在 mutation 之前确定、写入 variant identity，
 并跨多个 signatures 平衡使用，避免 fee profile 成为 label leakage。
 
-单点 operator 的结构性作用也必须记录：
+三个 mutation operator 的结构性作用与 intended constructive targets 必须分开记录：
 
-| Logical operator | 可直接改变的 family margins | 不能直接改变 |
-|:---|:---|:---|
-| option quote point | cross-sectional、cross-asset、calendar | 无，但具体 signature 取决于三个 guard window |
-| underlying spot point | cross-asset、calendar | cross-sectional option-only inequalities |
+| Operator | Changed points | Exact invariant | Intended positives（仍须 reachability proof） |
+|:---|:---|:---|:---|
+| Clean control | 0 | clean full scan 必须为 `000` | `000` |
+| Single option quote | 1 quote point | 无跨 X/U/T invariant；U-anchored threshold regime 是额外条件 | `010`, `110`, `011`, `111` |
+| Equal call+put group | 1 group / 2 quote points | 同 pair 两个 parity surplus 不变；整个 U 不 invariant | `100`, `001`, `101` |
+| Underlying spot | 1 spot point | `X_after == X_before` | clean-baseline 下 `010`, `001`, `011` |
 
 因此唯一无条件不变量是 `X_after == X_before`，不是“spot-only child 永远没有 X”。本合同采用推荐的
 clean-baseline policy：mutation 前独立全量扫描 slice，要求完整 signature 为 `000`，否则 deterministic
 skip；在此前提下才可推出 spot child 的 `X_after = false`。若 before/after 不相等，才是 routing 或实现
-失败。一个 logical option quote 可以确定性派生新的 mid/bid/ask，但 `realized_chi_F` 仍为 1。
+失败。Single quote 与 spot 的 `realized_chi_F=1`；grouped pair 也按一个 declared group 记
+`realized_chi_F=1`，但 lineage 同时强制 `logical_quote_points_changed=2` 和
+`physical_quote_points_changed=2`，不得隐藏第二个 option ID。
 
 ## 5. Independent oracle 与候选策略
 
@@ -599,7 +675,7 @@ draft contract；发布后再改任何公式或 operation order 都必须换 can
 ### 5.3 Transaction-cost-aware calendar catalogue
 
 Calendar family 不能恢复为“同 strike 的长期限 raw option price 必须更高”，也不能把一个 quote
-与 BSM theoretical value 的差重新命名为 calendar。Blocked review contract 固定为
+与 BSM theoretical value 的差重新命名为 calendar。首次 blocked review contract 固定为
 
 ~~~text
 candidate_catalogue_id = bsm-f2a-candidate-catalogue-v3
@@ -607,7 +683,9 @@ calendar_family        = null
 calendar_target_spec   = transaction-cost-aware-two-expiry-terminal-spot-bridge-v1
 ~~~
 
-Future executable identity 若启用该 target，必须使用新的 candidate/variant ID。该 target 是
+Complete grammar review 在 catalogue v4 中修正 certificate target 为 `g_j`，仍保持
+`calendar_family=null`。Future executable identity 若启用该 target，必须使用更新的
+candidate/variant ID。该 target 是
 catalogue-scoped 的两日期 pathwise certificate，不宣称穷尽所有跨期限动态策略。
 对每个 ordered expiry pair \(t<T_1<T_2\)，candidate 必须同时包含至少一个 \(T_1\) option leg
 和一个 \(T_2\) option leg；只使用单一 expiry 的组合仍路由到 cross-sectional/cross-asset，
@@ -688,7 +766,8 @@ initial surplus 存入 numeraire 后的总 liquidation wealth。Canonical predic
 
 #### 5.3.2 有限 catalogue 与 exact pathwise certificate
 
-Blocked catalogue v3 将以下 target grid 冻结为 review input，但 `calendar_family` 仍为 `null`：
+Blocked complete-grammar catalogue v4 将以下 target grid 冻结为 review input，但
+`calendar_family` 仍为 `null`：
 
 - ordered expiry-pair、option-id、call/put 和 strike enumeration；
 - 每个 option position 属于 `{-2,-1,0,1,2}`；每个 maturity 有 `1..4` 个非零 legs、两期限合计至多
@@ -730,21 +809,23 @@ cashflow 在 strike cells 上都是 piecewise affine：每个二维 cell 上
    值是该 cell 的 one-sided limits。包含 `0` 的 closure 只检查从正状态域进入的 limit。
 3. 再按 knot order 检查所有 finite boundary 的 actual values；`Delta_1` 使用上面的右侧归属，`y`
    payoff 在 strike 上取其连续 actual value。交叉 knot 也必须检查，不能只检查两个 one-sided limits。
-4. 任一步 exact binary64 value 为负即拒绝；不使用 tolerance。全部通过才证明
+4. 任一步 `g_j` 的 exact binary64 value 为负即拒绝；不使用 tolerance。全部通过才证明
 
 \[
-W_{T_2}(S_{T_1},S_{T_2})\ge 0
+g_j(S_{T_1},S_{T_2})\ge 0
 \quad\text{for every }(S_{T_1},S_{T_2})\in(0,\infty)^2,
 \]
 
-而不是只在 Monte Carlo paths 或有限 spot grid 上采样。Strict gain 固定为：存在一个非空二维 open
+而不是只证明可能被正 initial surplus 掩盖的 `W_T2 >= 0`，也不是只在 Monte Carlo paths 或有限
+spot grid 上采样。显式 regression 必须覆盖 `D=1, s_j=10, g_j=-5`：虽然 `W_T2=5`，canonical
+predicate 仍为 false。Strict gain 固定为：存在一个非空二维 open
 cell，其 canonical interior witness（有限区间用 midpoint，单/双尾坐标用 lower-knot-plus-one）满足
 `g_j > 0`。在已证明 cell 全域非负后，这等价于 `g_j` 在该 cell 不恒零，并由 `P ~ Q` 与每段 full
 positive conditional support 推出 `P(g_j > 0) > 0`。若 `g_j` 恒零，则仍要求 `s_j > 0`。
 
 Self-financing proof test 必须逐项重放上面的 `t/T1/T2` cash ledger，并断言每一笔 option fee 与每次
 underlying cost 只收一次。Admissibility proof test 还必须证明整个持有区间的 numeraire-discounted
-liquidation wealth 有一个与状态、时间无关的有限下界；只证明 `T2` 非负不够。Blocked v3 尚未完成
+liquidation wealth 有一个与状态、时间无关的有限下界；只证明 `T2` 非负不够。Blocked catalogue v4 尚未完成
 该 interim-wealth proof/evaluator，因此 target grid 不能执行，`calendar_family = null` 必须保持。
 
 这个设计借鉴多期限 bid/ask 市场中 executable semi-static stock-rebalancing certificate 的结构，
@@ -752,10 +833,10 @@ liquidation wealth 有一个与状态、时间无关的有限下界；只证明 
 dividend curve 和 segment primitive 必须有仓库自己的逐现金流证明。理论参考：
 [Multi-maturity consistency of option prices under bounded bid–ask spreads](https://arxiv.org/abs/2607.27649)。
 
-Blocked variant v2 已把上述 grid、cash ledger、boundary/ray order 写成 non-executable review target，
-但 calendar evaluator、interim admissibility proof tests 和 reachability audit 尚未完成，所以
+Blocked variant v3 已把上述 grid、cash ledger、`g_j` boundary/ray order 写成 non-executable review
+target，但 calendar evaluator、interim admissibility proof tests 和 reachability audit 尚未完成，所以
 `calendar_family = null` 仍是 blocking 状态，不能物化含 calendar truth 的 child。完成后必须使用
-新的 variant/candidate identity；不得在 catalogue v3 下静默启用。
+新的 executable variant/candidate identity；不得在 catalogue v3 或 v4 下静默启用。
 
 ### 5.4 Canonical truth 与七种 positive signatures
 
@@ -831,7 +912,8 @@ F2A 不增加新的顶层 config 类别。兼容设计只使用项目 README 已
 ```text
 authoring/configs/
 ├── f2a_dataset_v1.json       # legacy replay
-└── f2a_dataset_v2.json       # blocked successor selector/guard/reachability contract
+├── f2a_dataset_v2.json       # blocked first-successor review record
+└── f2a_dataset_v3.json       # blocked complete-grammar distribution/routing/split contract
 
 configs/generators/
 └── quantlib_bsm_metals_f2a_parent_v2.json
@@ -839,11 +921,13 @@ configs/generators/
 
 configs/variants/
 ├── bsm_arbitrage_finding_f2a_v1.json  # legacy catalogue v2
-└── bsm_arbitrage_finding_f2a_v2.json  # blocked catalogue v3；calendar_family = null
+├── bsm_arbitrage_finding_f2a_v2.json  # blocked catalogue v3 review record
+└── bsm_arbitrage_finding_f2a_v3.json  # blocked complete grammar / catalogue v4
 
 configs/mutations/
 ├── f2a_point_v1.json         # legacy engine
-└── f2a_point_v2.json         # spot_close 与精确 numeric/quote gates
+├── f2a_point_v2.json         # blocked single-point review record
+└── f2a_complete_v3.json      # single quote + grouped pair + spot；诚实 point counts
 
 configs/task_space/
 └── derivatives_v2.json
@@ -860,14 +944,17 @@ schemas/
 ├── curriculum-v2.schema.json
 ├── f2a-lineage.schema.json   # legacy catalogue v2 const
 ├── f2a-lineage-v2.schema.json
+├── f2a-lineage-v3.schema.json
 ├── trajectory.schema.json
 ├── submission.schema.json    # legacy variant v1 const
-└── submission-v2.schema.json
+├── submission-v2.schema.json
+└── submission-v3.schema.json
 ```
 
-Legacy 与 blocked successor contracts 已按这些路径并存；`configs/arbitrage/` 仍不存在。Successor
-锁定 candidate-specific predicate、single-expiry formulas、public support/clock/timeline、selector
-shape 和 calendar review target，但 `runtime_enabled = false`、`calendar_family = null`。Calendar
+Legacy、首次 blocked review 与完整 grammar review contracts 已按这些路径并存；`configs/arbitrage/`
+仍不存在。V3 锁定 candidate-specific predicate、完整三 operator grammar、single-expiry formulas、
+public support/clock/timeline、selector shape 和 `g_j` calendar review target，但
+`runtime_enabled = false`、`calendar_family = null`。Calendar
 evaluator/admissibility proofs、Python v2 dispatch 和 F2A runtime 均不存在；不得据此声称 child 或
 dataset 已物化，也不得修改 blocked v2/v3 identity 来启用后续能力。
 
@@ -934,7 +1021,7 @@ scripts/
 职责边界：
 
 - `authoring/f2a_child_materializer.py`：以 read-only 方式打开 frozen parent，校验 public
-  mutation spec，按第 3 节 allowlist 生成新 DRAFT child，物化 market fields，并按第 4.4 节的
+  mutation spec，按第 3 节 allowlist 生成新 DRAFT child，物化 market fields，并按第 4.5 节的
   stable tick search 验证 requested signature 与双边 guard；随后写 private lineage，最后以新
   identity/revision 冻结。它不重新运行 QuantLib repricing，也不把 authoring-side expected label
   当成 ORM truth。
@@ -969,7 +1056,9 @@ snapshots/generated/f2a/children/<child_snapshot_id>/child.duckdb
 snapshots/generated/f2a/children/<child_snapshot_id>/child.manifest.json
 
 datasets/manifests/tasks/f2a/<task_id>.json
-datasets/manifests/splits/f2a_v1.json
+datasets/manifests/splits/f2a_v1.json  # legacy only
+datasets/manifests/splits/f2a_v2.json  # blocked v2 only
+datasets/manifests/splits/f2a_v3.json  # blocked v3 audit-only; not materialized
 
 snapshots/private/f2a/<task_id>/lineage.json
 
@@ -997,7 +1086,8 @@ candidate-catalogue id
 oracle result and authoring guard evidence
 ```
 
-`authoring_guard_evidence` 必须包含 requested/realized signature、每个 family 的最接近触发
+V3 lineage 把 requested/realized signature 放在 top level；`authoring_guard_evidence` 保存每个 family
+的最接近触发
 candidate id 与 cost-adjusted margin、active/inactive guard、execution contract/profile、最终 tick
 和 exact violated invariant；positive lineage 不能只写宽泛的 mutation intention。若把它提升为独立字段，必须先 version schema，不能向当前
 `additionalProperties: false` 的 lineage object 私自加字段。
@@ -1041,7 +1131,7 @@ config skeleton。不要重做或 mutation 该 parent。
    bid/ask、cross-sectional/cross-asset formulas，以及第 5.3 节 two-expiry segment/cell certificate
    写入 versioned public contracts；为每个 template 给出 self-financing/admissibility proof test。
    Calendar contract 未通过时保持 `calendar_family = null`，不得伪造 calendar label。
-2. 把第 4.4 节 cost-adjusted signature selector 写入 private authoring contract：固定 stable search
+2. 把第 4.5 节 cost-adjusted signature selector 写入 private authoring contract：固定 stable search
    order、requested signature distribution、active/inactive guards、profile feasibility policy 和
    no-label-leakage rules。当前过时的 positive/negative-only balance 与统一 `spread > 0` 字符串必须移除。
 3. 保留六维 task-space/schema/config v1 不变，并行增加七维 v2 runtime dispatch、F enum、F2A
@@ -1052,7 +1142,8 @@ config skeleton。不要重做或 mutation 该 parent。
    calendar cell/tail certificates和 canonical type order。
 5. 实现纯 `mutation/f2a.py` spec/identity/lineage，再在
    `authoring/f2a_child_materializer.py` 实现 parent selection、allowlisted market projection、
-   两个 logical point operators、requested-signature tick search、双边 guard、child freeze 与
+   single quote、grouped call+put 和 spot 三类 operators、requested-signature tick search、双边
+   guard、atomic grouped materialization、child freeze 与
    private lineage。两层不共享 DB write 权限，authoring selector 与 trusted verifier 不共享实现。
 6. 实现 Solver 任务入口与 trajectory/submission verifier；trusted verifier 只从 public child 和
    public variant contract 重算 bool 与 canonical type array。
@@ -1060,10 +1151,9 @@ config skeleton。不要重做或 mutation 该 parent。
    之前不发布 Solver image。
 8. 实现 `scripts/materialize_f2a.py`、public task/split manifests 和 training export，确认 private
    requested signature、selector trace 和 family margins 不进入 Solver bundle 或训练数据。
-9. 先 materialize 小型 feasibility set，覆盖 `000` 与七个 positive signatures，并让每个
-   execution profile 跨多个 signatures 出现；通过 public、unit、integration 与
-   verifier-robustness gates 后再扩容。每个 positive 仍只有一个 logical mutation point，它可以
-   确定性派生多个标准 market fields。
+9. 先运行不写 child 的 deterministic reachability audit；逐 signature 输出 exact integer-tick windows
+   或不可达诊断。只有 audit 证明的 scope 才能 materialize feasibility set。Grouped pair 是一个
+   logical group/两个 quote points；不得要求未证明可达的七种 positives 全覆盖。
 
 ## 9. 最小验收测试
 
@@ -1073,8 +1163,8 @@ config skeleton。不要重做或 mutation 该 parent。
   F enum/schema/registry/curriculum round-trip。
 - Pure mutation spec 同 selector/operator/seed/tick count 完全相等，换任一 identity input 即不同；
   `mutation/f2a.py` 不打开 DuckDB、不导入 QuantLib/verifier。
-- Option operator 只改变一个 logical quote point，child `mid/bid/ask` 从 parent half-spread 与 tick
-  delta 唯一物化；spot operator 只改变一个 child `spot_close`。
+- Single-option operator 只改变一个 quote point；grouped operator 原子改变 same-pair 两个 quote
+  points并分别由 parent half-spread 派生 `mid/bid/ask`；spot operator 只改变一个 `spot_close`。
 - Public child 严格匹配第 3 节列 allowlist，不含 `settlement_price`、full OHLC、physical dynamics、
   seed/RNG、before-value 或 authoring/audit tables；parent view 新增字段也不能自动进入 child。
 - Parent generator increment 与 public variant 声明在 authoring boundary 检查一次；mutation 幅度使用
@@ -1092,6 +1182,8 @@ config skeleton。不要重做或 mutation 该 parent。
   rebalancing、T2 liquidation 和 option fees；cell vertices、one-sided boundaries 与 tail slopes
   必须共同证明全正状态域非负。仍须拒绝 raw same-strike maturity comparison、有限 spot-grid
   sampling 或 frictionless BSM dynamic replication 作为 transaction-cost market 的套利证明。
+- Grouped-pair algebra 必须验证两方向 parity surplus 不变、upper/lower bounds 的相反 slopes、两个
+  physical quote point counts 和任一 leg 失败时 atomic rejection。
 - 对每个 requested signature，测试 stable tick search 只接受 realized bitmask 完全相同且 active/
   inactive guards 同时通过的 child；不存在可行窗口时 deterministic skip，不能改 fee 或扩大 grid。
 
@@ -1117,8 +1209,8 @@ config skeleton。不要重做或 mutation 该 parent。
 
 - Solver bundle 只包含 public child、task/variant contract 和 trajectory/submission schemas；公开 smoke 能完成
   child -> submission -> verifier 端到端路径。
-- ORM 接受完整 trajectory 中的 bool 与 canonical `arbitrage_type`，覆盖 `000` 与七个 positive
-  signatures；拒绝缺失/错序/错分/重复的 type array、与 bool 不一致的 type array、缺失 trajectory
+- ORM schema-level 可表示 `000` 与七个 positive signatures；public runtime tests 只覆盖
+  reachability-proved scope。拒绝缺失/错序/错分/重复的 type array、与 bool 不一致的 type array、缺失 trajectory
   或额外的 `maximal_spread`。Legacy 与 blocked successor 都未启用 calendar，仍必须拒绝 calendar
   type；未来启用需要新的 executable catalogue identity。
 - 保持 ORM answer 不变而改写 trajectory 文本不改变 reward；翻转 bool、删除/交换 type、改单位、
@@ -1127,7 +1219,7 @@ config skeleton。不要重做或 mutation 该 parent。
 
 ## 10. F2A 暂不做
 
-- 多点 mutation；
+- 同一 child 中超过一个 logical mutation group，或超出 declared grouped call+put pair 的任意多点 mutation；
 - `maximal_spread` 或最优套利组合；
 - 完整复刻某一真实交易所的 maker/taker、broker、clearing、regulatory fee/rebate schedule；
 - bid/ask size、partial fill、market impact、margin、borrow availability 或 position limit；

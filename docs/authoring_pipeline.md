@@ -50,10 +50,10 @@ Checked-in `snapshots/public/quantlib_bsm_smoke_v1.duckdb` 是 frozen legacy v3 
 不是 active development database 的缺省替代品。Active v3 和 public v3 都保留 60,368 条
 历史 `option_pricing_audit` rows；v4 与 F2A v2 parent 的 schema-retained audit table 为空。
 
-F2A 目前有 frozen parent、legacy replay contracts，以及新 ID 下的 blocked successor
-variant v2/catalogue v3/mutation/dataset/lineage v2。Successor 已冻结 predicate、single-expiry formulas、
-selector shape 与 calendar review target，但 calendar evaluator/proofs、reachability audit、point-mutation
-runtime、child materializer、独立 oracle、Solver/verifier 与 dataset 均未完成；因此不能物化 child。
+F2A 目前有 frozen parent、legacy replay、blocked v2 first-review contracts，以及新 ID 下的 blocked
+v3 complete grammar。V3 已冻结三 operator grammar、predicate、single-expiry formulas、selector shape
+与 `g_j` calendar review target，但 calendar evaluator/proofs、reachability audit、mutation runtime、child
+materializer、独立 oracle、Solver/verifier 与 dataset 均未完成；因此不能物化 child。
 
 ## Underlying simulator 第一阶段
 
@@ -604,7 +604,8 @@ IV audits   = 0
 ```text
 open exact parent read-only
   -> select a complete solver-visible subset by stable business keys
-  -> receive a pure one-point mutation spec
+  -> receive a pure atomic mutation-group spec
+     (single quote / equal call+put pair / spot)
   -> search the frozen integer-tick grid for the requested realized type signature
   -> project allowlisted market fields into a new DRAFT child identity
   -> independently recompute authoring gates from the materialized public child
@@ -615,28 +616,39 @@ open exact parent read-only
 第一版 slice key 固定为
 `(parent_snapshot_id, parent_revision, valuation_date, underlying_id)`，并要求完整的
 `4 expiries × 7 strikes × call/put = 56` 行 live chain；缺行时 deterministic skip，不补 quote、
-不 fallback，也不重新定价 parent。Option mutation 只从 parent half-spread 和 integer
-`delta_ticks` 派生一个 logical point 的新 `mid/bid/ask`；spot mutation 只改变 valuation-time
+不 fallback，也不重新定价 parent。Single-option mutation 只从 parent half-spread 和 integer
+`delta_ticks` 派生一个 quote point 的新 `mid/bid/ask`；grouped pair 对同 strike/expiry/multiplier 的
+call+put 两行使用同一 delta 并原子 copy-on-write，任一 leg 失败时整组 rollback；spot mutation 只改变 valuation-time
 `spot_close`，不改 option quotes，也不声称生成了新的 P-measure path。
+
+Point-count semantics 必须公开且一致：single quote 是一个 logical group/一个 physical quote point；
+equal pair 是一个 logical group/两个 logical 与 physical quote points；spot 是一个 logical group/一个
+physical spot point。每个 quote 的 `bid/mid/ask` 是 market fields，不把三列再算成三个 quote points。
+Private lineage 必须原子记录 pair 两个 option IDs、tick units 与所有 before/after；public task/child ID
+不得编码 operator、count 或 signature。
 
 Public child 必须按字段 allowlist 新建最小 `solver_visible` views，不能从 parent `SELECT *`。
 尤其不暴露 `settlement_price`、OHLC/volume/open interest、P dynamics、seed/RNG、authoring
 canonicalization、before/after、private lineage 或 stored reference answer。F2A domain gate 检查
 有限/非负、`bid <= mid <= ask`、tick alignment、chain completeness、identity 与 visibility；它不能
 用 clean-parent BSM bounds、parity、strike monotonicity/convexity 或 calendar relation 修复刻意的
-task signal。Successor mutation engine `f2a-point-mutation-v2` 将 logical field 明确为 `spot_close`，
-并逐项命名 numeric/quote gates；legacy v1 中含糊的 `spot` 与
+task signal。Complete mutation engine `f2a-complete-mutation-v3` 将 spot field 明确为 `spot_close`，
+并逐项命名 numeric/quote/atomic-group gates；legacy v1 中含糊的 `spot` 与
 `child_option_price_in_model_domain` 只为旧 skeleton replay 保留，不能成为新 materializer 默认值。
 
 Authoring-side candidate cashflow 必须使用 directional option bid/ask，每条 option 腿每侧收取
 `0.50 USD/contract`，每次 underlying trade 按绝对成交名义金额收取单边 `5 bps`；费用是经济
-输入，不是数值 tolerance。一次 point mutation 可能激活多个 family，必须全量重扫所有 enabled
-families，不能从 operator 或 target 推断 type。
+输入，不是数值 tolerance。Realized family subset 由 operator-specific response、成本与 integer-tick
+threshold 共同决定，必须全量重扫所有 enabled families，不能从 routing table 或 target 推断 type。
+Terminal-spot primitive 已包含 initial、continuous dividend reinvestment/financing 与 terminal
+liquidation/re-entry costs，外层 cashflow 不得再次扣 underlying cost。
 
 Legacy variant v1/catalogue v2/mutation v1/dataset v1 保持不变。Blocked successor
-variant v2/catalogue v3/mutation v2/dataset v2/lineage v2 已用新 ID 写入 candidate-specific predicate、
+variant v2/catalogue v3/mutation v2/dataset v2/lineage v2 保留为首次 blocked review。Complete grammar
+使用 variant v3/catalogue v4/mutation v3/dataset v3/lineage v3，写入 candidate-specific predicate、
 single-expiry exact formulas、public `P ~ Q`/positive support、volatility time origin/units、cash-dividend
-semantics、`t/T1/T2` operation order、selector guard vector 与 calendar review target；它明确
+semantics、`t/T1/T2` operation order、selector guard vector、grouped-pair atomicity 与以 `g_j` 为目标的
+calendar review target；它明确
 `runtime_enabled = false`、`calendar_family = null`。Calendar evaluator、interim admissibility proof
 tests 与 baseline signature reachability audit 完成后还必须再升 variant/catalogue identity，不能原地
 打开 blocked v3。
@@ -646,6 +658,10 @@ tests 与 baseline signature reachability audit 完成后还必须再升 variant
 才能推出 `X_after=false`。Reachability audit 必须逐 requested signature 输出 target/operator/tick windows
 或不可达诊断；不能随机 retry、扩大 grid、修改 parent 或临时改变 fee。Authoring selector 只负责样本
 选择，不能和 Trusted verifier 共用 oracle 实现，也不能把 requested signature 当成 truth。
+
+V3 dataset 明确分配 requested order/mass 与 clean `000` allocation；只发布 reachability-proved scope，
+不可达缺额不回填。当前单一 parent 按 `parent_snapshot_id` 只能形成一个 audit group，不能生成可用
+train/validation/test split；后者需要多个独立 parent worlds 或经证明不泄漏 latent world 的新 grouping。
 
 完整 F2A 数学、权限与实施顺序见
 [`f2a_arbitrage_finding_agent_task_plan.md`](../src/synthetic_derivatives/mutation/f2a_arbitrage_finding_agent_task_plan.md)。

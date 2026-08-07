@@ -1,0 +1,456 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "f2a-lineage-v3.schema.json",
+  "title": "Private F2A complete-grammar lineage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "parent_task_id",
+    "child_task_id",
+    "parent_snapshot_id",
+    "parent_snapshot_revision",
+    "child_snapshot_id",
+    "child_snapshot_revision",
+    "variant_id",
+    "output_contract_id",
+    "stable_selector",
+    "operator",
+    "seed",
+    "engine_id",
+    "mutation",
+    "realized_chi_F",
+    "source_pricing_model_ids",
+    "execution_contract_id",
+    "candidate_catalogue_id",
+    "requested_signature",
+    "realized_signature",
+    "reachability_audit_id",
+    "oracle_result",
+    "authoring_guard_evidence"
+  ],
+  "properties": {
+    "parent_task_id": {"type": "string", "minLength": 1},
+    "child_task_id": {"type": "string", "minLength": 1},
+    "parent_snapshot_id": {"const": "DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2"},
+    "parent_snapshot_revision": {"const": 1},
+    "child_snapshot_id": {"type": "string", "minLength": 1},
+    "child_snapshot_revision": {"type": "integer", "minimum": 1},
+    "variant_id": {"const": "bsm-arbitrage-finding-f2a-v3"},
+    "output_contract_id": {"const": "arbitrage-opportunity-type-trajectory-v4"},
+    "stable_selector": {"type": "object", "minProperties": 1},
+    "operator": {
+      "enum": [
+        "clean_control_v1",
+        "mutate_option_price_point_v2",
+        "mutate_call_put_pair_equal_shift_v1",
+        "mutate_underlying_spot_point_v2"
+      ]
+    },
+    "seed": {"type": "integer", "minimum": 0},
+    "engine_id": {"const": "f2a-complete-mutation-v3"},
+    "mutation": {"type": ["object", "null"]},
+    "realized_chi_F": {"type": "integer", "minimum": 0, "maximum": 1},
+    "source_pricing_model_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "execution_contract_id": {"const": "us-options-underlying-5bps-options-flat-050-v3"},
+    "candidate_catalogue_id": {"const": "bsm-f2a-candidate-catalogue-v4"},
+    "requested_signature": {"$ref": "#/$defs/signature"},
+    "realized_signature": {"$ref": "#/$defs/signature"},
+    "reachability_audit_id": {"const": "f2a-complete-grammar-reachability-v1"},
+    "oracle_result": {"$ref": "trajectory.schema.json#/$defs/orm_answer"},
+    "authoring_guard_evidence": {"$ref": "#/$defs/guardEvidence"}
+  },
+  "$defs": {
+    "signature": {
+      "enum": ["000", "100", "010", "001", "110", "101", "011", "111"]
+    },
+    "quoteRowKey": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "valuation_date",
+        "underlying_id",
+        "option_id",
+        "expiry",
+        "strike",
+        "call_put",
+        "contract_multiplier"
+      ],
+      "properties": {
+        "valuation_date": {"type": "string", "format": "date"},
+        "underlying_id": {"type": "string", "minLength": 1},
+        "option_id": {"type": "string", "minLength": 1},
+        "expiry": {"type": "string", "format": "date"},
+        "strike": {"type": "number", "exclusiveMinimum": 0},
+        "call_put": {"enum": ["call", "put"]},
+        "contract_multiplier": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "derivedQuoteField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "before", "after"],
+      "properties": {
+        "field": {"enum": ["bid", "ask"]},
+        "before": {"type": "number", "minimum": 0},
+        "after": {"type": "number", "minimum": 0}
+      }
+    },
+    "quoteMutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["table", "row_key", "field", "before", "after", "derived_fields"],
+      "properties": {
+        "table": {"const": "solver_visible.option_daily"},
+        "row_key": {"$ref": "#/$defs/quoteRowKey"},
+        "field": {"const": "mid"},
+        "before": {"type": "number", "minimum": 0},
+        "after": {"type": "number", "minimum": 0},
+        "derived_fields": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            {
+              "allOf": [
+                {"$ref": "#/$defs/derivedQuoteField"},
+                {"properties": {"field": {"const": "bid"}}}
+              ]
+            },
+            {
+              "allOf": [
+                {"$ref": "#/$defs/derivedQuoteField"},
+                {"properties": {"field": {"const": "ask"}}}
+              ]
+            }
+          ],
+          "items": false
+        }
+      }
+    },
+    "singleOptionMutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "delta_ticks",
+        "tick_unit",
+        "logical_mutation_groups",
+        "logical_quote_points_changed",
+        "physical_quote_points_changed",
+        "physical_spot_points_changed",
+        "quote_mutations"
+      ],
+      "properties": {
+        "kind": {"const": "single_option_quote_shift"},
+        "delta_ticks": {"type": "integer", "not": {"const": 0}},
+        "tick_unit": {"const": "option_ticks"},
+        "logical_mutation_groups": {"const": 1},
+        "logical_quote_points_changed": {"const": 1},
+        "physical_quote_points_changed": {"const": 1},
+        "physical_spot_points_changed": {"const": 0},
+        "quote_mutations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {"$ref": "#/$defs/quoteMutation"}
+        }
+      }
+    },
+    "pairMutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "delta_ticks",
+        "tick_unit",
+        "logical_mutation_groups",
+        "logical_quote_points_changed",
+        "physical_quote_points_changed",
+        "physical_spot_points_changed",
+        "group_semantics",
+        "quote_mutations"
+      ],
+      "properties": {
+        "kind": {"const": "call_put_pair_equal_shift"},
+        "delta_ticks": {"type": "integer", "not": {"const": 0}},
+        "tick_unit": {"const": "option_ticks"},
+        "logical_mutation_groups": {"const": 1},
+        "logical_quote_points_changed": {"const": 2},
+        "physical_quote_points_changed": {"const": 2},
+        "physical_spot_points_changed": {"const": 0},
+        "group_semantics": {"const": "same-strike-same-expiry-call-put-equal-shift"},
+        "quote_mutations": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            {
+              "allOf": [
+                {"$ref": "#/$defs/quoteMutation"},
+                {"properties": {"row_key": {"properties": {"call_put": {"const": "call"}}}}}
+              ]
+            },
+            {
+              "allOf": [
+                {"$ref": "#/$defs/quoteMutation"},
+                {"properties": {"row_key": {"properties": {"call_put": {"const": "put"}}}}}
+              ]
+            }
+          ],
+          "items": false
+        }
+      }
+    },
+    "spotMutationPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["table", "row_key", "field", "before", "after"],
+      "properties": {
+        "table": {"const": "solver_visible.underlying_daily"},
+        "row_key": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["valuation_date", "underlying_id"],
+          "properties": {
+            "valuation_date": {"type": "string", "format": "date"},
+            "underlying_id": {"type": "string", "minLength": 1}
+          }
+        },
+        "field": {"const": "spot_close"},
+        "before": {"type": "number", "exclusiveMinimum": 0},
+        "after": {"type": "number", "exclusiveMinimum": 0}
+      }
+    },
+    "spotMutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "delta_ticks",
+        "tick_unit",
+        "logical_mutation_groups",
+        "logical_quote_points_changed",
+        "physical_quote_points_changed",
+        "physical_spot_points_changed",
+        "spot_mutation"
+      ],
+      "properties": {
+        "kind": {"const": "underlying_spot_shift"},
+        "delta_ticks": {"type": "integer", "not": {"const": 0}},
+        "tick_unit": {"const": "underlying_ticks"},
+        "logical_mutation_groups": {"const": 1},
+        "logical_quote_points_changed": {"const": 0},
+        "physical_quote_points_changed": {"const": 0},
+        "physical_spot_points_changed": {"const": 1},
+        "spot_mutation": {"$ref": "#/$defs/spotMutationPoint"}
+      }
+    },
+    "familyGuard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_ids", "setup_boundary", "terminal_certificate"],
+      "properties": {
+        "candidate_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "setup_boundary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "distance", "unit"],
+          "properties": {
+            "kind": {"enum": ["open", "closed", "candidate-specific"]},
+            "distance": {"type": "number", "minimum": 0},
+            "unit": {"const": "USD_per_candidate_strategy"}
+          }
+        },
+        "terminal_certificate": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "finite_vertex_slack",
+            "actual_boundary_slack",
+            "one_sided_limit_slack",
+            "recession_ray_slope_slack",
+            "strict_gain"
+          ],
+          "properties": {
+            "finite_vertex_slack": {"type": ["number", "null"]},
+            "actual_boundary_slack": {"type": ["number", "null"]},
+            "one_sided_limit_slack": {"type": ["number", "null"]},
+            "recession_ray_slope_slack": {"type": ["number", "null"]},
+            "strict_gain": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "familyGuards": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cross-sectional": {"$ref": "#/$defs/familyGuard"},
+        "cross-asset": {"$ref": "#/$defs/familyGuard"},
+        "calendar": {"$ref": "#/$defs/familyGuard"}
+      }
+    },
+    "guardEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "execution_profile_id",
+        "candidate_evaluator_id",
+        "active_family_guards",
+        "inactive_family_guards",
+        "spot_cross_sectional_signature_before",
+        "spot_cross_sectional_signature_after",
+        "selector_trace"
+      ],
+      "properties": {
+        "execution_profile_id": {"const": "us-options-underlying-5bps-options-flat-050-v3"},
+        "candidate_evaluator_id": {"const": "candidate-specific-exact-cashflow-v2"},
+        "active_family_guards": {"$ref": "#/$defs/familyGuards"},
+        "inactive_family_guards": {"$ref": "#/$defs/familyGuards"},
+        "spot_cross_sectional_signature_before": {"type": ["boolean", "null"]},
+        "spot_cross_sectional_signature_after": {"type": ["boolean", "null"]},
+        "selector_trace": {"type": "array", "minItems": 1, "items": {"type": "object"}}
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"operator": {"const": "clean_control_v1"}}, "required": ["operator"]},
+      "then": {
+        "properties": {
+          "mutation": {"const": null},
+          "realized_chi_F": {"const": 0},
+          "requested_signature": {"const": "000"},
+          "realized_signature": {"const": "000"}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"operator": {"const": "mutate_option_price_point_v2"}}, "required": ["operator"]},
+      "then": {
+        "properties": {
+          "mutation": {"$ref": "#/$defs/singleOptionMutation"},
+          "realized_chi_F": {"const": 1},
+          "requested_signature": {"not": {"const": "000"}},
+          "realized_signature": {"not": {"const": "000"}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"operator": {"const": "mutate_call_put_pair_equal_shift_v1"}}, "required": ["operator"]},
+      "then": {
+        "properties": {
+          "mutation": {"$ref": "#/$defs/pairMutation"},
+          "realized_chi_F": {"const": 1},
+          "requested_signature": {"not": {"const": "000"}},
+          "realized_signature": {"not": {"const": "000"}}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"operator": {"const": "mutate_underlying_spot_point_v2"}}, "required": ["operator"]},
+      "then": {
+        "properties": {
+          "mutation": {"$ref": "#/$defs/spotMutation"},
+          "realized_chi_F": {"const": 1},
+          "requested_signature": {"not": {"const": "000"}},
+          "realized_signature": {"not": {"const": "000"}}
+        }
+      }
+    },
+    {
+      "oneOf": [
+        {
+          "properties": {
+            "requested_signature": {"const": "000"},
+            "realized_signature": {"const": "000"},
+            "authoring_guard_evidence": {"properties": {
+              "active_family_guards": {"maxProperties": 0},
+              "inactive_family_guards": {"required": ["cross-sectional", "cross-asset", "calendar"], "minProperties": 3, "maxProperties": 3}
+            }}
+          }
+        },
+        {
+          "properties": {
+            "requested_signature": {"const": "100"},
+            "realized_signature": {"const": "100"},
+            "authoring_guard_evidence": {"properties": {
+              "active_family_guards": {"required": ["cross-sectional"], "minProperties": 1, "maxProperties": 1},
+              "inactive_family_guards": {"required": ["cross-asset", "calendar"], "minProperties": 2, "maxProperties": 2}
+            }}
+          }
+        },
+        {
+          "properties": {
+            "requested_signature": {"const": "010"},
+            "realized_signature": {"const": "010"},
+            "authoring_guard_evidence": {"properties": {
+              "active_family_guards": {"required": ["cross-asset"], "minProperties": 1, "maxProperties": 1},
+              "inactive_family_guards": {"required": ["cross-sectional", "calendar"], "minProperties": 2, "maxProperties": 2}
+            }}
+          }
+        },
+        {
+          "properties": {
+            "requested_signature": {"const": "001"},
+            "realized_signature": {"const": "001"},
+            "authoring_guard_evidence": {"properties": {
+              "active_family_guards": {"required": ["calendar"], "minProperties": 1, "maxProperties": 1},
+              "inactive_family_guards": {"required": ["cross-sectional", "cross-asset"], "minProperties": 2, "maxProperties": 2}
+            }}
+          }
+        },
+        {
+          "properties": {
+            "requested_signature": {"const": "110"},
+            "realized_signature": {"const": "110"},
+            "authoring_guard_evidence": {"properties": {
+              "active_family_guards": {"required": ["cross-sectional", "cross-asset"], "minProperties": 2, "maxProperties": 2},
+              "inactive_family_guards": {"required": ["calendar"], "minProperties": 1, "maxProperties": 1}
+            }}
+          }
+        },
+        {
+          "properties": {
+            "requested_signature": {"const": "101"},
+            "realized_signature": {"const": "101"},
+            "authoring_guard_evidence": {"properties": {
+              "active_family_guards": {"required": ["cross-sectional", "calendar"], "minProperties": 2, "maxProperties": 2},
+              "inactive_family_guards": {"required": ["cross-asset"], "minProperties": 1, "maxProperties": 1}
+            }}
+          }
+        },
+        {
+          "properties": {
+            "requested_signature": {"const": "011"},
+            "realized_signature": {"const": "011"},
+            "authoring_guard_evidence": {"properties": {
+              "active_family_guards": {"required": ["cross-asset", "calendar"], "minProperties": 2, "maxProperties": 2},
+              "inactive_family_guards": {"required": ["cross-sectional"], "minProperties": 1, "maxProperties": 1}
+            }}
+          }
+        },
+        {
+          "properties": {
+            "requested_signature": {"const": "111"},
+            "realized_signature": {"const": "111"},
+            "authoring_guard_evidence": {"properties": {
+              "active_family_guards": {"required": ["cross-sectional", "cross-asset", "calendar"], "minProperties": 3, "maxProperties": 3},
+              "inactive_family_guards": {"maxProperties": 0}
+            }}
+          }
+        }
+      ]
+    }
+  ]
+}

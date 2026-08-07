@@ -17,7 +17,7 @@ snapshot。Solver 不应直接导入本包，也不能访问其中的 private ge
 | Successor ordinary authoring | config schema `1.6.0`、generator `0.8.0`、snapshot v4 | 新 materialization 必须写新文件，不得 append 到 legacy v3。 |
 | F2A clean parent | `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2 / r1 / FROZEN` | 已由现有 pipeline 物化并冻结；只允许 read-only selection，不能 append、sync 或原地 mutation。 |
 | F2A child authoring | 未实现 | `f2a_child_materializer.py`、point-mutation runtime、signature selector、private lineage 和 child artifacts 尚不存在。 |
-| F2A contracts | Legacy 与 blocked successor 并存 | V1/catalogue v2 保持 replay；新 v2/catalogue v3、mutation/dataset/lineage v2 已 versioned，但 `runtime_enabled = false`、`calendar_family = null`。Calendar proofs、reachability audit 与 runtime 仍 blocking。 |
+| F2A contracts | Legacy、blocked v2 review 与 blocked v3 complete grammar 并存 | V3 新增 grouped pair、lineage conditionals、distribution/route/split contract，但仍为 `runtime_enabled = false`、`calendar_family = null`。Calendar proofs、reachability audit 与 runtime 仍 blocking。 |
 
 默认 active development database 是
 `snapshots/generated/quantlib_bsm_metals_option_chain_smoke_v1_20260807.duckdb`。若它缺失，应报告，
@@ -74,7 +74,8 @@ F2A child 使用另一条计划中的 copy-on-write 流程：
 open exact F2A v2 parent read-only
   -> select one complete 4-expiry x 7-strike x call/put slice
   -> build an in-memory solver-visible projection by field allowlist
-  -> enumerate clean control or one logical point mutation on integer ticks
+  -> enumerate clean control or one atomic mutation group on integer ticks
+     (single quote / equal call+put pair / spot)
   -> recompute the full authoring-side family bitmask and active/inactive guards
   -> accept only exact requested-signature match; otherwise deterministic skip
   -> write a new DRAFT child + private lineage
@@ -201,9 +202,9 @@ F2A 不增加新的顶层 config 分类。各 source of truth 保持分离：
 | Config | Authoring 使用方式 |
 |:---|:---|
 | [`quantlib_bsm_metals_f2a_parent_v2.json`](../../../configs/generators/quantlib_bsm_metals_f2a_parent_v2.json) | Frozen parent DGP、`0.01 USD` underlying/option increments、rounding 与 generator/snapshot identity。 |
-| [`bsm_arbitrage_finding_f2a_v1.json`](../../../configs/variants/bsm_arbitrage_finding_f2a_v1.json) / [`v2`](../../../configs/variants/bsm_arbitrage_finding_f2a_v2.json) | V1/catalogue v2 是 legacy skeleton；v2/catalogue v3 是 blocked successor public contract。 |
-| [`f2a_point_v1.json`](../../../configs/mutations/f2a_point_v1.json) / [`v2`](../../../configs/mutations/f2a_point_v2.json) | V2 保持两个 logical operator ID，但把 spot field 固定为 `spot_close` 并逐项冻结 numeric/quote gates。 |
-| [`f2a_dataset_v1.json`](../../../authoring/configs/f2a_dataset_v1.json) / [`v2`](../../../authoring/configs/f2a_dataset_v2.json) | V1 只 replay；v2 冻结 candidate-specific selector、clean `000` policy、guard vector 与 reachability audit。 |
+| [`bsm_arbitrage_finding_f2a_v1.json`](../../../configs/variants/bsm_arbitrage_finding_f2a_v1.json) / [`v2`](../../../configs/variants/bsm_arbitrage_finding_f2a_v2.json) / [`v3`](../../../configs/variants/bsm_arbitrage_finding_f2a_v3.json) | V1 是 legacy，v2 是首次 blocked review，v3 是 blocked complete-grammar public contract。 |
+| [`f2a_point_v1.json`](../../../configs/mutations/f2a_point_v1.json) / [`v2`](../../../configs/mutations/f2a_point_v2.json) / [`f2a_complete_v3.json`](../../../configs/mutations/f2a_complete_v3.json) | V3 冻结 single quote、equal call+put group 与 spot，并公开 logical/physical counts。 |
+| [`f2a_dataset_v1.json`](../../../authoring/configs/f2a_dataset_v1.json) / [`v2`](../../../authoring/configs/f2a_dataset_v2.json) / [`v3`](../../../authoring/configs/f2a_dataset_v3.json) | V3 冻结 signature order/counts、clean allocation、operator routing、reachability gating 与 single-parent audit-only split。 |
 
 旧 files 不迁移。Blocked successor 也不能直接发布：calendar target 虽已有 cash-ledger/grid/cell-order
 review spec，但 evaluator、interim admissibility proof tests 与 reachability audit 尚未完成。启用时必须
@@ -263,12 +264,17 @@ lineage 都不得进入 child。Parent view 将来新增字段也不能通过 `S
 `4 expiries x 7 strikes x call/put = 56` 行 live chain；缺任一 expiry、strike 或 call/put mate 就
 deterministic skip，不补 quote、不 fallback、不重新定价 parent。
 
-允许两个 logical point operators：
+V3 允许三个 mutation operators，加一个 clean control：
 
-- `mutate_option_price_point_v1`：只改变一个 `(valuation_date, option_id)` 的 logical quote point。
+- `mutate_option_price_point_v2`：只改变一个 `(valuation_date, option_id)` 的 logical quote point。
   Materializer 保留 parent half-spread，用 integer `delta_ticks` 唯一派生新的 `mid/bid/ask`；strike、
   expiry、call/put、spot、curves、pricing volatility contract 和其他 quotes 不变。
-- `mutate_underlying_spot_point_v1`：只改变一个 `(valuation_date, underlying_id)` 的 `spot_close`；
+- `mutate_call_put_pair_equal_shift_v1`：原子选择 same valuation/underlying/expiry/strike/multiplier 的
+  call+put pair，对两个 quote 施加同一 tick shift。它是一个 logical mutation group，但
+  `logical_quote_points_changed = physical_quote_points_changed = 2`；lineage 必须保存两条 leg 的
+  option ID 与 before/after。任一 leg 失败时整组 rollback。Equal shift 保持 same-pair parity，
+  不保持 cross-asset bounds，故仍须 full rescan。
+- `mutate_underlying_spot_point_v2`：只改变一个 `(valuation_date, underlying_id)` 的 `spot_close`；
   option quotes、curves 与 execution/pricing contracts 不变。Child 不复制其余 OHLC，所以这不是新
   P-measure path，也不声称构造了新的 daily bar。
 
@@ -283,13 +289,14 @@ child.bid = child.mid - bid_offset
 child.ask = child.mid + ask_offset
 ```
 
-F2A 不对 clean parent quotes 做第二次 tick projection。一个 quote mutation 虽派生三个标准 market
-fields，`realized chi_F` 仍为一个 logical point。Child 不新增 `task_price`，也不保留未 mutation 的
+F2A 不对 clean parent quotes 做第二次 tick projection。Single quote 的 logical/physical quote count
+为 `1/1`；grouped pair 是一个 logical group、两个 quote points；每个 quote 的三项标准 market fields
+只是确定性派生。Child 不新增 `task_price`，也不保留未 mutation 的
 `settlement_price` 作为 before/theoretical-value 旁路。
 
 ### Type-signature selector
 
-Blocked successor authoring contract 不再做简单 50/50 positive/negative balance；以下是待 audit 的
+Complete-grammar authoring contract 不再做简单 50/50 positive/negative balance；以下是待 audit 的
 target feasibility set：
 
 ```text
@@ -314,6 +321,15 @@ Spot mutation 的精确不变量是 `X_after == X_before`。本 policy 在 mutat
 signature `000`，否则 deterministic skip；所以 accepted spot child 才进一步满足 `X_after=false`。
 Before/after 不相等才是 routing/implementation failure。Requested signature、selector trace 和 guard
 evidence 只写 private lineage，不能进入 public task/child identity，也不能成为 stored truth。
+
+V3 的 requested signature 顺序固定为 `000,100,010,001,110,101,011,111`。Smoke `8` 与 pilot
+`128` 分别请求每个 signature `1` 与 `16` 条，clean allocation 只由 `000` 提供；operator balance
+只对 reachability-gated positives 生效。任何 signature 无 exact tick window 时保留缺额，不回填或
+重配权重。当前 audit 未运行、calendar 为 null，所以两个 profile 的 publication count 都是零。
+
+当前只有一个 parent snapshot。按 `parent_snapshot_id` grouping 时只允许一个 `audit` split；在至少
+三个独立 parent worlds（或经版本化证明无 latent-world leakage 的更细 grouping）存在前，不能生成或
+声称可用的 train/validation/test split。
 
 ### Artifact 与 freeze 边界
 
@@ -426,8 +442,8 @@ F2A runtime 实现还必须增加独立测试，至少覆盖：
 
 1. 精确选择 F2A v2 parent path/DB/manifest identity；缺失时失败且不 fallback；
 2. parent 始终 read-only，child 用新 identity 从 DRAFT 经过 gates 后 freeze，并可由完整输入重放；
-3. option operator 只改变一个 logical quote point 并唯一派生 `mid/bid/ask`，spot operator 只改变
-   child `spot_close`；
+3. single option operator 只改变一个 quote point；grouped call+put 原子改变两个 physical quote
+   points并逐 leg 唯一派生 `mid/bid/ask`；spot operator 只改变 child `spot_close`；
 4. public child 严格匹配 allowlist，parent 新增字段不会自动进入，private lineage/label 不泄漏；
 5. 每条 option/underlying trade 按 public execution contract 正确收费，guard 不改变 exact predicate；
 6. stable tick search 对 `000` 与 audit 已证明 reachable 的 signatures exact-match realized bitmask，

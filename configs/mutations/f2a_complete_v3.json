@@ -1,0 +1,90 @@
+{
+  "schema_version": "3.0.0",
+  "engine_id": "f2a-complete-mutation-v3",
+  "task_family_id": "bsm_arbitrage_finding_f2a_v1",
+  "status": "DRAFT_BLOCKED_FROM_MATERIALIZATION",
+  "identity_policy": "immutable_complete_grammar_review_contract",
+  "price_increment_source": "generator_config",
+  "difficulty_count_contract": {
+    "max_logical_mutation_groups": 1,
+    "max_logical_quote_points_changed": 2,
+    "max_physical_quote_points_changed": 2,
+    "max_physical_spot_points_changed": 1,
+    "physical_quote_point_definition": "one_option_id_at_one_valuation_timestamp",
+    "derived_bid_ask_mid_fields_are_not_additional_quote_points": true
+  },
+  "absolute_tick_grid": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096],
+  "sign_order": [-1, 1],
+  "target_order": "valuation_date_then_underlying_id_then_expiry_then_strike_then_call_put_then_option_id",
+  "operators": [
+    {
+      "operator_id": "clean_control_v1",
+      "target": "none",
+      "logical_mutation_groups": 0,
+      "logical_quote_points_changed": 0,
+      "physical_quote_points_changed": 0,
+      "physical_spot_points_changed": 0
+    },
+    {
+      "operator_id": "mutate_option_price_point_v2",
+      "target": "option_quote",
+      "logical_field": "mid",
+      "derived_fields": ["bid", "ask"],
+      "derivation": "preserve_parent_half_spreads",
+      "delta_unit": "option_ticks",
+      "logical_mutation_groups": 1,
+      "logical_quote_points_changed": 1,
+      "physical_quote_points_changed": 1,
+      "physical_spot_points_changed": 0,
+      "direction": "any"
+    },
+    {
+      "operator_id": "mutate_call_put_pair_equal_shift_v1",
+      "target": "same_strike_same_expiry_call_put_pair",
+      "logical_field": "mid",
+      "derived_fields": ["bid", "ask"],
+      "derivation": "preserve_each_parent_half_spread_and_apply_one_equal_delta_to_both_quotes_atomically",
+      "delta_unit": "option_ticks",
+      "logical_mutation_groups": 1,
+      "logical_quote_points_changed": 2,
+      "physical_quote_points_changed": 2,
+      "physical_spot_points_changed": 0,
+      "group_semantics": "same-strike-same-expiry-call-put-equal-shift",
+      "exact_invariant": "both_same_pair_executable_put_call_parity_surpluses_unchanged",
+      "non_invariant": "cross_asset_price_bounds_must_be_rescanned",
+      "direction": "any"
+    },
+    {
+      "operator_id": "mutate_underlying_spot_point_v2",
+      "target": "underlying_spot",
+      "logical_field": "spot_close",
+      "derived_fields": [],
+      "unchanged_fields": ["all_option_quotes"],
+      "delta_unit": "underlying_ticks",
+      "logical_mutation_groups": 1,
+      "logical_quote_points_changed": 0,
+      "physical_quote_points_changed": 0,
+      "physical_spot_points_changed": 1,
+      "exact_invariant": "X_after_equals_X_before",
+      "direction": "any"
+    }
+  ],
+  "authoring_domain_gates": [
+    "child_option_bid_mid_ask_are_finite",
+    "child_option_bid_mid_ask_are_nonnegative",
+    "child_option_bid_less_than_or_equal_to_mid_less_than_or_equal_to_ask",
+    "child_option_bid_mid_ask_are_option_tick_aligned",
+    "grouped_call_put_target_has_same_valuation_underlying_expiry_strike_and_multiplier",
+    "grouped_call_put_materialization_is_atomic",
+    "child_spot_close_is_finite_and_strictly_positive",
+    "child_spot_close_is_underlying_tick_aligned"
+  ],
+  "forbidden_domain_gates": [
+    "bsm_price_bounds",
+    "put_call_parity",
+    "strike_monotonicity",
+    "strike_convexity",
+    "calendar_price_ordering",
+    "model_repricing_or_clipping"
+  ]
+}

@@ -1,4 +1,10 @@
-# F2A Markdown / Math 返工交接单（给 Codex）
+# HISTORICAL / SUPERSEDED — F2A 第一轮数学审计（2026-08-07）
+
+> 本文件只保存历史审计上下文，不是 normative source of truth。其“当前问题”、旧 identity 和
+> strict-positive 描述可能已被后续返修取代。现行合同以仓库 `AGENTS.md`、
+> `src/synthetic_derivatives/mutation/f2a_arbitrage_finding_agent_task_plan.md` 及 versioned configs/schemas
+> 为准；第二轮审计输入保留在仓库根目录
+> `f2a_arbitrage_second_audit_and_complete_mutation_grammar_handoff.md`。
 
 ## 0. 工作范围与硬约束
 

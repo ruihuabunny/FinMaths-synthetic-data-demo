@@ -1,24 +1,34 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from decimal import Decimal
+from itertools import pairwise
 from math import exp
 
 import pytest
 
 from synthetic_derivatives.verifier.f2a_contract import (
     CandidateCertificate,
+    ExpiryInputs,
+    OptionQuote,
     candidate_is_arbitrage,
     discounted_price_bound_surpluses,
     executable_put_call_parity_surpluses,
+    gcd_normalized_convexity_positions,
     long_share_count,
     nonuniform_convexity_surplus,
     option_ask_amount,
     option_bid_amount,
+    scan_single_expiry_families,
+    shift_call_put_pair,
+    shift_single_option_quote,
     short_share_count,
     strike_monotonicity_surplus,
     terminal_spot_ask,
     terminal_spot_ask_initial_shares,
     terminal_spot_bid,
     terminal_spot_bid_initial_shares,
+    terminal_spot_outflow,
 )
 
 
@@ -130,32 +140,25 @@ def test_single_expiry_formulas_charge_directional_sides_and_each_fee() -> None:
     )
 
 
-def test_cross_sectional_formulas_do_not_consume_spot() -> None:
-    option_amounts = {
-        "lower_ask": 401.0,
-        "middle_bid": 298.0,
-        "upper_ask": 101.0,
-        "higher_bid": 199.0,
-    }
-
-    def scan_cross_sectional(_spot_close: float) -> tuple[float, float]:
-        monotonicity = strike_monotonicity_surplus(
-            long_lower_or_higher_ask_amount=option_amounts["lower_ask"],
-            short_higher_or_lower_bid_amount=option_amounts["higher_bid"],
-        )
-        convexity = nonuniform_convexity_surplus(
-            lower_ask_amount=option_amounts["lower_ask"],
-            middle_bid_amount=option_amounts["middle_bid"],
-            upper_ask_amount=option_amounts["upper_ask"],
-            lower_position=1,
-            middle_position=2,
-            upper_position=1,
-        )
-        return monotonicity, convexity
-
-    before = scan_cross_sectional(100.0)
+def test_complete_noncalendar_scanner_has_exact_spot_cross_sectional_invariant() -> None:
+    quotes = _three_strike_chain()
+    inputs = {"T": ExpiryInputs(0.98, 0.01)}
+    before = scan_single_expiry_families(
+        quotes=quotes,
+        spot=100.0,
+        expiry_inputs=inputs,
+        fee_per_contract_per_side=0.5,
+        proportional_cost=0.0005,
+    )
     for mutated_spot in (0.01, 50.0, 100.0, 1_000_000.0):
-        assert scan_cross_sectional(mutated_spot) == before
+        after = scan_single_expiry_families(
+            quotes=quotes,
+            spot=mutated_spot,
+            expiry_inputs=inputs,
+            fee_per_contract_per_side=0.5,
+            proportional_cost=0.0005,
+        )
+        assert after.cross_sectional_surpluses == before.cross_sectional_surpluses
 
 
 def test_nonuniform_convexity_uses_gcd_normalized_integer_positions() -> None:
@@ -214,3 +217,457 @@ def test_single_expiry_candidate_payoffs_are_statewise_nonnegative(
     # Gaps 10:30:20 reduce to positions +1:-3:+2.
     assert call_payoffs[0] - 3.0 * call_payoffs[1] + 2.0 * call_payoffs[2] >= 0.0
     assert put_payoffs[0] - 3.0 * put_payoffs[1] + 2.0 * put_payoffs[2] >= 0.0
+
+
+def _three_strike_chain() -> tuple[OptionQuote, ...]:
+    rows = (
+        ("c90", "call", "90", 11.8, 12.0),
+        ("p90", "put", "90", 1.8, 2.0),
+        ("c100", "call", "100", 5.8, 6.0),
+        ("p100", "put", "100", 4.8, 5.0),
+        ("c120", "call", "120", 0.8, 1.0),
+        ("p120", "put", "120", 19.8, 20.0),
+    )
+    return tuple(
+        OptionQuote(
+            option_id=option_id,
+            expiry="T",
+            call_put=call_put,
+            strike=Decimal(strike),
+            bid=bid,
+            ask=ask,
+            multiplier=100.0,
+        )
+        for option_id, call_put, strike, bid, ask in rows
+    )
+
+
+def test_candidate_predicate_does_not_replace_g_with_total_wealth() -> None:
+    discount_factor = 1.0
+    surplus = 10.0
+    terminal_certificate_payoff = -5.0
+    total_wealth = surplus / discount_factor + terminal_certificate_payoff
+
+    assert total_wealth >= 0.0
+    assert candidate_is_arbitrage(
+        CandidateCertificate(
+            initial_surplus=surplus,
+            terminal_payoff_nonnegative_almost_surely=False,
+            terminal_payoff_strictly_positive_with_positive_probability=False,
+        )
+    ) is False
+
+
+@pytest.mark.parametrize(
+    ("surplus", "strict_gain", "expected"),
+    [(-1.0, False, False), (0.0, False, False), (1.0, False, True)],
+)
+def test_identically_zero_parity_payoff_uses_open_setup_boundary(
+    surplus: float,
+    strict_gain: bool,
+    expected: bool,
+) -> None:
+    assert candidate_is_arbitrage(
+        CandidateCertificate(surplus, True, strict_gain)
+    ) is expected
+
+
+@pytest.mark.parametrize(
+    ("surplus", "expected"),
+    [(-1.0, False), (0.0, True), (1.0, True)],
+)
+def test_nonconstant_nonnegative_payoff_uses_closed_setup_boundary(
+    surplus: float,
+    expected: bool,
+) -> None:
+    assert candidate_is_arbitrage(
+        CandidateCertificate(surplus, True, True)
+    ) is expected
+
+
+def test_terminal_spot_share_schedule_replays_arbitrary_yield_partition() -> None:
+    proportional_cost = 0.0005
+    partitions = (0.003, 0.007, 0.011, 0.009)
+    total_yield = sum(partitions)
+
+    long_shares = terminal_spot_ask_initial_shares(
+        total_yield, proportional_cost
+    )
+    long_states = [long_shares]
+    for interval_yield in partitions:
+        next_shares = long_share_count(
+            long_states[-1], interval_yield, proportional_cost
+        )
+        # At every instant dividend cash q*N*S*dt exactly buys dN shares
+        # at S*(1+kappa); integration gives this interval ledger identity.
+        financed_purchase_notional = (1.0 + proportional_cost) * (
+            next_shares - long_states[-1]
+        )
+        integrated_dividend_notional = (
+            (1.0 + proportional_cost)
+            * long_states[-1]
+            * (exp(interval_yield / (1.0 + proportional_cost)) - 1.0)
+        )
+        assert financed_purchase_notional == pytest.approx(
+            integrated_dividend_notional
+        )
+        long_states.append(next_shares)
+    assert long_states[-1] == pytest.approx(
+        long_share_count(long_shares, total_yield, proportional_cost)
+    )
+    assert long_states[-1] * (1.0 - proportional_cost) == pytest.approx(1.0)
+
+    short_shares = terminal_spot_bid_initial_shares(
+        total_yield, proportional_cost
+    )
+    short_states = [short_shares]
+    for interval_yield in partitions:
+        next_shares = short_share_count(
+            short_states[-1], interval_yield, proportional_cost
+        )
+        short_sale_proceeds_notional = (1.0 - proportional_cost) * (
+            next_shares - short_states[-1]
+        )
+        financed_dividend_notional = (
+            (1.0 - proportional_cost)
+            * short_states[-1]
+            * (exp(interval_yield / (1.0 - proportional_cost)) - 1.0)
+        )
+        assert short_sale_proceeds_notional == pytest.approx(
+            financed_dividend_notional
+        )
+        short_states.append(next_shares)
+    assert short_states[-1] == pytest.approx(
+        short_share_count(short_shares, total_yield, proportional_cost)
+    )
+    assert short_states[-1] * (1.0 + proportional_cost) == pytest.approx(1.0)
+
+
+def _affine_payoff(
+    *,
+    calls: tuple[tuple[Decimal, Decimal], ...] = (),
+    puts: tuple[tuple[Decimal, Decimal], ...] = (),
+    spot_position: Decimal = Decimal(0),
+    cash: Decimal = Decimal(0),
+    state: Decimal,
+) -> Decimal:
+    return (
+        sum(weight * max(state - strike, Decimal(0)) for strike, weight in calls)
+        + sum(weight * max(strike - state, Decimal(0)) for strike, weight in puts)
+        + spot_position * state
+        + cash
+    )
+
+
+def _assert_piecewise_affine_nonnegative(
+    *,
+    calls: tuple[tuple[Decimal, Decimal], ...] = (),
+    puts: tuple[tuple[Decimal, Decimal], ...] = (),
+    spot_position: Decimal = Decimal(0),
+    cash: Decimal = Decimal(0),
+) -> None:
+    knots = sorted({strike for strike, _ in calls + puts})
+    boundaries = [Decimal(0), *knots]
+    for boundary in boundaries:
+        assert _affine_payoff(
+            calls=calls,
+            puts=puts,
+            spot_position=spot_position,
+            cash=cash,
+            state=boundary,
+        ) >= 0
+
+    for lower, upper in pairwise(boundaries):
+        midpoint = (lower + upper) / 2
+        lower_value = _affine_payoff(
+            calls=calls,
+            puts=puts,
+            spot_position=spot_position,
+            cash=cash,
+            state=lower,
+        )
+        midpoint_value = _affine_payoff(
+            calls=calls,
+            puts=puts,
+            spot_position=spot_position,
+            cash=cash,
+            state=midpoint,
+        )
+        upper_value = _affine_payoff(
+            calls=calls,
+            puts=puts,
+            spot_position=spot_position,
+            cash=cash,
+            state=upper,
+        )
+        assert midpoint_value * 2 == lower_value + upper_value
+        assert min(lower_value, upper_value) >= 0
+
+    tail_start = boundaries[-1]
+    tail_value = _affine_payoff(
+        calls=calls,
+        puts=puts,
+        spot_position=spot_position,
+        cash=cash,
+        state=tail_start,
+    )
+    next_value = _affine_payoff(
+        calls=calls,
+        puts=puts,
+        spot_position=spot_position,
+        cash=cash,
+        state=tail_start + 1,
+    )
+    assert tail_value >= 0
+    assert next_value - tail_value >= 0
+
+
+def test_single_expiry_payoffs_have_exhaustive_piecewise_affine_certificates() -> None:
+    strike = Decimal(100)
+    # Four discounted-bound terminal payoffs and both zero parity directions.
+    _assert_piecewise_affine_nonnegative(
+        calls=((strike, Decimal(-1)),), spot_position=Decimal(1)
+    )
+    _assert_piecewise_affine_nonnegative(
+        calls=((strike, Decimal(1)),),
+        spot_position=Decimal(-1),
+        cash=strike,
+    )
+    _assert_piecewise_affine_nonnegative(
+        puts=((strike, Decimal(-1)),), cash=strike
+    )
+    _assert_piecewise_affine_nonnegative(
+        puts=((strike, Decimal(1)),),
+        spot_position=Decimal(1),
+        cash=-strike,
+    )
+    _assert_piecewise_affine_nonnegative(
+        calls=((strike, Decimal(1)),),
+        puts=((strike, Decimal(-1)),),
+        spot_position=Decimal(-1),
+        cash=strike,
+    )
+    _assert_piecewise_affine_nonnegative(
+        calls=((strike, Decimal(-1)),),
+        puts=((strike, Decimal(1)),),
+        spot_position=Decimal(1),
+        cash=-strike,
+    )
+
+    lower, middle, upper = Decimal(90), Decimal(110), Decimal(120)
+    _assert_piecewise_affine_nonnegative(
+        calls=((lower, Decimal(1)), (middle, Decimal(-1)))
+    )
+    _assert_piecewise_affine_nonnegative(
+        puts=((lower, Decimal(-1)), (middle, Decimal(1)))
+    )
+    a, b, c = gcd_normalized_convexity_positions(lower, middle, upper)
+    assert (a, b, c) == (1, 3, 2)
+    _assert_piecewise_affine_nonnegative(
+        calls=(
+            (lower, Decimal(a)),
+            (middle, Decimal(-b)),
+            (upper, Decimal(c)),
+        )
+    )
+    _assert_piecewise_affine_nonnegative(
+        puts=(
+            (lower, Decimal(a)),
+            (middle, Decimal(-b)),
+            (upper, Decimal(c)),
+        )
+    )
+
+
+def test_convexity_positions_are_derived_and_scalar_duplicates_rejected() -> None:
+    assert gcd_normalized_convexity_positions(
+        Decimal("90.00"), Decimal("102.50"), Decimal("120.00")
+    ) == (7, 12, 5)
+    with pytest.raises(ValueError, match="gcd-normalized"):
+        nonuniform_convexity_surplus(
+            lower_ask_amount=4.0,
+            middle_bid_amount=3.0,
+            upper_ask_amount=1.0,
+            lower_position=2,
+            middle_position=6,
+            upper_position=4,
+        )
+
+
+def test_single_quote_and_grouped_pair_have_declared_surplus_responses() -> None:
+    quotes = _three_strike_chain()
+    inputs = {"T": ExpiryInputs(0.98, 0.01)}
+    kwargs = {
+        "spot": 100.0,
+        "expiry_inputs": inputs,
+        "fee_per_contract_per_side": 0.5,
+        "proportional_cost": 0.0005,
+    }
+    baseline = scan_single_expiry_families(quotes=quotes, **kwargs)
+
+    single = shift_single_option_quote(quotes, "c100", 1.0)
+    single_scan = scan_single_expiry_families(quotes=single, **kwargs)
+    # Each strike contributes the two parity directions in order.
+    assert single_scan.cross_asset_zero_payoff_surpluses[2] == pytest.approx(
+        baseline.cross_asset_zero_payoff_surpluses[2] + 100.0
+    )
+    assert single_scan.cross_asset_zero_payoff_surpluses[3] == pytest.approx(
+        baseline.cross_asset_zero_payoff_surpluses[3] - 100.0
+    )
+
+    grouped = shift_call_put_pair(
+        quotes, expiry="T", strike=Decimal(100), delta=1.0
+    )
+    grouped_scan = scan_single_expiry_families(quotes=grouped, **kwargs)
+    assert grouped_scan.cross_asset_zero_payoff_surpluses[2:4] == pytest.approx(
+        baseline.cross_asset_zero_payoff_surpluses[2:4]
+    )
+    assert grouped_scan.cross_asset_nonconstant_surpluses[4:8] == pytest.approx(
+        tuple(
+            value + slope
+            for value, slope in zip(
+                baseline.cross_asset_nonconstant_surpluses[4:8],
+                (100.0, -100.0, 100.0, -100.0),
+            )
+        )
+    )
+    changed_ids = {
+        after.option_id
+        for before, after in zip(quotes, grouped)
+        if before != after
+    }
+    assert changed_ids == {"c100", "p100"}
+
+
+def test_spot_surplus_slopes_match_terminal_spot_primitive() -> None:
+    quotes = _three_strike_chain()
+    integrated_yield = 0.01
+    proportional_cost = 0.0005
+    inputs = {"T": ExpiryInputs(0.98, integrated_yield)}
+    kwargs = {
+        "quotes": quotes,
+        "expiry_inputs": inputs,
+        "fee_per_contract_per_side": 0.5,
+        "proportional_cost": proportional_cost,
+    }
+    before = scan_single_expiry_families(spot=100.0, **kwargs)
+    after = scan_single_expiry_families(spot=101.0, **kwargs)
+    ask_slope = terminal_spot_ask(1.0, integrated_yield, proportional_cost)
+    bid_slope = terminal_spot_bid(1.0, integrated_yield, proportional_cost)
+
+    assert after.cross_asset_nonconstant_surpluses[:4] == pytest.approx(
+        tuple(
+            value + slope
+            for value, slope in zip(
+                before.cross_asset_nonconstant_surpluses[:4],
+                (-100.0 * ask_slope, 100.0 * bid_slope, 0.0, -100.0 * ask_slope),
+            )
+        )
+    )
+    assert after.cross_asset_zero_payoff_surpluses[:2] == pytest.approx(
+        (
+            before.cross_asset_zero_payoff_surpluses[0] - 100.0 * ask_slope,
+            before.cross_asset_zero_payoff_surpluses[1] + 100.0 * bid_slope,
+        )
+    )
+
+    exposure = -50.0
+    before_calendar_surplus = -terminal_spot_outflow(
+        exposure, 100.0, integrated_yield, proportional_cost
+    )
+    after_calendar_surplus = -terminal_spot_outflow(
+        exposure, 101.0, integrated_yield, proportional_cost
+    )
+    phi_slope = exposure * bid_slope
+    assert after_calendar_surplus - before_calendar_surplus == pytest.approx(
+        -phi_slope
+    )
+
+
+@dataclass(frozen=True)
+class _AffineTrigger:
+    family_index: int
+    initial_surplus: float
+    slope_per_tick: float
+    open_boundary: bool
+
+    def active(self, tick: int) -> bool:
+        surplus = self.initial_surplus + self.slope_per_tick * tick
+        return surplus > 0.0 if self.open_boundary else surplus >= 0.0
+
+
+def _signature_at_tick(
+    triggers: tuple[_AffineTrigger, ...],
+    tick: int,
+) -> str:
+    bits = [False, False, False]
+    for trigger in triggers:
+        bits[trigger.family_index] |= trigger.active(tick)
+    return "".join("1" if bit else "0" for bit in bits)
+
+
+@pytest.mark.parametrize(
+    ("triggers", "expected_first_ticks"),
+    [
+        (
+            (
+                _AffineTrigger(1, -2.0, 1.0, True),
+                _AffineTrigger(0, -4.0, 1.0, False),
+                _AffineTrigger(2, -6.0, 1.0, False),
+            ),
+            {"010": 3, "110": 4, "111": 6},
+        ),
+        (
+            (
+                _AffineTrigger(1, -2.0, 1.0, True),
+                _AffineTrigger(2, -4.0, 1.0, False),
+                _AffineTrigger(0, -6.0, 1.0, False),
+            ),
+            {"010": 3, "011": 4, "111": 6},
+        ),
+        (
+            (
+                _AffineTrigger(1, -10.0, 0.0, True),
+                _AffineTrigger(0, -3.0, 1.0, False),
+                _AffineTrigger(2, -5.0, 1.0, False),
+            ),
+            {"100": 3, "101": 5},
+        ),
+        (
+            (
+                _AffineTrigger(1, -10.0, 0.0, True),
+                _AffineTrigger(2, -3.0, 1.0, False),
+                _AffineTrigger(0, -5.0, 1.0, False),
+            ),
+            {"001": 3, "101": 5},
+        ),
+        (
+            (
+                _AffineTrigger(0, -10.0, 0.0, False),
+                _AffineTrigger(1, -3.0, 1.0, False),
+                _AffineTrigger(2, -5.0, 1.0, False),
+            ),
+            {"010": 3, "011": 5},
+        ),
+        (
+            (
+                _AffineTrigger(0, -10.0, 0.0, False),
+                _AffineTrigger(2, -3.0, 1.0, False),
+                _AffineTrigger(1, -5.0, 1.0, False),
+            ),
+            {"001": 3, "011": 5},
+        ),
+    ],
+)
+def test_integer_tick_threshold_order_produces_declared_signature_windows(
+    triggers: tuple[_AffineTrigger, ...],
+    expected_first_ticks: dict[str, int],
+) -> None:
+    # Initial surpluses already include candidate-specific option fees and
+    # underlying costs. The integer grid, not a continuous threshold estimate,
+    # determines the first accepted tick and preserves open/closed boundaries.
+    first_ticks: dict[str, int] = {}
+    for tick in range(0, 9):
+        first_ticks.setdefault(_signature_at_tick(triggers, tick), tick)
+    for signature, first_tick in expected_first_ticks.items():
+        assert first_ticks[signature] == first_tick

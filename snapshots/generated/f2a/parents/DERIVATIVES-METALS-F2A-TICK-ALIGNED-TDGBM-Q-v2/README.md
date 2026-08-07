@@ -768,7 +768,8 @@ valuation date
 
 ### 10.2 Option quote point mutation
 
-Logical operator: `mutate_option_price_point_v1`。
+Complete-grammar operator: `mutate_option_price_point_v2`。Legacy/v2 review 中的 v1 operator ID 只按
+各自 immutable contract 重放。
 
 在一个 `(valuation_date, option_id)` 上记录 parent half-spreads：
 
@@ -790,9 +791,27 @@ child.ask = child.mid + ask_offset
 - 不复制 `settlement_price`；不新增 `task_price`；
 - 不用 BSM bounds/parity/monotonicity/convexity clip 或 reprice child。
 
-### 10.3 Underlying spot point mutation
+### 10.3 Equal call+put grouped mutation（future child contract）
 
-Logical operator: `mutate_underlying_spot_point_v1`。
+`mutate_call_put_pair_equal_shift_v1` 原子选择同 valuation、underlying、expiry、strike 与 multiplier 的
+call/put pair，对两行 quote 施加相同 `delta_ticks`。本节只说明 future child copy-on-write contract；
+不会修改本 frozen parent 的任何 row。
+
+```text
+logical_mutation_groups       = 1
+logical_quote_points_changed  = 2
+physical_quote_points_changed = 2
+group_semantics = same-strike-same-expiry-call-put-equal-shift
+```
+
+两条 leg 都必须保存 option ID、tick unit 与 `bid/mid/ask` before/after，并在同一 transaction 内通过
+same-pair、tick、finite/nonnegative 与 side-order gates；任一失败整组 rollback。Equal shift 严格保持
+same-pair executable parity surpluses，但不保持 call/put price bounds，所以必须重扫整个 U family。
+
+### 10.4 Underlying spot point mutation
+
+Complete-grammar operator: `mutate_underlying_spot_point_v2`。Legacy/v2 review 中的 v1 operator ID 只按
+各自 immutable contract 重放。
 
 - Target 是一个 `(valuation_date, underlying_id)` 的 child `spot_close`；幅度仍为 integer ticks ×
   parent underlying increment `0.01 USD`。
@@ -803,7 +822,7 @@ Logical operator: `mutate_underlying_spot_point_v1`。
   clean signature `000`，否则 deterministic skip；只有结合该 policy 才能推出 accepted spot child
   的 `X_after=false`。Before/after 不相等时 materialization 才必须失败。
 
-### 10.4 Signature selector 与 guards
+### 10.5 Signature selector 与 guards
 
 目标 canonical order：
 
@@ -836,21 +855,32 @@ requested signature
 ```
 
 每个 candidate child 在内存 public projection 上全量重扫 enabled families。只接受 realized bitmask
-精确等于 requested signature，并同时满足：
+精确等于 requested signature，并按 candidate payoff class 同时记录/检查：
 
-- active family 至少一个 canonical-arbitrage candidate 的 initial surplus `>= active_guard`；
-- inactive family 全部不构成套利，且最接近触发的 surplus `<= -inactive_guard`。
+```text
+setup-boundary distance（identically-zero payoff 用 open s>0；
+                         support-certified nonconstant payoff 用 closed s>=0）
+terminal finite-vertex slack
+terminal actual-boundary slack
+terminal one-sided-limit slack
+terminal recession-ray slope slack
+strict-gain certificate
+```
 
-Guard 单位是 public USD candidate units，只用于样本 selection，不改变 exact verifier predicate。
+Active family 至少有一个 canonical candidate 的完整向量通过；inactive family 的所有 candidates 都
+必须不满足 canonical predicate，并以最近 boundary/certificate evidence 通过 inactive guards。Calendar
+各 cell/boundary/limit/ray 检查的目标是排除 initial surplus 的 `g_j>=0`，不能只检查
+`W_T2=s_j/D+g_j>=0`。Guard 只用于样本 selection，不改变 exact verifier predicate，也不能把不同量纲
+压成一个 `active_guard/inactive_guard` USD 标量。
 不存在可行窗口时 deterministic skip；不能随机 retry、扩大 grid、修改 parent 或为了 label 临时换 fee。
 
-Legacy variant v1/catalogue v2/dataset v1 保持 replay。Blocked successor variant v2/catalogue v3、
-mutation/dataset/lineage v2 已用新 ID versioned，但明确 `runtime_enabled = false`、
+Legacy variant v1/catalogue v2/dataset v1 保持 replay；v2 保留为首次 blocked review。Complete grammar
+使用 variant v3/catalogue v4、mutation/dataset/lineage v3，但仍明确 `runtime_enabled = false`、
 `calendar_family = null`。Calendar evaluator、interim admissibility proof tests 与 baseline signature
-reachability audit 未完成，且 runtime 不存在，因此仍然**禁止物化 child**；将来启用必须再升
-variant/catalogue identity。
+reachability audit 未完成，且 runtime 不存在，因此仍然**禁止物化 child**；将来启用必须分配更新的
+完整 executable identity。
 
-### 10.5 Child gates 与 artifacts
+### 10.6 Child gates 与 artifacts
 
 Authoring gates 只检查 numeric/domain、完整性、identity/provenance、visibility、tick 和 requested
 signature separation；不能把故意破坏的 clean-market arbitrage relations强制恢复。
@@ -1031,7 +1061,8 @@ Arbitrage task
   no-arbitrage.
 - Derive the family-hit vector from exact executable candidate certificates after
   bid/ask, multiplier, fees, underlying costs, funding, carry, settlement, and
-  position rules. One point mutation may activate multiple families.
+  position rules. One hidden authoring mutation group may activate multiple
+  families; never infer which group or how many physical points changed.
 - Return arbitrage_type in the canonical order:
   cross-sectional, cross-asset, calendar.
 - Enforce arbitrage_opportunity == bool(arbitrage_type).

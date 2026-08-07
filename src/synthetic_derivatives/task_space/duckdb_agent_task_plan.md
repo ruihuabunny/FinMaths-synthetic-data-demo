@@ -7,7 +7,7 @@
 | Lane | 坐标/任务 | 数据源 | 当前状态 |
 |:---|:---|:---|:---|
 | Ordinary BSM | 六维 v1 `(L, P, M, A, D, R)`，等价于七维语义中的 `F0` | 已冻结的 legacy public v3 snapshot | Price/IV/Greek/DuckDB task 仍是设计计划，尚无 Solver/verifier/dataset runtime。 |
-| F2A arbitrage-finding | 七维 v2 `(L5, P0, M0, A0, D4, R3, F2A)` | 独立 tick-aligned F2A v2 frozen parent 产生的新 child | Parent、legacy replay 与 blocked successor v2/v3 contracts 已落地；calendar proofs、reachability 与端到端 runtime 尚未实现。 |
+| F2A arbitrage-finding | 七维 v2 `(L5, P0, M0, A0, D4, R3, F2A)` | 独立 tick-aligned F2A v2 frozen parent 产生的新 child | Parent、legacy、blocked v2 review 与 blocked v3 complete grammar contracts 已落地；calendar proofs、reachability 与端到端 runtime 尚未实现。 |
 
 普通任务第一版显式选择
 `snapshots/public/quantlib_bsm_smoke_v1.duckdb` 作为 legacy authoring source。它不是默认 active
@@ -224,7 +224,7 @@ analytic method 混用同一个 method id。
 
 ### 3.4 F2A arbitrage-finding task
 
-Blocked successor identity 为：
+首次 blocked review identity 为：
 
 ```text
 task_family_id       = bsm_arbitrage_finding_f2a_v1
@@ -233,6 +233,17 @@ coordinates          = (L5, P0, M0, A0, D4, R3, F2A)
 execution_contract   = us-options-underlying-5bps-options-flat-050-v2
 candidate_catalogue  = bsm-f2a-candidate-catalogue-v3       # blocked
 output_contract      = arbitrage-opportunity-type-trajectory-v3
+```
+
+完整 mutation grammar 另用 immutable blocked v3 identity：
+
+```text
+variant_id           = bsm-arbitrage-finding-f2a-v3
+execution_contract   = us-options-underlying-5bps-options-flat-050-v3
+candidate_catalogue  = bsm-f2a-candidate-catalogue-v4       # blocked
+mutation_engine      = f2a-complete-mutation-v3
+dataset/lineage      = v3
+output_contract      = arbitrage-opportunity-type-trajectory-v4
 ```
 
 Public execution contract 不是零交易成本市场：option 按 directional bid/ask 成交，每条 option 腿按
@@ -250,7 +261,8 @@ Public execution contract 不是零交易成本市场：option 按 directional b
 Calendar 不能用 raw same-strike maturity price ordering、quote 与 BSM theoretical value 的差、
 frictionless dynamic replication、Monte Carlo path 或有限 spot grid 代替。目标 verifier 必须逐现金流
 计入两段 underlying execution cost 与 option fees，再通过 piecewise-affine cell vertices、one-sided
-boundaries 和 unbounded-cell tail slopes 证明 terminal wealth 在 \((0,\infty)^2\) 上非负。
+boundaries 和 unbounded-cell tail slopes 证明排除 initial surplus 的 `g_j` 在
+\((0,\infty)^2\) 上非负。`W_T2` 非负不能替代 frozen `s/g` 分离 predicate。
 
 Canonical type order 固定为 `cross-sectional`、`cross-asset`、`calendar`。目标 feasibility set 是：
 
@@ -265,7 +277,9 @@ Canonical type order 固定为 `cross-sectional`、`cross-asset`、`calendar`。
 111 -> ["cross-sectional", "cross-asset", "calendar"]
 ```
 
-每个 positive child 仍至多应用一个 logical option-quote point 或 spot point mutation。Private
+V3 每个 positive child 至多应用一个 logical mutation group。Single quote 是一个 physical quote
+point；equal call+put group 明确是一个 group、两个 physical quote points；spot 是一个 spot point。
+Private
 authoring selector 按稳定 target/sign/tick 顺序搜索，只接受 realized signature 与 requested signature
 完全相同、active/inactive 双边 guards 都通过的第一个 child；不可达时 deterministic skip。Trusted
 verifier 必须从最终 public child 全量重扫所有 enabled families，不能读取或复制 requested signature。
@@ -276,7 +290,11 @@ Legacy [`bsm_arbitrage_finding_f2a_v1.json`](../../../configs/variants/bsm_arbit
 [`dataset v2`](../../../authoring/configs/f2a_dataset_v2.json) 与 lineage/submission v2 已使用新 ID；它冻结
 candidate-specific predicate、single-expiry formulas、public support/timeline、selector shape 与 calendar
 review spec，但明确 `runtime_enabled=false`、`calendar_family=null`。Calendar 完成后还必须再升
-variant/catalogue identity。八种 signatures 是待 reachability audit 的 target，不是当前运行能力。
+variant/catalogue identity。完整 grammar review 使用
+[`variant v3`](../../../configs/variants/bsm_arbitrage_finding_f2a_v3.json)、
+[`mutation v3`](../../../configs/mutations/f2a_complete_v3.json) 与
+[`dataset v3`](../../../authoring/configs/f2a_dataset_v3.json)，仍保持 blocked。八种 signatures 是待
+reachability audit 的 target，不是当前运行能力。
 完整公式、operation order 与验收顺序以
 [`f2a_arbitrage_finding_agent_task_plan.md`](../mutation/f2a_arbitrage_finding_agent_task_plan.md) 为准。
 
@@ -583,9 +601,10 @@ data access。
 
 F2A 不等待 ordinary B0--B5 全部完成，但必须沿自己的依赖顺序推进：
 
-1. **已完成：parent 与并行 contract identities。** 保留 F2A v2 frozen parent；legacy v1/v2 skeleton
-   不改，blocked successor variant v2/catalogue v3/mutation/dataset/lineage v2 已落位。
-2. **完成 calendar proofs。** Blocked v3 已冻结 cash ledger、target grids、cell/boundary/ray order；仍需
+1. **已完成：parent 与并行 contract identities。** 保留 F2A v2 frozen parent；legacy v1 与 blocked
+   v2 review 不改，blocked v3 complete-grammar variant/catalogue/mutation/dataset/lineage 已落位。
+2. **完成 calendar proofs。** Blocked variant v3/catalogue v4 已冻结 cash ledger、target grids、
+   `g_j` cell/boundary/ray order；仍需
    实现 exact evaluator 和逐现金流 self-financing/interim admissibility proof tests。完成后分配新的
    variant/catalogue ID；在此之前保持 calendar disabled。
 3. **完成 deterministic reachability audit。** 逐 signature 输出 reachable target/operator/tick windows
