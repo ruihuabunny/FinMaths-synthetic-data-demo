@@ -305,12 +305,16 @@
   on the legs to which the public execution contract applies, and evaluate the
   resulting exact net cashflow or profit with the task's declared arithmetic.
 - In F2A, a one-quote mutation may activate any subset of the enabled
-  `(calendar, cross_sectional, cross_asset)` families. Always rescan every enabled
-  family and derive the family-hit vector from public-child certificates; never
+  `(cross-sectional, cross-asset, calendar)` families, in that canonical order.
+  Always rescan every enabled family and derive the family-hit vector from
+  public-child certificates; never
   copy the mutation author's intended family as truth. Changing fees or transaction
   costs may suppress some certificates and leave others, but only the recomputed
   net certificates determine whether exactly one, two, or all three families hit.
-- An F2A negative result means only “no positive candidate exists in the declared
+- Here a positive exact net certificate means the candidate-specific predicate
+  `(s_j > 0 and g_j >= 0 P-a.s.) or (s_j == 0 and g_j >= 0 P-a.s. and
+  P(g_j > 0) > 0)`; it is not a uniform `candidate_spread > 0` rule.
+- An F2A negative result means only “no candidate satisfies that predicate in the declared
   finite catalogue under this public variant.” It does not prove global market
   no-arbitrage. If only model mismatch was tested, say “model inconsistency” or
   “executable arbitrage not established,” not “no arbitrage.”

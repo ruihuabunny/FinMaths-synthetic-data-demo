@@ -26,7 +26,8 @@
 | [`test_underlying_simulator.py`](test_underlying_simulator.py) | $\Lambda/D/R$ 规范派生、factor/idiosyncratic shock、private dependence persistence、schema migration、append invariance、snapshot immutability，以及 option generator 不消费 underlying correlation。 |
 | [`test_option_chain_builder.py`](test_option_chain_builder.py) | Expiry × grid × call/put 展开、liquidity filtering、quote-noise replay、moneyness/absolute-strike 互斥、listing strike 冻结、stable contract ID、append/`sync-config` invariance 和 22-underlying public config 结构。 |
 | [`test_q_pricing.py`](test_q_pricing.py) | Config 1.5/1.6 边界、legacy authoring-IV config 只读、P/Q metadata、integrated-variance BSM quote、tick quantization 和不生成 IV answers。 |
-| [`test_f2a_repo_contracts.py`](test_f2a_repo_contracts.py) | F2A generator/variant/mutation/authoring config、v2 schemas、tick/fee/candidate contract 与 repo 路径约束。 |
+| [`test_f2a_repo_contracts.py`](test_f2a_repo_contracts.py) | F2A legacy replay 与 blocked successor IDs、calendar-null gate、mutation fields/domain gates、selector/reachability、public support/timeline 和 no-label-leakage contracts。 |
+| [`test_f2a_math_contracts.py`](test_f2a_math_contracts.py) | Candidate-specific zero boundary、`A_S/B_S` share/cashflow identities、single-expiry directional cashflows、nonuniform gcd ratios 与 spot/cross-sectional invariance。它不证明 calendar runtime 已完成。 |
 | [`test_task_space.py`](test_task_space.py) | 六维 task coordinates、registry compatibility 和 documented axes。 |
 | [`test_mutation.py`](test_mutation.py) | Deterministic single-axis mutation、snapshot lineage、incompatible child rejection 和 method identity。 |
 | [`test_curriculum.py`](test_curriculum.py) | 20/60/20 stage mass、mastery-adaptive sampling，以及 diagnostics 不改变 binary reward。 |
@@ -99,8 +100,9 @@ DuckDB。
 - DuckDB 查询必须显式限定 `snapshot_id`，多行比较必须固定 `ORDER BY`。
 - Failure test 同时验证 transaction rollback 或 snapshot revision 未变化。
 - 若修改 solver-visible contract，还必须在 `tests/public` 增加相应 public schema test。
-- F2A repo-contract tests 只验证已落位的声明式合同；不能据此声称 child materialization、
-  Solver、verifier 或 training runtime 已实现。
+- F2A repo/math contract tests 只验证 candidate predicate、已审核的 single-expiry primitives 与声明式
+  boundaries；calendar evaluator/self-financing/interim-admissibility proofs、child materialization、
+  Solver、independent verifier 和 training runtime 仍未实现。
 
 ## 完成检查
 

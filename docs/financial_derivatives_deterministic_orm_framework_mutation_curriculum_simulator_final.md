@@ -446,16 +446,26 @@ payoff 定义，例如 option bid/ask、可交易 spot/forward、可交易 fundi
 约定和难度 metadata；parent snapshot 与逐 cell before/after mutation manifest 属于 private
 authoring provenance，不能通过直接 diff 泄露答案。
 
-每个候选套利模板 $j$ 都固定为单位名义本金，并在声明的 bid/ask、funding、transaction-cost、
-exercise 与 settlement 约定下计算 present-value spread $s_j$；模板本身必须保证其到期净
-payoff 对所有声明的可达状态非负。所有 levels 都固定候选模板、枚举顺序和 bool 判定规则；
-只有 B 类额外固定 dtype、spread 运算顺序、argmax/reduction order 与 float serialization。
-内部 task truth 定义为
+每个候选套利模板 $j$ 都固定 normalization，并在声明的 bid/ask、funding、transaction-cost、
+exercise 与 settlement 约定下计算建仓后的 initial cash surplus $s_j$ 与 certificate payoff $g_j$。
+Candidate-specific canonical predicate 是
 
 $$
-s_{\max}=\max\left(0,\max_j s_j\right),\qquad
-\texttt{arbitrage\_opportunity}=(s_{\max}>0).
+\mathcal A_j=
+\bigl(s_j>0\ \land\ g_j\geq0\ P\text{-a.s.}\bigr)
+\ \lor\
+\bigl(s_j=0\ \land\ g_j\geq0\ P\text{-a.s.}
+\ \land\ P(g_j>0)>0\bigr),
+\qquad
+\texttt{arbitrage\_opportunity}=\bigvee_j\mathcal A_j.
 $$
+
+因此恒零 payoff（例如 executable put-call parity）必须有 `s_j > 0`；在公开 support contract 下
+非恒零的 nonnegative bounds/monotonicity/convexity payoff 允许 `s_j == 0`。Calendar candidate 还必须
+先通过自己的完整 pathwise certificate，不能只看 initial surplus。Canonical binary64 比较使用 exact
+sign/equality，不用 tolerance；authoring guard 只筛样本。所有 levels 都固定候选模板、predicate、
+枚举和 operation order；B 类如输出 maximal spread，还必须另行冻结 notional/position normalization、
+eligible domain、argmax/reduction order 与 float serialization，不能把未归一化的 surplus 当成全局最大值。
 
 每个候选模板还必须在 authoring 时被唯一路由到下列类型之一：
 
@@ -468,9 +478,9 @@ $$
 
 唯一路由按 `calendar`（跨 cashflow dates）、`cross-asset`（同日期 bucket 的 underlying-option）、
 `cross-sectional`（纯 option 横截面）的优先级决定；一个 output array 出现多个类型，表示不同的
-positive candidate 分别命中了这些类型。
+通过 $\mathcal A_j$ 的 candidate 分别命中了这些类型。
 
-对 F2A--F6A，`arbitrage_type` 是所有 $s_j>0$ 候选模板类型的并集，序列化为固定顺序
+对 F2A--F6A，`arbitrage_type` 是所有 $\mathcal A_j=true$ 候选模板类型的并集，序列化为固定顺序
 `["cross-sectional", "cross-asset", "calendar"]` 的子序列。因此 canonical 结果为 `[]` 或该
 三元素固定序列的任一非空子序列，共八种。这个数组表示 AND/OR，不得用顺序不定的 set 或
 自由文本替代。并且必须满足

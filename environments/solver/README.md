@@ -102,9 +102,19 @@ Pandas 允许：
 - 向 NumPy `float64` arrays 的确定性转换。
 
 F2A 的 canonical operation order、row/pair order 和 dtype 仍由 variant contract 决定。允许
-NumPy/Pandas 不授权替换冻结算法：不得用 `isclose`、`allclose` 或 tolerance 改写严格的
-`candidate_spread > 0` decision rule；不得使用未声明的并行 reduction、随机顺序或不同
-linear-algebra method。
+NumPy/Pandas 不授权替换冻结算法：不得用 `isclose`、`allclose` 或 tolerance 改写 candidate-specific
+predicate：
+
+```text
+(s_j > 0 and g_j >= 0 P-a.s.)
+or (s_j == 0 and g_j >= 0 P-a.s. and P(g_j > 0) > 0)
+```
+
+Parity 的恒零 future payoff 使用 open boundary `s_j > 0`；support-certified nonconstant nonnegative
+payoff 使用 closed boundary `s_j >= 0`。Calendar 必须另外通过完整 pathwise certificate。不得使用
+未声明的并行 reduction、随机顺序或不同 linear-algebra method。Legacy variant v1/catalogue v2 的
+统一 strict-positive 字符串只用于重放；blocked variant v2/catalogue v3 不可作为可运行 Solver task，
+calendar 启用还需要新的 immutable identity。
 
 ## Denied APIs and capabilities
 

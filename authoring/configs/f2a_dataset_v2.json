@@ -1,0 +1,99 @@
+{
+  "schema_version": "2.0.0",
+  "dataset_config_id": "f2a-dataset-v2",
+  "status": "BLOCKED",
+  "blocking_reasons": [
+    "calendar_family_is_null",
+    "baseline_signature_reachability_audit_is_not_complete",
+    "child_materializer_and_independent_verifier_are_not_implemented"
+  ],
+  "parent_generator_config_id": "quantlib-randomized-tdgbm-metals-f2a-parent-v2",
+  "parent_snapshot_id": "DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2",
+  "parent_required_status": "FROZEN",
+  "task_family_id": "bsm_arbitrage_finding_f2a_v1",
+  "variant_id": "bsm-arbitrage-finding-f2a-v2",
+  "candidate_catalogue_id": "bsm-f2a-candidate-catalogue-v3",
+  "mutation_engine_id": "f2a-point-mutation-v2",
+  "lineage_schema": "schemas/f2a-lineage-v2.schema.json",
+  "selection": {
+    "valuation_dates": "stable_ascending",
+    "underlyings": "stable_underlying_id_ascending",
+    "require_complete_chain": true,
+    "required_expiry_count": 4,
+    "required_strikes_per_expiry": 7,
+    "require_call_put_pairs": true,
+    "clean_slice_policy": "require_realized_signature_000_before_any_mutation",
+    "clean_slice_failure": "deterministic_skip",
+    "spot_mutation_invariant": "X_after_equals_X_before",
+    "skip_incomplete_slice": true
+  },
+  "selector": {
+    "selector_id": "f2a-candidate-specific-signature-selector-v2",
+    "candidate_evaluator_id": "candidate-specific-exact-cashflow-v1",
+    "search_order": [
+      "requested_signature",
+      "execution_profile",
+      "operator",
+      "valuation_date_underlying_expiry_strike_call_put_option_id",
+      "sign_order",
+      "absolute_tick_grid"
+    ],
+    "acceptance": "realized_signature_exactly_equals_requested_signature_and_every_active_and_inactive_guard_passes",
+    "unreachable_policy": "deterministic_skip",
+    "forbidden_adaptation": ["random_retry", "tick_grid_expansion", "parent_change", "fee_change_after_label_selection"],
+    "normalization": "remove_all_positive_integer_scalar_multiples_by_gcd_before_evaluation",
+    "predicate_boundary": {
+      "identically_zero_terminal_payoff": "open_at_s_equals_zero",
+      "support_certified_nonconstant_nonnegative_terminal_payoff": "closed_at_s_equals_zero",
+      "calendar": "setup_and_pathwise_terminal_certificate_both_required"
+    },
+    "guard_vector": {
+      "active_setup_surplus_distance": "candidate_specific_distance_from_its_open_or_closed_trigger_boundary",
+      "inactive_setup_surplus_distance": "candidate_specific_distance_to_its_open_or_closed_trigger_boundary",
+      "terminal_finite_vertex_cash_slack_usd": "minimum_over_required_finite_vertices",
+      "terminal_actual_boundary_cash_slack_usd": "minimum_over_values_under_the_right_cell_boundary_rule",
+      "terminal_one_sided_limit_cash_slack_usd": "minimum_over_required_cell_closure_limits",
+      "terminal_recession_ray_slope_slack_usd_per_spot_unit": "minimum_gradient_dot_extreme_ray",
+      "terminal_strict_gain": "positive_on_a_nonempty_open_cell_or_identically_zero_class_with_strictly_positive_setup_surplus",
+      "setup_guard_usd": "1.00",
+      "calendar_terminal_guard": null
+    },
+    "guard_role": "sample_selection_only_not_canonical_verifier_predicate"
+  },
+  "requested_signature_targets": {
+    "000": "CONTROL_REQUIRES_CLEAN_SCAN",
+    "100": "REACHABILITY_UNPROVEN",
+    "010": "REACHABILITY_UNPROVEN",
+    "001": "BLOCKED_CALENDAR_NULL",
+    "110": "REACHABILITY_UNPROVEN",
+    "101": "BLOCKED_CALENDAR_NULL",
+    "011": "BLOCKED_CALENDAR_NULL",
+    "111": "BLOCKED_CALENDAR_NULL"
+  },
+  "reachability_audit": {
+    "status": "NOT_RUN",
+    "execution_profile_id": "us-options-underlying-5bps-options-flat-050-v2",
+    "required_output_per_signature": ["reachable_targets", "operators", "tick_windows", "unreachable_proof_or_diagnostic"],
+    "publication_rule": "publish_only_the_scope_proved_reachable_without_changing_parent_grid_or_fees"
+  },
+  "operator_balance": {
+    "mutate_option_price_point_v1": 0.5,
+    "mutate_underlying_spot_point_v1": 0.5
+  },
+  "profiles": {
+    "smoke": {"task_count": 8},
+    "pilot": {"task_count": 128}
+  },
+  "split": {
+    "grouping_key": "parent_snapshot_id",
+    "assignment": "deterministic_manifest_order",
+    "names": ["train", "validation", "test"]
+  },
+  "artifacts": {
+    "public_child_root": "snapshots/generated/f2a/children",
+    "private_lineage_root": "snapshots/private/f2a",
+    "public_task_manifest_root": "datasets/manifests/tasks/f2a",
+    "split_manifest": "datasets/manifests/splits/f2a_v2.json",
+    "training_export_root": "datasets/generated/f2a"
+  }
+}

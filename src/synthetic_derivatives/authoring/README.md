@@ -17,7 +17,7 @@ snapshot。Solver 不应直接导入本包，也不能访问其中的 private ge
 | Successor ordinary authoring | config schema `1.6.0`、generator `0.8.0`、snapshot v4 | 新 materialization 必须写新文件，不得 append 到 legacy v3。 |
 | F2A clean parent | `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2 / r1 / FROZEN` | 已由现有 pipeline 物化并冻结；只允许 read-only selection，不能 append、sync 或原地 mutation。 |
 | F2A child authoring | 未实现 | `f2a_child_materializer.py`、point-mutation runtime、signature selector、private lineage 和 child artifacts 尚不存在。 |
-| F2A contracts | 部分骨架已落地 | 当前 variant 仍是 catalogue v2 且 `calendar_family = null`；private dataset config 仍是 positive/negative balance。Catalogue v3/calendar certificate 与八种 signature policy 尚未 versioned。 |
+| F2A contracts | Legacy 与 blocked successor 并存 | V1/catalogue v2 保持 replay；新 v2/catalogue v3、mutation/dataset/lineage v2 已 versioned，但 `runtime_enabled = false`、`calendar_family = null`。Calendar proofs、reachability audit 与 runtime 仍 blocking。 |
 
 默认 active development database 是
 `snapshots/generated/quantlib_bsm_metals_option_chain_smoke_v1_20260807.duckdb`。若它缺失，应报告，
@@ -201,13 +201,13 @@ F2A 不增加新的顶层 config 分类。各 source of truth 保持分离：
 | Config | Authoring 使用方式 |
 |:---|:---|
 | [`quantlib_bsm_metals_f2a_parent_v2.json`](../../../configs/generators/quantlib_bsm_metals_f2a_parent_v2.json) | Frozen parent DGP、`0.01 USD` underlying/option increments、rounding 与 generator/snapshot identity。 |
-| [`bsm_arbitrage_finding_f2a_v1.json`](../../../configs/variants/bsm_arbitrage_finding_f2a_v1.json) | Public Q/numeraire/rate path、execution cost、candidate/output contract；不能包含 private target 或 stored truth。 |
-| [`f2a_point_v1.json`](../../../configs/mutations/f2a_point_v1.json) | Logical operator IDs、integer tick grid 与稳定枚举顺序；不重复声明 decimal increment。 |
-| [`f2a_dataset_v1.json`](../../../authoring/configs/f2a_dataset_v1.json) | Private parent selectors、signature distribution、guards、feasibility/split policy；不进入 Solver bundle。 |
+| [`bsm_arbitrage_finding_f2a_v1.json`](../../../configs/variants/bsm_arbitrage_finding_f2a_v1.json) / [`v2`](../../../configs/variants/bsm_arbitrage_finding_f2a_v2.json) | V1/catalogue v2 是 legacy skeleton；v2/catalogue v3 是 blocked successor public contract。 |
+| [`f2a_point_v1.json`](../../../configs/mutations/f2a_point_v1.json) / [`v2`](../../../configs/mutations/f2a_point_v2.json) | V2 保持两个 logical operator ID，但把 spot field 固定为 `spot_close` 并逐项冻结 numeric/quote gates。 |
+| [`f2a_dataset_v1.json`](../../../authoring/configs/f2a_dataset_v1.json) / [`v2`](../../../authoring/configs/f2a_dataset_v2.json) | V1 只 replay；v2 冻结 candidate-specific selector、clean `000` policy、guard vector 与 reachability audit。 |
 
-当前后两份 public/private skeleton 还没有对齐目标 catalogue v3：variant 仍禁用 calendar，dataset
-config 仍是 positive/negative balance。更新时必须 version contract/schema/identity，不能在 runtime
-中用隐式默认值补齐，也不能在现有 catalogue identity 下静默启用 calendar。
+旧 files 不迁移。Blocked successor 也不能直接发布：calendar target 虽已有 cash-ledger/grid/cell-order
+review spec，但 evaluator、interim admissibility proof tests 与 reachability audit 尚未完成。启用时必须
+使用新的 variant/catalogue identity，不能原地修改 catalogue v3。
 
 当前 authoring schema 为 `2.4.0`，支持从 `2.0.0/2.1.0/2.2.0/2.3.0` additive migration。
 所有 generator configs 还必须显式声明可由 DuckDB `DECIMAL(24,8)` 表示的正数
@@ -289,7 +289,8 @@ fields，`realized chi_F` 仍为一个 logical point。Child 不新增 `task_pri
 
 ### Type-signature selector
 
-目标 authoring contract 不再做简单 50/50 positive/negative balance，而是覆盖：
+Blocked successor authoring contract 不再做简单 50/50 positive/negative balance；以下是待 audit 的
+target feasibility set：
 
 ```text
 000 -> []
@@ -303,14 +304,16 @@ fields，`realized chi_F` 仍为一个 logical point。Child 不新增 `task_pri
 ```
 
 Selector 顺序固定为 requested signature、execution profile、operator、slice/option target、sign、
-absolute integer-tick grid。每个 grid point 都在内存 solver-visible projection 上重算全部 enabled
-families；只接受 realized bitmask 精确等于 requested signature、active families 至少有一个
-canonical candidate margin 达到 positive guard，且 inactive families 全部不构成套利并远离触发边界
-的第一个 tick。不存在窗口时跳过 target，不随机 retry、不扩大 grid、不修改 parent 或 fee profile。
+absolute integer-tick grid。每个 grid point 都由 candidate-specific exact evaluator 先检查 terminal
+certificate，再计算各自 open/closed setup-boundary distance 与 terminal guard vector；不使用统一
+affine `spread - TC` 或 family `max(spread)`。所有可缩放 position vector 先 gcd-normalize。只接受
+realized signature exact match 且 active/inactive guard 全部通过的第一个 tick；不存在窗口时
+deterministic skip，不随机 retry、不扩大 grid、不修改 parent 或 fee profile。
 
-Spot-only mutation 不能直接改变 option-only cross-sectional inequalities；若 authoring-side scan 得到
-cross-sectional bit，应视为 routing/implementation failure。Requested signature、selector trace 和
-guard evidence 只写 private lineage，不能进入 public task/child identity，也不能成为 stored truth。
+Spot mutation 的精确不变量是 `X_after == X_before`。本 policy 在 mutation 前独立扫描并要求 clean
+signature `000`，否则 deterministic skip；所以 accepted spot child 才进一步满足 `X_after=false`。
+Before/after 不相等才是 routing/implementation failure。Requested signature、selector trace 和 guard
+evidence 只写 private lineage，不能进入 public task/child identity，也不能成为 stored truth。
 
 ### Artifact 与 freeze 边界
 
@@ -328,8 +331,8 @@ guard evidence。若现有 `additionalProperties: false` schema 没有字段，�
 私自附加字段。删除或篡改 private lineage 不得改变 Trusted verifier 从 public child 得到的 truth。
 
 目前不存在 `scripts/materialize_f2a.py` 或 F2A child runtime，所以没有可执行的 child materialization
-命令。在 public catalogue v3、calendar cashflow proof tests、signature selector contract 和独立 oracle
-落位前，禁止手工复制/编辑 parent 来模拟 child。
+命令。Blocked catalogue v3 不是运行授权；calendar evaluator/proof tests、reachability audit 和独立
+oracle 完成并分配后继 identity 前，禁止手工复制/编辑 parent 来模拟 child。
 
 ## 使用方式
 
@@ -427,8 +430,8 @@ F2A runtime 实现还必须增加独立测试，至少覆盖：
    child `spot_close`；
 4. public child 严格匹配 allowlist，parent 新增字段不会自动进入，private lineage/label 不泄漏；
 5. 每条 option/underlying trade 按 public execution contract 正确收费，guard 不改变 exact predicate；
-6. stable tick search 对 `000` 与七种 positive signatures exact-match realized bitmask，不可达时
-   deterministic skip；
+6. stable tick search 对 `000` 与 audit 已证明 reachable 的 signatures exact-match realized bitmask，
+   不可达时 deterministic skip；只有 audit 证明七种 positives 全部可达后才要求全覆盖；
 7. calendar tests 逐现金流覆盖两个 segment primitives、`T1` rebalance、`T2` liquidation、cell
    boundaries 与 tail slopes，拒绝 raw maturity ordering、有限 spot-grid sampling 和 frictionless
    BSM replication；

@@ -7,7 +7,7 @@
 | Lane | 坐标/任务 | 数据源 | 当前状态 |
 |:---|:---|:---|:---|
 | Ordinary BSM | 六维 v1 `(L, P, M, A, D, R)`，等价于七维语义中的 `F0` | 已冻结的 legacy public v3 snapshot | Price/IV/Greek/DuckDB task 仍是设计计划，尚无 Solver/verifier/dataset runtime。 |
-| F2A arbitrage-finding | 七维 v2 `(L5, P0, M0, A0, D4, R3, F2A)` | 独立 tick-aligned F2A v2 frozen parent 产生的新 child | Parent 与声明式骨架已落地；catalogue v3、signature selector 与端到端 runtime 尚未实现。 |
+| F2A arbitrage-finding | 七维 v2 `(L5, P0, M0, A0, D4, R3, F2A)` | 独立 tick-aligned F2A v2 frozen parent 产生的新 child | Parent、legacy replay 与 blocked successor v2/v3 contracts 已落地；calendar proofs、reachability 与端到端 runtime 尚未实现。 |
 
 普通任务第一版显式选择
 `snapshots/public/quantlib_bsm_smoke_v1.duckdb` 作为 legacy authoring source。它不是默认 active
@@ -137,10 +137,12 @@ dependence-statistic tasks，必须另行冻结：
 F2A 与普通 BSM 数值任务共享 parent 声明的 deterministic time-inhomogeneous BSM marginal、
 `Q = USD-MONEY-MARKET-Q-v1`、money-market numeraire、实际非零 rate/dividend curves、
 calendar/day-count 和 cash settlement conventions，但输出不是“是否偏离 BSM”。套利定义在物理测度
-`P` 及其 null sets 下，并使用 parent 合同中声明的 `P ~ Q` 与 full positive conditional support。
+`P` 及其 null sets 下；`P ~ Q`、每段 full positive conditional support、volatility node 的
+`2026-08-03T16:00:00Z` origin/calendar-day offsets/annualized units、以及 `t/T1/T2` settlement order
+由 blocked successor public variant v2 显式声明，不追溯归因给 frozen parent 或 legacy variant。
 
-单期限 cross-sectional/cross-asset candidate 的 horizon 是共同 expiry `T`。目标 catalogue v3 的
-calendar candidate horizon 是较晚 expiry `T2`，较早 expiry `T1` 是公开的中间 settlement/
+单期限 cross-sectional/cross-asset candidate 的 horizon 是共同 expiry `T`。Blocked catalogue v3
+中的 non-executable calendar target horizon 是较晚 expiry `T2`，较早 expiry `T1` 是公开的中间 settlement/
 rebalancing time。Option 只在 valuation time 交易并持有到 cash settlement；underlying 的允许交易
 时点和 predictable rule 由各 candidate template 冻结；cash account 按声明 curve 累计。策略必须
 self-financing、terminal liquidation wealth 逐状态非负且 discounted wealth 有统一下界。
@@ -222,14 +224,15 @@ analytic method 混用同一个 method id。
 
 ### 3.4 F2A arbitrage-finding task
 
-第一版目标 identity 为：
+Blocked successor identity 为：
 
 ```text
 task_family_id       = bsm_arbitrage_finding_f2a_v1
+variant_id           = bsm-arbitrage-finding-f2a-v2
 coordinates          = (L5, P0, M0, A0, D4, R3, F2A)
 execution_contract   = us-options-underlying-5bps-options-flat-050-v2
-candidate_catalogue  = bsm-f2a-candidate-catalogue-v3       # target
-output_contract      = arbitrage-opportunity-type-trajectory-v2
+candidate_catalogue  = bsm-f2a-candidate-catalogue-v3       # blocked
+output_contract      = arbitrage-opportunity-type-trajectory-v3
 ```
 
 Public execution contract 不是零交易成本市场：option 按 directional bid/ask 成交，每条 option 腿按
@@ -249,7 +252,7 @@ frictionless dynamic replication、Monte Carlo path 或有限 spot grid 代替�
 计入两段 underlying execution cost 与 option fees，再通过 piecewise-affine cell vertices、one-sided
 boundaries 和 unbounded-cell tail slopes 证明 terminal wealth 在 \((0,\infty)^2\) 上非负。
 
-Canonical type order 固定为 `cross-sectional`、`cross-asset`、`calendar`。目标 feasibility set 覆盖：
+Canonical type order 固定为 `cross-sectional`、`cross-asset`、`calendar`。目标 feasibility set 是：
 
 ```text
 000 -> []
@@ -267,11 +270,14 @@ authoring selector 按稳定 target/sign/tick 顺序搜索，只接受 realized 
 完全相同、active/inactive 双边 guards 都通过的第一个 child；不可达时 deterministic skip。Trusted
 verifier 必须从最终 public child 全量重扫所有 enabled families，不能读取或复制 requested signature。
 
-当前 checked-in [`bsm_arbitrage_finding_f2a_v1.json`](../../../configs/variants/bsm_arbitrage_finding_f2a_v1.json)
-仍是 `bsm-f2a-candidate-catalogue-v2` skeleton，`calendar_family = null`；private
-[`f2a_dataset_v1.json`](../../../authoring/configs/f2a_dataset_v1.json) 也仍使用 positive/negative balance。
-因此上述 catalogue v3、八种 signatures 和 calendar certificate 是待 version 的目标合同，不是当前
-可运行能力。完整公式、operation order 与验收顺序以
+Legacy [`bsm_arbitrage_finding_f2a_v1.json`](../../../configs/variants/bsm_arbitrage_finding_f2a_v1.json)
+/ catalogue v2 与 dataset v1 保持 replay。Blocked successor [`variant v2`](../../../configs/variants/bsm_arbitrage_finding_f2a_v2.json)
+/ catalogue v3、[`mutation v2`](../../../configs/mutations/f2a_point_v2.json)、
+[`dataset v2`](../../../authoring/configs/f2a_dataset_v2.json) 与 lineage/submission v2 已使用新 ID；它冻结
+candidate-specific predicate、single-expiry formulas、public support/timeline、selector shape 与 calendar
+review spec，但明确 `runtime_enabled=false`、`calendar_family=null`。Calendar 完成后还必须再升
+variant/catalogue identity。八种 signatures 是待 reachability audit 的 target，不是当前运行能力。
+完整公式、operation order 与验收顺序以
 [`f2a_arbitrage_finding_agent_task_plan.md`](../mutation/f2a_arbitrage_finding_agent_task_plan.md) 为准。
 
 ## 4. 数据与权限边界
@@ -470,14 +476,14 @@ F2A 在物化首个 child 前至少要求：
    liquidation、cell boundaries 和 tail slopes；
 5. authoring selector 对每个 requested signature 只接受 realized bitmask exact match，并让 active
    families 远离正边界、inactive families 远离触发边界；guard 只筛样本，不改变 exact predicate；
-6. clean child 重算为 `false/[]`，七种 positive signatures 在 feasibility set 中都可复算；spot-only
-   child 永不产生 option-only `cross-sectional` type；
+6. mutation 前 clean slice 重算为 `false/[]`，否则 deterministic skip；spot mutation 前后断言
+   `X_after == X_before`，只有该 clean policy 才推出 accepted spot child 的 `X_after=false`；
 7. authoring selector 与 Trusted verifier 不共享 oracle 实现；verifier 只读 public child/variant；
 8. parent byte-identity 不变，child 使用新 identity、revision、manifest 和 private lineage；
 9. public task/child/schema 不泄露 requested signature、mutation count、operator、target 或 selector trace；
 10. Solver image 通过 dependency allowlist、network/dynamic-install/subprocess deny 与 import/runtime audit。
 
-当前 catalogue v2 skeleton 不满足第 2--6 项，不能据此物化或发布 F2A child。
+Blocked catalogue v3 也尚未满足 calendar proof、reachability 与 runtime gates，不能据此物化或发布 child。
 
 ### 6.5 Verifier robustness
 
@@ -577,21 +583,22 @@ data access。
 
 F2A 不等待 ordinary B0--B5 全部完成，但必须沿自己的依赖顺序推进：
 
-1. **已完成：parent 与声明式骨架。** 保留 F2A v2 frozen parent；generator、variant/mutation/
-   authoring skeleton、七维 schemas/registry/curriculum 和 repo-contract tests 已落位。
-2. **先冻结 versioned 数学合同。** 将 public variant 升级为 catalogue v3，补齐
-   cross-sectional/cross-asset exact formulas、two-expiry segment/cell certificate、position grids、
-   operation order 和 self-financing/admissibility proof tests；未完成时保持 calendar disabled。
-3. **升级 private selector contract。** 用 `000` 加七种 positive signatures、stable tick search、
-   active/inactive guards 和 execution-profile feasibility policy 替换 positive/negative-only balance。
+1. **已完成：parent 与并行 contract identities。** 保留 F2A v2 frozen parent；legacy v1/v2 skeleton
+   不改，blocked successor variant v2/catalogue v3/mutation/dataset/lineage v2 已落位。
+2. **完成 calendar proofs。** Blocked v3 已冻结 cash ledger、target grids、cell/boundary/ray order；仍需
+   实现 exact evaluator 和逐现金流 self-financing/interim admissibility proof tests。完成后分配新的
+   variant/catalogue ID；在此之前保持 calendar disabled。
+3. **完成 deterministic reachability audit。** 逐 signature 输出 reachable target/operator/tick windows
+   或不可达诊断；不可达时缩小发布 scope 或继续 blocking，不调整 parent/grid/fee。
 4. **实现七维 runtime 与独立 oracle。** 保持六维 v1 serialization/IDs 不变；Verifier 从 public
    child/variant 重算三类 candidate 与 canonical bitmask，不导入 Solver 或 authoring selector。
 5. **实现 mutation 与 child materializer。** `mutation/f2a.py` 只生成 immutable spec/identity/
    lineage；Authoring 以 copy-on-write 方式派生、门控和 freeze 新 child，不重新运行 QuantLib repricing。
 6. **实现 Solver/verifier/environment。** Solver 手工枚举公开 catalogue；verifier 只投影 ORM answer；
    实际 dependency lock、DuckDB adapter、import/API gate 和 sandbox acceptance 全部通过后才发布 image。
-7. **物化 feasibility/smoke 与 dataset。** 覆盖 `000` 和七种 positive signatures，随后生成 public
-   task/split manifests 和 verified training export；private lineage、signature 和 selector traces 不导出。
+7. **物化 feasibility/smoke 与 dataset。** 只覆盖 audit 已证明 reachable 的 scope；若七种 positives
+   全部已证明才可把全覆盖写成 acceptance。随后生成 public task/split manifests 和 verified training
+   export；private lineage、signature 和 selector traces 不导出。
 
 任一步发现数学合同与现有 skeleton 冲突时，应 version config/schema/identity，而不是修改套利定义、
 放宽 exact predicate 或把成本当成 tolerance。
@@ -655,10 +662,11 @@ Ordinary F0 DuckDB agent-task pilot 只有同时满足以下条件才算完成�
 F2A pilot 另有独立完成定义：
 
 - F2A v2 parent 始终保持 `FROZEN / r1` 且只读，所有 child 使用新 identity/revision；
-- catalogue v3、execution contract、calendar bridge/cell certificate、signature selector 与全部
-  operation order 已 versioned，不再依赖当前 v2 skeleton 的 `calendar_family = null`；
+- 新的 executable catalogue identity、execution contract、calendar evaluator/proofs、signature selector
+  与全部 operation order 已 versioned；不得原地打开 blocked catalogue v3；
 - 七维 v2 dispatch 不改变六维 v1 manifest serialization 或 deterministic IDs；
-- clean control 与七种 positive signatures 都从 public child 被 independent verifier 精确重算；
+- deterministic reachability audit 已先证明发布 scope；若发布范围声称七种 positives，则七种都从
+  public child 被 independent verifier 精确重算；
 - option/underlying costs 在每个 candidate 的实际 cashflow 中逐腿、逐交易时点应用；
 - `arbitrage_opportunity` 与 canonical ordered `arbitrage_type` exact match，且不接受
   `maximal_spread`；
@@ -671,14 +679,12 @@ F2A pilot 另有独立完成定义：
 
 在当前 F2A branch 上，下一份产物应是**合同升级，不是 child materialization**：
 
-1. 将 public variant 从 `bsm-f2a-candidate-catalogue-v2` 升级到新的 v3 identity；
-2. 写入 cross-sectional/cross-asset exact formulas 与 enumeration/reduction order；
-3. 冻结 two-expiry bridge 的 segment execution primitive、finite position/rebalance grids、
-   cell/boundary/tail certificate 和 cashflow proof tests；
-4. 将 private authoring config 从 positive/negative balance 升级为 `000` 加七种 positive signatures、
-   stable tick search 和 active/inactive guards；
-5. 同步 versioned lineage/schema fields 与 repo-contract tests，确认不泄露 requested signature；
-6. 保持 parent byte-identity 不变，并继续禁止物化 child，直到上述合同与独立小市场 proof tests 通过。
+1. 保持新落位的 blocked v2/v3 contracts 不变；
+2. 实现 calendar exact evaluator、self-financing 与 interim admissibility proof tests；
+3. 对 baseline execution profile 运行 deterministic signature reachability audit；
+4. 根据 proof/audit 结果分配新的 executable variant/catalogue identity，并同步 lineage/submission；
+5. 实现 independent verifier 与 authoring selector，确认 public artifacts 不泄露 private state；
+6. 保持 parent byte-identity 不变，并继续禁止物化 child，直到上述 gates 全部通过。
 
 Ordinary lane 的下一份具体产物仍是完整的 `bsm_iv_scalar_v1` method/input/output/verifier contract，
 随后才复用同一数学 truth 构建 `duckdb_bsm_iv_batch_v1`。两条 lane 可以并行评审，但不能共享 hidden

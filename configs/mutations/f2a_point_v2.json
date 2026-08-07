@@ -1,0 +1,71 @@
+{
+  "schema_version": "2.0.0",
+  "engine_id": "f2a-point-mutation-v2",
+  "task_family_id": "bsm_arbitrage_finding_f2a_v1",
+  "status": "DRAFT_BLOCKED_FROM_MATERIALIZATION",
+  "price_increment_source": "generator_config",
+  "max_mutated_points": 1,
+  "absolute_tick_grid": [
+    1,
+    2,
+    4,
+    8,
+    16,
+    32,
+    64,
+    128,
+    256,
+    512,
+    1024,
+    2048,
+    4096
+  ],
+  "sign_order": [
+    -1,
+    1
+  ],
+  "target_order": "valuation_date_then_underlying_id_then_expiry_then_strike_then_call_put_then_option_id",
+  "operators": [
+    {
+      "operator_id": "mutate_option_price_point_v1",
+      "target": "option_quote",
+      "logical_field": "mid",
+      "derived_fields": [
+        "bid",
+        "ask"
+      ],
+      "derivation": "preserve_parent_half_spreads",
+      "delta_unit": "option_ticks",
+      "max_changed_points": 1,
+      "direction": "any"
+    },
+    {
+      "operator_id": "mutate_underlying_spot_point_v1",
+      "target": "underlying_spot",
+      "logical_field": "spot_close",
+      "derived_fields": [],
+      "unchanged_fields": [
+        "all_option_quotes"
+      ],
+      "delta_unit": "underlying_ticks",
+      "max_changed_points": 1,
+      "direction": "any"
+    }
+  ],
+  "authoring_domain_gates": [
+    "child_option_bid_mid_ask_are_finite",
+    "child_option_bid_mid_ask_are_nonnegative",
+    "child_option_bid_less_than_or_equal_to_mid_less_than_or_equal_to_ask",
+    "child_option_bid_mid_ask_are_option_tick_aligned",
+    "child_spot_close_is_finite_and_strictly_positive",
+    "child_spot_close_is_underlying_tick_aligned"
+  ],
+  "forbidden_domain_gates": [
+    "bsm_price_bounds",
+    "put_call_parity",
+    "strike_monotonicity",
+    "strike_convexity",
+    "calendar_price_ordering",
+    "model_repricing_or_clipping"
+  ]
+}

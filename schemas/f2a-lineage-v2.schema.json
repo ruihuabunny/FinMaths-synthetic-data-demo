@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "f2a-lineage-v2.schema.json",
+  "title": "Private F2A successor point-mutation lineage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "parent_task_id",
+    "child_task_id",
+    "parent_snapshot_id",
+    "parent_snapshot_revision",
+    "child_snapshot_id",
+    "child_snapshot_revision",
+    "stable_selector",
+    "operator",
+    "seed",
+    "engine_id",
+    "mutation",
+    "realized_chi_F",
+    "source_pricing_model_ids",
+    "execution_contract_id",
+    "candidate_catalogue_id",
+    "requested_signature",
+    "realized_signature",
+    "reachability_audit_id",
+    "oracle_result",
+    "authoring_guard_evidence"
+  ],
+  "properties": {
+    "parent_task_id": {"type": "string", "minLength": 1},
+    "child_task_id": {"type": "string", "minLength": 1},
+    "parent_snapshot_id": {"type": "string", "minLength": 1},
+    "parent_snapshot_revision": {"type": "integer", "minimum": 1},
+    "child_snapshot_id": {"type": "string", "minLength": 1},
+    "child_snapshot_revision": {"type": "integer", "minimum": 1},
+    "stable_selector": {"type": "object", "minProperties": 1},
+    "operator": {"enum": ["clean_control_v1", "mutate_option_price_point_v1", "mutate_underlying_spot_point_v1"]},
+    "seed": {"type": "integer", "minimum": 0},
+    "engine_id": {"const": "f2a-point-mutation-v2"},
+    "mutation": {
+      "type": ["object", "null"],
+      "properties": {
+        "table": {"type": "string", "minLength": 1},
+        "row_key": {"type": "object", "minProperties": 1},
+        "field": {"enum": ["mid", "spot_close"]},
+        "delta_ticks": {"type": "integer", "not": {"const": 0}},
+        "before": {},
+        "after": {},
+        "derived_fields": {"type": "array", "items": {"type": "object"}}
+      },
+      "required": ["table", "row_key", "field", "delta_ticks", "before", "after", "derived_fields"],
+      "additionalProperties": false
+    },
+    "realized_chi_F": {"type": "integer", "minimum": 0, "maximum": 1},
+    "source_pricing_model_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "execution_contract_id": {"const": "us-options-underlying-5bps-options-flat-050-v2"},
+    "candidate_catalogue_id": {"const": "bsm-f2a-candidate-catalogue-v3"},
+    "requested_signature": {"enum": ["000", "100", "010", "001", "110", "101", "011", "111"]},
+    "realized_signature": {"enum": ["000", "100", "010", "001", "110", "101", "011", "111"]},
+    "reachability_audit_id": {"type": "string", "minLength": 1},
+    "oracle_result": {"$ref": "trajectory.schema.json#/$defs/orm_answer"},
+    "authoring_guard_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "execution_profile_id",
+        "candidate_evaluator_id",
+        "active_family_guards",
+        "inactive_family_guards",
+        "spot_cross_sectional_signature_before",
+        "spot_cross_sectional_signature_after",
+        "selector_trace"
+      ],
+      "properties": {
+        "execution_profile_id": {"type": "string", "minLength": 1},
+        "candidate_evaluator_id": {"const": "candidate-specific-exact-cashflow-v1"},
+        "active_family_guards": {"type": "object", "minProperties": 1},
+        "inactive_family_guards": {"type": "object", "minProperties": 1},
+        "spot_cross_sectional_signature_before": {"type": ["boolean", "null"]},
+        "spot_cross_sectional_signature_after": {"type": ["boolean", "null"]},
+        "selector_trace": {"type": "array", "minItems": 1, "items": {"type": "object"}}
+      }
+    }
+  }
+}

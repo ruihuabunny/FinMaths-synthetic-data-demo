@@ -1,0 +1,229 @@
+{
+  "schema_version": "2.0.0",
+  "variant_id": "bsm-arbitrage-finding-f2a-v2",
+  "task_family_id": "bsm_arbitrage_finding_f2a_v1",
+  "status": "BLOCKED",
+  "runtime_enabled": false,
+  "blocking_reasons": [
+    "calendar_candidate_grid_and_pathwise_evaluator_not_implemented",
+    "calendar_self_financing_and_admissibility_proof_tests_not_complete",
+    "baseline_execution_profile_signature_reachability_not_audited",
+    "f2a_child_materializer_solver_and_independent_verifier_not_implemented"
+  ],
+  "identity_policy": "this_blocked_contract_is_immutable;calendar_activation_requires_new_variant_and_candidate_catalogue_ids",
+  "coordinates": {
+    "L": 5,
+    "P": 0,
+    "M": 0,
+    "A": 0,
+    "D": 4,
+    "R": 3,
+    "F": "F2A"
+  },
+  "market_contract": {
+    "currency": "USD",
+    "underlying_minimum_price_increment": "0.01",
+    "option_minimum_price_increment": "0.01",
+    "rounding": "ROUND_HALF_EVEN",
+    "option_quote_fields": ["bid", "ask", "mid"],
+    "max_mutated_points": 1
+  },
+  "pricing_contract": {
+    "pricing_model": "Black-Scholes-Merton",
+    "pricing_engine": "QuantLib.AnalyticEuropeanEngine",
+    "risk_neutral_measure_id": "USD-MONEY-MARKET-Q-v1",
+    "physical_measure_id": "F2A-FUTURE-SPOT-P-v1",
+    "measure_equivalence": "P_equivalent_to_Q_on_each_candidate_horizon",
+    "numeraire_id": "USD-MONEY-MARKET-ACCOUNT-v1",
+    "rate_path_id": "USD-FLAT-CONTINUOUS-RATE-v1",
+    "future_state": "strictly_positive_ex_dividend_spot",
+    "future_q_transition": "exact_deterministic_time_inhomogeneous_gbm",
+    "future_support": "positive_conditional_density_on_every_open_subinterval_of_(0,infinity)_for_each_transition",
+    "q_volatility_source": "child.pricing_metadata.pricing_dynamics",
+    "q_volatility_time_origin": "2026-08-03T16:00:00Z",
+    "q_volatility_node_offset_clock": "calendar_days_from_time_origin",
+    "q_volatility_node_value_units": "annualized_return_standard_deviation_per_sqrt_year",
+    "q_volatility_interpolation": "piecewise_linear_instantaneous_annualized_volatility",
+    "q_volatility_extrapolation": "flat",
+    "variance_reduction": "exact_integrated_variance",
+    "calendar": "WeekendsOnly",
+    "day_count": "Actual365Fixed",
+    "valuation_timestamp": "valuation_date_at_16:00:00Z",
+    "expiry_timestamp": "expiry_date_at_16:00:00Z",
+    "exercise_style": "european",
+    "settlement_type": "cash",
+    "dividend_curve_semantics": "deterministic_continuous_nonnegative_proportional_cash_distribution_yield",
+    "borrow_or_carry_is_not_dividend_cashflow": true
+  },
+  "settlement_timeline": {
+    "t": [
+      "observe_public_state",
+      "execute_all_option_legs_at_directional_bid_or_ask_and_charge_each_option_fee",
+      "execute_first_terminal_spot_segment",
+      "deposit_nonnegative_initial_surplus_in_money_market_numeraire"
+    ],
+    "T1": [
+      "cash_settle_short_expiry_option_legs",
+      "liquidate_first_terminal_spot_segment",
+      "observe_S_T1_and_select_the_unique_left_closed_right_open_Delta_1_cell",
+      "execute_second_terminal_spot_segment",
+      "book_signed_remaining_T1_cash_in_money_market_numeraire"
+    ],
+    "T2": [
+      "accumulate_T1_cash",
+      "cash_settle_long_expiry_option_legs",
+      "liquidate_second_terminal_spot_segment",
+      "liquidate_money_market_account"
+    ],
+    "same_timestamp_operation_order_is_normative": true
+  },
+  "execution_contract": {
+    "execution_contract_id": "us-options-underlying-5bps-options-flat-050-v2",
+    "transaction_cost_model": "directional_option_bid_ask_plus_option_per_contract_fee_plus_underlying_proportional_cost",
+    "currency": "USD",
+    "option_contract_multiplier_source": "child.option_contract.contract_multiplier",
+    "option_fee_per_contract_per_side": "0.50",
+    "option_execution": "directional_bid_ask",
+    "option_holding": "hold_to_cash_settlement",
+    "settlement_fee": "0.00",
+    "underlying_execution": "single_price_plus_proportional_cost",
+    "underlying_trading_cost_rate_per_side": "0.0005",
+    "underlying_trading_cost_basis": "absolute_traded_notional",
+    "underlying_trading_cost_scope": "every_trade_including_dividend_reinvestment_financing_and_dynamic_rebalancing",
+    "cash_account_transaction_cost": "0.00",
+    "cash_account_balance": "signed",
+    "cash_borrowing_and_lending_curve": "same_declared_money_market_numeraire"
+  },
+  "candidate_catalogue": {
+    "candidate_catalogue_id": "bsm-f2a-candidate-catalogue-v3",
+    "status": "BLOCKED_CALENDAR_FAMILY_NULL",
+    "runtime_enabled": false,
+    "canonical_type_order": ["cross-sectional", "cross-asset", "calendar"],
+    "cross_sectional_families": ["strike_monotonicity", "nonuniform_strike_convexity"],
+    "cross_asset_families": ["discounted_price_bounds", "executable_put_call_parity"],
+    "calendar_family": null,
+    "calendar_family_status": "blocked_because_exact_pathwise_evaluator_interim_admissibility_proofs_and_reachability_audit_are_incomplete",
+    "calendar_activation_identity_policy": "must_not_modify_bsm-f2a-candidate-catalogue-v3;allocate_a_new_candidate_catalogue_id",
+    "calendar_target_specification": {
+      "specification_status": "NON_EXECUTABLE_REVIEW_TARGET",
+      "family_id": "transaction-cost-aware-two-expiry-terminal-spot-bridge-v1",
+      "option_position_grid": [-2, -1, 0, 1, 2],
+      "minimum_nonzero_option_legs_per_expiry": 1,
+      "maximum_nonzero_option_legs_per_expiry": 4,
+      "maximum_total_nonzero_option_legs": 6,
+      "maximum_absolute_option_position": 2,
+      "terminal_spot_exposure_unit_shares": 50,
+      "Delta_0_grid_in_units": [-4, -2, -1, 0, 1, 2, 4],
+      "Delta_1_cell_value_grid_in_units": [-4, -2, -1, 0, 1, 2, 4],
+      "maximum_absolute_terminal_spot_exposure_shares": 200,
+      "normalization": "form_the_joint_integer_vector_of_all_option_positions_Delta_0_units_and_Delta_1_cell_units;reject_if_gcd_of_absolute_nonzero_entries_is_not_one",
+      "expiry_pair_order": "T1_then_T2_ascending",
+      "option_order": "expiry_then_call_put_call_before_put_then_strike_then_option_id",
+      "position_vector_order": "lexicographic_in_declared_option_order",
+      "state_partition_knots": "sorted_unique_union_of_all_T1_and_T2_strikes",
+      "Delta_1_boundary_rule": "(0,k1),[k1,k2),...,[k_last,infinity);a_finite_knot_uses_the_cell_starting_at_that_knot",
+      "initial_option_cash_outflow": "O_t=sum_i(max(w_i,0)*(M_i*ask_i+f)-max(-w_i,0)*(M_i*bid_i-f))",
+      "initial_surplus": "s_j=-(O_t+Phi_[t,T1](Delta_0;S_t))",
+      "T1_cash_before_accumulation": "C_T1(x)=V_1(x)+Delta_0*x-Phi_[T1,T2](Delta_1(x);x)",
+      "T1_T2_accumulation_factor": "F_[T1,T2]=D(t,T1)/D(t,T2)",
+      "terminal_certificate_payoff": "g_j(x,y)=F_[T1,T2]*C_T1(x)+V_2(y)+Delta_1(x)*y",
+      "initial_surplus_excluded_from_terminal_certificate_payoff": true,
+      "total_terminal_wealth": "W_T2(x,y)=s_j/D(t,T2)+g_j(x,y)",
+      "cell_form": "g_j(x,y)=a_cell*x+b_cell*y+c_cell",
+      "certificate_order": [
+        "enumerate_x_cells_then_y_cells",
+        "check_each_unbounded_cell_recession_extreme_ray_x_then_y",
+        "check_each_cell_closure_finite_vertices_lexicographically_as_one_sided_limits",
+        "check_actual_finite_boundary_values_using_Delta_1_boundary_rule",
+        "check_positive_conditional_support_strict_gain_on_a_nonempty_open_cell"
+      ],
+      "unbounded_cell_rule": "gradient_dot_each_extreme_ray_must_be_greater_than_or_equal_to_zero_before_finite_anchor_vertices_are_checked",
+      "strict_gain_rule": "some_nonempty_open_cell_has_a_canonical_interior_witness_with_g_j_strictly_greater_than_zero",
+      "admissibility_status": "BLOCKING_PROOF_TEST_REQUIRED",
+      "dtype": "float64",
+      "cast_and_reduction_order": "cast_public_DECIMAL_inputs_once;evaluate_option_legs_in_option_order;then_Delta_0_segment;then_T1_option_payoff;then_first_segment_settlement;then_second_segment_outflow;then_cash_accumulation;then_T2_option_payoff;then_second_segment_settlement"
+    },
+    "decision_rule_id": "candidate-specific-initial-surplus-and-terminal-certificate-v1",
+    "candidate_is_arbitrage": "(s_j > 0 and g_j_nonnegative_P_almost_surely) or (s_j == 0 and g_j_nonnegative_P_almost_surely and P(g_j > 0) > 0)",
+    "negative_initial_surplus_is_arbitrage": false,
+    "comparison_tolerance": null,
+    "payoff_classes": {
+      "executable_put_call_parity": "identically_zero_requires_s_strictly_greater_than_zero",
+      "discounted_price_bounds": "nonconstant_nonnegative_support_certified_accepts_s_greater_than_or_equal_to_zero",
+      "strike_monotonicity": "nonconstant_nonnegative_support_certified_accepts_s_greater_than_or_equal_to_zero",
+      "nonuniform_strike_convexity": "nonconstant_nonnegative_support_certified_accepts_s_greater_than_or_equal_to_zero",
+      "calendar": "candidate_specific_pathwise_certificate_required"
+    },
+    "terminal_spot_primitive": {
+      "integrated_dividend_yield": "Q_q(u,v)=integral_[u,v]_q(s)_ds",
+      "ask": "A_S(u,v)=S_u*(1+kappa)/(1-kappa)*exp(-Q_q(u,v)/(1+kappa))",
+      "bid": "B_S(u,v)=S_u*(1-kappa)/(1+kappa)*exp(-Q_q(u,v)/(1-kappa))",
+      "signed_segment_outflow": "Phi_[u,v](Delta;S_u)=max(Delta,0)*A_S(u,v)-max(-Delta,0)*B_S(u,v)",
+      "outer_cost_must_not_be_charged_again": true
+    },
+    "single_expiry_formula_contract": {
+      "option_amounts": "X_ask=M*ask+f;X_bid=M*bid-f",
+      "terminal_spot_amounts": "U_ask=M*A_S(t,T);U_bid=M*B_S(t,T)",
+      "bond_amount": "H=M*K*D(t,T)",
+      "discounted_price_bounds_order": [
+        "call_upper:C_bid-U_ask",
+        "call_lower:U_bid-H-C_ask",
+        "put_upper:P_bid-H",
+        "put_lower:H-P_ask-U_ask"
+      ],
+      "put_call_parity_order": [
+        "C_bid-P_ask-U_ask+H",
+        "U_bid-H-C_ask+P_bid"
+      ],
+      "strike_monotonicity_order": [
+        "call:long_lower_strike_ask_short_higher_strike_bid",
+        "put:short_lower_strike_bid_long_higher_strike_ask"
+      ],
+      "convexity_positions": "gcd_normalized_positive_integer_(K3-K2):negative_integer_(K3-K1):positive_integer_(K2-K1)",
+      "convexity_surplus": "b*X2_bid-a*X1_ask-c*X3_ask"
+    },
+    "cross_sectional_candidate_inputs": [
+      "valuation_timestamp",
+      "currency",
+      "expiry_timestamp",
+      "exercise_style",
+      "settlement_type",
+      "contract_multiplier",
+      "option_id",
+      "call_put",
+      "strike",
+      "bid",
+      "ask"
+    ],
+    "spot_mutation_cross_sectional_invariant": "X_after_equals_X_before",
+    "spot_slice_policy": "require_clean_signature_000_before_mutation_else_deterministic_skip",
+    "frictionless_bsm_dynamic_replication_is_executable": false,
+    "underlying_cost_application": "all_underlying_trades_in_candidate_strategy",
+    "option_positions": "finite_integer_gcd_normalized_no_positive_scalar_duplicates",
+    "admissibility": "discounted_wealth_uniformly_bounded_below",
+    "dtype": "float64",
+    "cast_order": "DECIMAL_market_fields_to_binary64_once_before_candidate_arithmetic",
+    "enumeration_order": "family_then_expiry_then_call_put_then_strike_tuple_then_direction_then_position_tuple",
+    "reduction_order": "declared_candidate_order_left_to_right",
+    "tie_break": "first_candidate_in_declared_order"
+  },
+  "output_contract": {
+    "output_contract_id": "arbitrage-opportunity-type-trajectory-v3",
+    "trajectory_schema": "schemas/trajectory.schema.json",
+    "submission_schema": "schemas/submission-v2.schema.json",
+    "orm_projection": ["arbitrage_opportunity", "arbitrage_type"],
+    "arbitrage_type_values": ["cross-sectional", "cross-asset", "calendar"],
+    "arbitrage_type_order": ["cross-sectional", "cross-asset", "calendar"],
+    "comparison": "exact",
+    "accepts_maximal_spread": false
+  },
+  "solver_permissions": {
+    "dependency_policy": "allowlist_only",
+    "allowed_python_distributions": ["duckdb==1.5.5"],
+    "read": ["public_child_snapshot", "public_task_manifest", "public_variant_contract", "trajectory_schema", "submission_schema"],
+    "deny": ["parent_snapshot", "private_lineage", "mutation_config", "authoring_config", "trusted_verifier", "hidden_tests"],
+    "denied_python_imports": ["QuantLib", "py_vollib", "vollib", "py_lets_be_rational", "mibian", "rateslib", "financepy", "pyfeng", "optionprice", "opstrat", "pysabr", "tf_quant_finance"],
+    "denied_capabilities": ["prebuilt_option_pricing", "prebuilt_implied_volatility", "prebuilt_option_greeks", "prebuilt_volatility_smile_or_surface", "prebuilt_static_or_calendar_arbitrage_scanner"],
+    "enforcement": ["isolated_solver_environment", "network_disabled", "dynamic_install_disabled", "subprocess_disabled", "import_and_runtime_audit_required"]
+  }
+}

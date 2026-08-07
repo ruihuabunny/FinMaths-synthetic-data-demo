@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "submission-v2.schema.json",
+  "title": "Blocked successor F2A solver submission contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "snapshot_id",
+    "snapshot_revision",
+    "variant_id",
+    "output_contract_id",
+    "trajectory"
+  ],
+  "properties": {
+    "task_id": {"type": "string", "minLength": 1},
+    "snapshot_id": {"type": "string", "minLength": 1},
+    "snapshot_revision": {"type": "integer", "minimum": 1},
+    "variant_id": {"const": "bsm-arbitrage-finding-f2a-v2"},
+    "output_contract_id": {"const": "arbitrage-opportunity-type-trajectory-v3"},
+    "trajectory": {"$ref": "trajectory.schema.json"}
+  }
+}

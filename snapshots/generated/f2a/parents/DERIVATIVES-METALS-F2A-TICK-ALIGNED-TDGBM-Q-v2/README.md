@@ -628,6 +628,15 @@ Primary key: `(snapshot_id, valuation_timestamp, underlying_id)`。当前 1,430 
 `pricing_dynamics` 是模型/curve context，不是 hidden theoretical price 或 IV answer。F2A 判断必须使用
 public variant 的 executable candidate formulas；不能只比较 quote 与 BSM repricing result。
 
+Blocked successor variant v2 将 Solver-visible future law 另行冻结为：`P ~ Q`（candidate horizon 上
+null sets 等价），每段 exact deterministic time-inhomogeneous GBM transition 对 `(0,+infinity)` 有
+positive conditional density；volatility nodes 的 origin 是 `2026-08-03T16:00:00Z`，offset 是 calendar
+days，value 单位是 annualized `1/sqrt(year)`，piecewise-linear interpolation/flat extrapolation。每个
+valuation/expiry date 均取 `16:00:00Z`；`T1` 同 timestamp 的 option settlement、第一段 liquidation、
+state-contingent rebalance、第二段建仓与 cash deposit 顺序是 normative。`dividend_curve` 是
+deterministic continuous nonnegative proportional cash-distribution yield；borrow/carry quote 不能代替它。
+这些是 successor public contract，不追溯改写 frozen parent 或 legacy variant。
+
 ### 8.4 Precision JSON
 
 `input_precision`：
@@ -790,8 +799,9 @@ Logical operator: `mutate_underlying_spot_point_v1`。
 - 所有 option quotes、contract terms、curves、pricing/execution contracts 保持不变。
 - Child 不复制 open/high/low/adjusted close，所以 mutation 是 valuation-time task state，不是新的
   P-measure history 或 OHLC bar。
-- Spot-only mutation 不能直接改变 option-only cross-sectional inequalities；若 scan 得出该 bit，
-  materialization 必须失败。
+- Spot mutation 的无条件不变量是 option-only `X_after == X_before`。Authoring 先独立扫描并要求
+  clean signature `000`，否则 deterministic skip；只有结合该 policy 才能推出 accepted spot child
+  的 `X_after=false`。Before/after 不相等时 materialization 才必须失败。
 
 ### 10.4 Signature selector 与 guards
 
@@ -834,9 +844,11 @@ requested signature
 Guard 单位是 public USD candidate units，只用于样本 selection，不改变 exact verifier predicate。
 不存在可行窗口时 deterministic skip；不能随机 retry、扩大 grid、修改 parent 或为了 label 临时换 fee。
 
-当前 checked-in public variant 仍是 `bsm-f2a-candidate-catalogue-v2`、
-`calendar_family = null`，private dataset config 仍是 positive/negative balance。Catalogue v3、calendar
-pathwise certificate 与八种 signature selector 未 versioned 前，**禁止物化 child**。
+Legacy variant v1/catalogue v2/dataset v1 保持 replay。Blocked successor variant v2/catalogue v3、
+mutation/dataset/lineage v2 已用新 ID versioned，但明确 `runtime_enabled = false`、
+`calendar_family = null`。Calendar evaluator、interim admissibility proof tests 与 baseline signature
+reachability audit 未完成，且 runtime 不存在，因此仍然**禁止物化 child**；将来启用必须再升
+variant/catalogue identity。
 
 ### 10.5 Child gates 与 artifacts
 

@@ -18,7 +18,7 @@
 | Single-asset $\mathbb Q$ pricing | 已实现 | 共同 measure/numeraire/rate-path identity；QuantLib 生成 canonical mid，authoring 不反解或持久化 IV 答案。 |
 | Static option chain | 已实现 | 固定 listing strike、到期日/价内外筛选、可重放 bid/ask spread noise。 |
 | Task space / mutation / curriculum | 最小版本已实现 | 六维 compatibility registry、确定性 lineage 与 adaptive sampling weights。 |
-| F2A arbitrage-finding | Frozen parent 与合同骨架已落地，runtime 未实现 | Tick-aligned config 1.6 parent 已冻结；当前 public variant 仍是 catalogue v2、禁用 calendar。Catalogue v3、type-signature selector、child/oracle/Solver/verifier 和 dataset 尚未落地。 |
+| F2A arbitrage-finding | Frozen parent、legacy replay 与 blocked successor contracts 已落地，runtime 未实现 | Successor v2/catalogue v3、mutation/dataset/lineage v2 已 versioned，但 calendar、reachability audit、child/oracle/Solver/verifier 和 dataset materialization 仍 blocked。 |
 | Solver / trusted verifier / dataset export | 未实现 | 目录边界已预留，但还没有可运行实现。 |
 | 多资产 $\mathbb Q$ dependence 与 joint payoff | 未实现 | Basket/index/spread 不能由当前 single-asset baseline 推断或定价。 |
 
@@ -624,14 +624,14 @@ F2A 是在现有 single-asset common-$\mathbb Q$ BSM baseline 上的并行 task-
 | 部分 | 当前状态 |
 |:---|:---|
 | Clean parent | `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2 / r1 / FROZEN` 已物化；报价与 spot 都按 `0.01 USD` tick 对齐。 |
-| 声明式边界 | Generator、public variant skeleton、point-mutation config、private authoring config、七维 registry/curriculum 和 v2 schemas 已落位，并有 repo-contract tests。 |
-| 待版本化合同 | 当前 variant 仍是 `bsm-f2a-candidate-catalogue-v2` 且 `calendar_family = null`；目标 catalogue v3 的 two-expiry bridge、pathwise cell/tail certificate 和公开 operation order 尚未写回合同。 |
-| 待更新 selector | 当前 private authoring config 仍是 positive/negative balance；目标设计要求 `000` control 加七种 positive type signatures，以及 transaction-cost-aware active/inactive 双边 guard。 |
+| Legacy replay | Variant v1/catalogue v2、mutation engine v1、dataset v1、lineage/submission v1 保持不变；旧统一 strict-positive predicate 只属于该 skeleton。 |
+| Blocked successor | Variant v2/catalogue v3、mutation engine v2、dataset v2、lineage/submission v2 已用新 ID 落位，冻结 candidate-specific predicate、single-expiry formulas、public support/clock/timeline、selector shape 与 calendar review target；`runtime_enabled = false`、`calendar_family = null`。 |
+| 仍待完成 | Calendar evaluator、interim admissibility/self-financing proof tests、baseline signature reachability audit 与完整 F2A runtime；完成后必须再升 variant/catalogue ID，不能原地打开 blocked v3。 |
 | 待实现 runtime | 七维 v2 dispatch、point mutation、child materializer、独立 oracle、Solver/verifier、受限 Solver image、task/split manifests 和 training export 均未实现；尚无 F2A child 或 dataset。 |
 
-因此，frozen parent 只证明 clean source 已准备好，不代表端到端 F2A 已完成。在 catalogue v3、
-calendar cashflow proof tests 和 signature selector 被正式 versioned 前，不得物化含 `calendar`
-truth 的 child，也不得把目标设计中的七种 positive signatures 描述成当前可运行能力。
+因此，frozen parent 和 blocked contracts 都不代表端到端 F2A 已完成。在 calendar proof tests 与
+deterministic reachability audit 完成前不得物化任何 child/dataset，也不得把七种 positive signatures
+描述成当前可运行能力。
 
 ### 套利结论的作用域
 
@@ -641,7 +641,8 @@ variant 重算每个 canonical candidate 的可执行净证书，再输出
 
 - 相对某个 BSM 或其他选定模型的 mispricing/model inconsistency；
 - 考虑 bid/ask、费用、funding、carry 和 settlement 后的可执行 static/semi-static arbitrage；
-- F2A 冻结有限 catalogue 内是否存在 positive exact certificate；
+- F2A 冻结有限 catalogue 内是否存在 candidate-specific exact certificate，即
+  `(s_j > 0 and g_j >= 0 P-a.s.) or (s_j == 0 and g_j >= 0 P-a.s. and P(g_j > 0) > 0)`；
 - 完整 admissible strategy class 中的 full-market dynamic/replication arbitrage。
 
 一个 quote 偏离 BSM 只直接说明 model inconsistency；F2A 返回 `false/[]` 也只说明当前 public
@@ -691,6 +692,14 @@ mutation identity 和 curriculum selectors 必须一起增加 v2 dispatch；F en
 `direction=any`，不对 `F0/F2A/...` 做数值比较。旧 v1 task 不在加载时隐式改写为
 七字段，以避免改变 serialization 与 deterministic child ID。
 
+F2A contract migration 同样采用并行 identity：
+
+```text
+legacy replay: variant v1 / catalogue v2 / mutation v1 / dataset v1 / lineage v1
+blocked spec:  variant v2 / catalogue v3 / mutation v2 / dataset v2 / lineage v2
+calendar runtime: 必须分配新的 variant/catalogue ID（尚不存在）
+```
+
 ### 配置和实现归属
 
 F2A 不增加 `configs/arbitrage/` 或 `src/synthetic_derivatives/arbitrage/` 这类新顶层分区，
@@ -712,16 +721,14 @@ F2A 不增加 `configs/arbitrage/` 或 `src/synthetic_derivatives/arbitrage/` �
 | `training/` | Verified records、snapshot-grouped split 和 JSONL/Parquet export。 |
 | `scripts/` | 统一非交互 materialization/verification/manifest 编排入口；不存业务数学。 |
 
-上述路径边界已经确定，但 checked-in config 只锁定了部分合同。Public variant 仍须补齐
-catalogue v3 的 cross-sectional/cross-asset exact formulas、transaction-cost-aware calendar bridge、
-pathwise cell/tail certificate 与 operation order；private authoring config 仍须把 positive/negative
-balance 升级为 cost-adjusted type-signature policy。F2A Python 业务模块、child snapshots 和训练
-artifacts 尚未创建。Repo 不提交空的 generated/private artifact 目录。
+上述路径边界已经确定。Blocked successor 已补齐 candidate predicate、single-expiry formulas、
+selector contract 和 calendar 的 cash ledger/grid/boundary-ray review spec；尚缺可执行 calendar evaluator、
+interim admissibility proofs、reachability audit 与 runtime。F2A child snapshots 和训练 artifacts 尚未创建。
 
 ### 目标 type signatures 与 calendar catalogue
 
-Catalogue v3 启用后，canonical type order 固定为 `cross-sectional`、`cross-asset`、`calendar`。
-Authoring feasibility set 目标覆盖一个 clean control 与七种 positive signatures：
+未来新 catalogue 启用后，canonical type order 固定为 `cross-sectional`、`cross-asset`、`calendar`。
+Authoring target feasibility set 是一个 clean control 与七种 positive signatures：
 
 | Signature `(X, U, T)` | Canonical `arbitrage_type` |
 |:---:|:---|
@@ -735,10 +742,11 @@ Authoring feasibility set 目标覆盖一个 clean control 与七种 positive si
 | `111` | `["cross-sectional", "cross-asset", "calendar"]` |
 
 每个 positive child 仍至多改变一个 logical quote 或 spot point。Selector 按固定 target/sign/tick
-顺序搜索，只接受 realized signature 精确等于 requested signature、active families 通过 positive
-guard 且 inactive families 通过 negative guard 的第一个 child；不可达时 deterministic skip，不能
-随机 retry、扩大 tick grid 或临时修改 fee profile。Spot-only mutation 不能直接激活 option-only 的
-cross-sectional family。
+顺序调用 candidate-specific exact evaluator，只接受 realized signature 精确相等且 setup/terminal
+guard vector 全部通过的第一个 child。先对 clean slice 独立扫描并要求 signature `000`，不满足就
+deterministic skip。Spot mutation 的无条件不变量是 `X_after == X_before`；由于本 policy 要求 baseline
+`000`，才进一步得到 accepted spot child 的 `X_after=false`。Baseline audit 必须逐 signature 输出
+reachable windows 或不可达诊断；在其证明前，七种 positives 不是 dataset acceptance。
 
 目标 calendar family 不是“同 strike 的长期限 raw price 应更高”，也不是 quote 与 BSM theoretical
 value 的偏差。它是 catalogue-scoped 的 two-expiry terminal-spot bridge：option 在 valuation time
@@ -784,8 +792,8 @@ task/child IDs 不编码 operator、target、requested/realized signature 或 mu
   selector 与 canonical type order。
 - `tests/integration/`：parent read-only、child new identity/freeze/replay、task manifest 仅引用 child
   snapshot，private lineage 不影响 public-child truth。
-- `tests/public/`：public child/variant/schema 与 child -> submission -> verifier smoke，覆盖 `000`
-  和七种 positive signatures。
+- `tests/public/`：public child/variant/schema 与 child -> submission -> verifier smoke；只覆盖
+  deterministic audit 已证明 reachable 的 scope，只有七种 positives 全部证明后才要求全覆盖。
 - `tests/verifier_robustness/`：错 bool、缺失/错序 `arbitrage_type`、多交 `maximal_spread`、错单位、
   contract ID 或 snapshot revision 必须被拒绝。
 - Production hidden cases 仍只存在 Solver 无法读取的 verifier 环境，不提交到公开仓库。

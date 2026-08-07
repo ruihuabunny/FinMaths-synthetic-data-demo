@@ -50,10 +50,10 @@ Checked-in `snapshots/public/quantlib_bsm_smoke_v1.duckdb` 是 frozen legacy v3 
 不是 active development database 的缺省替代品。Active v3 和 public v3 都保留 60,368 条
 历史 `option_pricing_audit` rows；v4 与 F2A v2 parent 的 schema-retained audit table 为空。
 
-F2A 目前只有 frozen parent、声明式 config/schema 和 repo-contract tests。Catalogue v3、
-transaction-cost-aware type-signature selector、point-mutation runtime、child materializer、独立
-oracle、Solver/verifier 与 dataset 尚未实现；因此不能把 parent 已冻结描述成 F2A authoring
-端到端完成，也不能在现有 catalogue v2 skeleton 下物化 child。
+F2A 目前有 frozen parent、legacy replay contracts，以及新 ID 下的 blocked successor
+variant v2/catalogue v3/mutation/dataset/lineage v2。Successor 已冻结 predicate、single-expiry formulas、
+selector shape 与 calendar review target，但 calendar evaluator/proofs、reachability audit、point-mutation
+runtime、child materializer、独立 oracle、Solver/verifier 与 dataset 均未完成；因此不能物化 child。
 
 ## Underlying simulator 第一阶段
 
@@ -624,18 +624,28 @@ Public child 必须按字段 allowlist 新建最小 `solver_visible` views，不
 canonicalization、before/after、private lineage 或 stored reference answer。F2A domain gate 检查
 有限/非负、`bid <= mid <= ask`、tick alignment、chain completeness、identity 与 visibility；它不能
 用 clean-parent BSM bounds、parity、strike monotonicity/convexity 或 calendar relation 修复刻意的
-task signal。
+task signal。Successor mutation engine `f2a-point-mutation-v2` 将 logical field 明确为 `spot_close`，
+并逐项命名 numeric/quote gates；legacy v1 中含糊的 `spot` 与
+`child_option_price_in_model_domain` 只为旧 skeleton replay 保留，不能成为新 materializer 默认值。
 
 Authoring-side candidate cashflow 必须使用 directional option bid/ask，每条 option 腿每侧收取
 `0.50 USD/contract`，每次 underlying trade 按绝对成交名义金额收取单边 `5 bps`；费用是经济
 输入，不是数值 tolerance。一次 point mutation 可能激活多个 family，必须全量重扫所有 enabled
 families，不能从 operator 或 target 推断 type。
 
-第一批 child 之前必须先 version public catalogue v3 的 cross-sectional/cross-asset exact
-formulas、transaction-cost-aware two-expiry calendar certificate、enumeration/reduction order，
-并把 private selector 从 positive/negative balance 升级为 `000` control 加七种 positive type
-signatures，以及 active/inactive 双边 guards。Authoring selector 只负责样本选择，不能和 Trusted
-verifier 共用 oracle 实现，也不能把 requested signature 或 mutation intention 当成 truth。
+Legacy variant v1/catalogue v2/mutation v1/dataset v1 保持不变。Blocked successor
+variant v2/catalogue v3/mutation v2/dataset v2/lineage v2 已用新 ID 写入 candidate-specific predicate、
+single-expiry exact formulas、public `P ~ Q`/positive support、volatility time origin/units、cash-dividend
+semantics、`t/T1/T2` operation order、selector guard vector 与 calendar review target；它明确
+`runtime_enabled = false`、`calendar_family = null`。Calendar evaluator、interim admissibility proof
+tests 与 baseline signature reachability audit 完成后还必须再升 variant/catalogue identity，不能原地
+打开 blocked v3。
+
+每个 slice 在 mutation 前先从 solver-visible projection 独立全量扫描，并要求 clean signature `000`；
+否则 deterministic skip。Spot mutation 必须满足 `X_after == X_before`，只有结合 clean-baseline policy
+才能推出 `X_after=false`。Reachability audit 必须逐 requested signature 输出 target/operator/tick windows
+或不可达诊断；不能随机 retry、扩大 grid、修改 parent 或临时改变 fee。Authoring selector 只负责样本
+选择，不能和 Trusted verifier 共用 oracle 实现，也不能把 requested signature 当成 truth。
 
 完整 F2A 数学、权限与实施顺序见
 [`f2a_arbitrage_finding_agent_task_plan.md`](../src/synthetic_derivatives/mutation/f2a_arbitrage_finding_agent_task_plan.md)。
@@ -668,8 +678,8 @@ make test
 - checked-in legacy public v3 的 60,368 条历史 audit rows 与 manifest 保持一致；
 - F2A generator/variant/mutation/private-authoring configs、七维 schemas 和 repo path 合同彼此一致。
 
-最后一项只验证已落位的声明式 F2A skeleton，不证明 catalogue v3、child runtime、独立 oracle
-或端到端 F2A dataset 已实现。
+最后一项只验证 legacy/blocked successor 声明式 contracts，不证明 blocked catalogue v3 可执行、
+也不证明 child runtime、独立 oracle 或端到端 F2A dataset 已实现。
 
 ## 版本与参考
 
