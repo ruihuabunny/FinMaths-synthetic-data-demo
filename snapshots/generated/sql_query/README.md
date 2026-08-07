@@ -2,6 +2,8 @@
 
 本目录保存 F2A tick-aligned frozen parent 的参数化、只读查询。它不是仓库默认 active
 development database；默认 active v3 的说明和查询入口见 [上级 README](../README.md)。
+Parent 的完整 schema、所有字段、表关系、mutation 与 LLM 使用合同见
+[`F2A parent DuckDB 数据字典`](../f2a/parents/DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2/README.md)。
 
 这里的逻辑 snapshot 为
 `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2`，默认 option slice 为

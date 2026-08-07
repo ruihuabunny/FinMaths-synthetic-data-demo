@@ -55,6 +55,14 @@ snapshots/generated/*
 !snapshots/generated/README.md
 !snapshots/generated/sql_query/
 !snapshots/generated/sql_query/**
+# Track only the operator/data-dictionary README beside the ignored F2A parent.
+!snapshots/generated/f2a/
+snapshots/generated/f2a/*
+!snapshots/generated/f2a/parents/
+snapshots/generated/f2a/parents/*
+!snapshots/generated/f2a/parents/DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2/
+snapshots/generated/f2a/parents/DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2/*
+!snapshots/generated/f2a/parents/DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2/README.md
 snapshots/private/
 *.parquet
 *.feather

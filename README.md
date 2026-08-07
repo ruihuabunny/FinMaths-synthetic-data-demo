@@ -18,7 +18,7 @@
 | Single-asset $\mathbb Q$ pricing | 已实现 | 共同 measure/numeraire/rate-path identity；QuantLib 生成 canonical mid，authoring 不反解或持久化 IV 答案。 |
 | Static option chain | 已实现 | 固定 listing strike、到期日/价内外筛选、可重放 bid/ask spread noise。 |
 | Task space / mutation / curriculum | 最小版本已实现 | 六维 compatibility registry、确定性 lineage 与 adaptive sampling weights。 |
-| F2A arbitrage-finding | Frozen parent 已生成，child runtime 未实现 | Tick-aligned config 1.6 parent 已完成 authoring gates 并冻结；variant/mutation/authoring configs 与 v2 schemas 已按既有边界拆分。 |
+| F2A arbitrage-finding | Frozen parent 与合同骨架已落地，runtime 未实现 | Tick-aligned config 1.6 parent 已冻结；当前 public variant 仍是 catalogue v2、禁用 calendar。Catalogue v3、type-signature selector、child/oracle/Solver/verifier 和 dataset 尚未落地。 |
 | Solver / trusted verifier / dataset export | 未实现 | 目录边界已预留，但还没有可运行实现。 |
 | 多资产 $\mathbb Q$ dependence 与 joint payoff | 未实现 | Basket/index/spread 不能由当前 single-asset baseline 推断或定价。 |
 
@@ -85,6 +85,8 @@ legacy v3 `DRAFT`，在当前 pipeline 下只读；`make smoke` 使用独立 v4 
   [unit-test invariants](tests/unit/README.md)。
 - 想理解完整数学与训练框架：读
   [框架设计文档](docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md)。
+- 想继续实现 F2A：先读
+  [F2A 当前状态、数学合同与实施顺序](src/synthetic_derivatives/mutation/f2a_arbitrage_finding_agent_task_plan.md)。
 - 想查看可执行查询：读 [public SQL 说明](snapshots/public/sql_query/README.md)；只有任务显式选择
   F2A parent 时才使用 [generated SQL 说明](snapshots/generated/sql_query/README.md)。
 
@@ -610,12 +612,42 @@ dependence。Pricing model registry 仍在市场数据结构、统一定价算�
 underlying 时间序列、option chain、moneyness、pricing context 和 authoring audit。
 每个 SQL 文件都在顶部提供可编辑的 `parameters` CTE，并显式固定结果排序。
 
-## F2A arbitrage-finding 兼容计划
+## F2A arbitrage-finding 状态与兼容计划
 
 F2A 是在现有 single-asset common-$\mathbb Q$ BSM baseline 上的并行 task-authoring 支线，
 不改变前述 market-realism roadmap 的阶段顺序，也不声称已实现 Solver、Trusted verifier
 或 dataset export。完整数学、交易和 ORM 合同见
 [F2A Arbitrage-Finding Agent Task 计划](src/synthetic_derivatives/mutation/f2a_arbitrage_finding_agent_task_plan.md)。
+
+### 当前落地状态
+
+| 部分 | 当前状态 |
+|:---|:---|
+| Clean parent | `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2 / r1 / FROZEN` 已物化；报价与 spot 都按 `0.01 USD` tick 对齐。 |
+| 声明式边界 | Generator、public variant skeleton、point-mutation config、private authoring config、七维 registry/curriculum 和 v2 schemas 已落位，并有 repo-contract tests。 |
+| 待版本化合同 | 当前 variant 仍是 `bsm-f2a-candidate-catalogue-v2` 且 `calendar_family = null`；目标 catalogue v3 的 two-expiry bridge、pathwise cell/tail certificate 和公开 operation order 尚未写回合同。 |
+| 待更新 selector | 当前 private authoring config 仍是 positive/negative balance；目标设计要求 `000` control 加七种 positive type signatures，以及 transaction-cost-aware active/inactive 双边 guard。 |
+| 待实现 runtime | 七维 v2 dispatch、point mutation、child materializer、独立 oracle、Solver/verifier、受限 Solver image、task/split manifests 和 training export 均未实现；尚无 F2A child 或 dataset。 |
+
+因此，frozen parent 只证明 clean source 已准备好，不代表端到端 F2A 已完成。在 catalogue v3、
+calendar cashflow proof tests 和 signature selector 被正式 versioned 前，不得物化含 `calendar`
+truth 的 child，也不得把目标设计中的七种 positive signatures 描述成当前可运行能力。
+
+### 套利结论的作用域
+
+F2A 的 ORM truth 是**有限 catalogue 范围内**的结论：Trusted verifier 从 public child 和 public
+variant 重算每个 canonical candidate 的可执行净证书，再输出
+`(arbitrage_opportunity, arbitrage_type)`。它必须与以下更宽或更窄的判断分开：
+
+- 相对某个 BSM 或其他选定模型的 mispricing/model inconsistency；
+- 考虑 bid/ask、费用、funding、carry 和 settlement 后的可执行 static/semi-static arbitrage；
+- F2A 冻结有限 catalogue 内是否存在 positive exact certificate；
+- 完整 admissible strategy class 中的 full-market dynamic/replication arbitrage。
+
+一个 quote 偏离 BSM 只直接说明 model inconsistency；F2A 返回 `false/[]` 也只说明当前 public
+variant 的有限 catalogue 没有 positive candidate，不能写成全市场“无套利”。一次 point mutation
+可能同时激活任意多个已启用 family，最终 type array 必须从 public child 全量重扫，不能从 private
+mutation intention 或 requested signature 复制。
 
 ### 不变的项目边界
 
@@ -633,6 +665,8 @@ F2A 是在现有 single-asset common-$\mathbb Q$ BSM baseline 上的并行 task-
   收取 `0.50 USD/contract/side`；underlying 每次成交按绝对 traded notional 收取单边 `5 bps`，
   cash account 保持无摩擦。非零 underlying cost 下不把 frictionless BSM dynamic replication
   当作可执行套利策略。
+- 费用不是数值 tolerance。每个 candidate 必须按真实 option 腿数、方向和 underlying 交易时点
+  逐项收费；改变费用只能移动各 family 的经济激活阈值，不能作为随样本调整 label 的旋钮。
 - Trusted verifier 只从 public child、public task/variant contract 和 submission 独立重算
   `(arbitrage_opportunity, arbitrage_type)`；它不导入 Solver，不读 parent、private lineage、mutation
   intention 或 stored label。
@@ -664,22 +698,55 @@ F2A 不增加 `configs/arbitrage/` 或 `src/synthetic_derivatives/arbitrage/` �
 
 | 现有边界 | F2A 计划中的责任 |
 |:---|:---|
-| `authoring/configs/` | Private parent selectors、authoring guard、label balance、split 与 smoke/pilot 规模。 |
+| `authoring/configs/` | Private parent selectors、requested type-signature balance、active/inactive guards、execution-profile feasibility policy、split 与 smoke/pilot 规模。 |
 | `configs/generators/` | Tick-aligned clean parent DGP、minimum increments、rounding 和新 generator/snapshot identity。 |
-| `configs/variants/` | Solver-visible Q/numeraire/rate-path、BSM method、execution cost、candidate catalogue 与 output contract。 |
+| `configs/variants/` | Solver-visible Q/numeraire/rate-path、BSM method、execution cost、三类 candidate catalogue、calendar certificate 与 output contract。 |
 | `configs/mutations/` | Logical option-price/spot operator IDs、integer-tick grids 和稳定枚举顺序。 |
 | `configs/task_space/` | 保留 v1，并行增加七维 registry v2 和 F2A compatibility rule。 |
 | `configs/curricula/` | 保留 v1，并行增加 v2；旧 stages 路由到 F0，另加 F2A stage。 |
 | `schemas/` | V2 difficulty/task/mutation、F2A private-lineage 形状、trajectory 和 submission schemas。 |
-| `authoring/` | Read-only parent selection、copy-on-write child materialization、market field 派生、quality gates、private lineage 和 freeze。 |
+| `authoring/` | Read-only parent selection、cost-adjusted signature/tick search、copy-on-write child materialization、market field 派生、quality gates、private lineage 和 freeze。 |
 | `mutation/` | 纯 immutable spec、identity 与 lineage records；不持有 DB write 或 oracle 权限。 |
-| `solver/` | 从 public child/variant 手工枚举 cross-sectional/cross-asset candidates 并生成 trajectory/submission；calendar 在 transaction-cost-aware 策略合同冻结后启用。 |
-| `verifier/` | Verifier-owned independent oracle、submission projection 和 canonical exact equality。 |
+| `solver/` | 从 public child/variant 手工枚举 cross-sectional、cross-asset 和已启用的 calendar candidates，并生成 trajectory/submission。 |
+| `verifier/` | 独立重算 candidate cashflow/certificate 与 canonical type bitmask，完成 submission projection 和 exact equality。 |
 | `training/` | Verified records、snapshot-grouped split 和 JSONL/Parquet export。 |
 | `scripts/` | 统一非交互 materialization/verification/manifest 编排入口；不存业务数学。 |
 
-上述 config/schema 边界已经按表中路径落位；F2A Python 业务模块、child snapshots 和训练
-artifacts 仍在实现阶段按同一边界创建。Repo 不提交空的 generated/private artifact 目录。
+上述路径边界已经确定，但 checked-in config 只锁定了部分合同。Public variant 仍须补齐
+catalogue v3 的 cross-sectional/cross-asset exact formulas、transaction-cost-aware calendar bridge、
+pathwise cell/tail certificate 与 operation order；private authoring config 仍须把 positive/negative
+balance 升级为 cost-adjusted type-signature policy。F2A Python 业务模块、child snapshots 和训练
+artifacts 尚未创建。Repo 不提交空的 generated/private artifact 目录。
+
+### 目标 type signatures 与 calendar catalogue
+
+Catalogue v3 启用后，canonical type order 固定为 `cross-sectional`、`cross-asset`、`calendar`。
+Authoring feasibility set 目标覆盖一个 clean control 与七种 positive signatures：
+
+| Signature `(X, U, T)` | Canonical `arbitrage_type` |
+|:---:|:---|
+| `000` | `[]` |
+| `100` | `["cross-sectional"]` |
+| `010` | `["cross-asset"]` |
+| `001` | `["calendar"]` |
+| `110` | `["cross-sectional", "cross-asset"]` |
+| `101` | `["cross-sectional", "calendar"]` |
+| `011` | `["cross-asset", "calendar"]` |
+| `111` | `["cross-sectional", "cross-asset", "calendar"]` |
+
+每个 positive child 仍至多改变一个 logical quote 或 spot point。Selector 按固定 target/sign/tick
+顺序搜索，只接受 realized signature 精确等于 requested signature、active families 通过 positive
+guard 且 inactive families 通过 negative guard 的第一个 child；不可达时 deterministic skip，不能
+随机 retry、扩大 tick grid 或临时修改 fee profile。Spot-only mutation 不能直接激活 option-only 的
+cross-sectional family。
+
+目标 calendar family 不是“同 strike 的长期限 raw price 应更高”，也不是 quote 与 BSM theoretical
+value 的偏差。它是 catalogue-scoped 的 two-expiry terminal-spot bridge：option 在 valuation time
+按 bid/ask 建仓并持有到 settlement，underlying 在 `t`、较早到期 `T1` 和较晚到期 `T2` 交易，
+`T1` 只允许一次公开、有限、state-contingent rebalance。Verifier 必须把每次 `5 bps` underlying
+cost 和每条 option fee 纳入 cashflow，并用 piecewise-affine cell vertices、one-sided boundaries
+与 tail slopes 证明 terminal wealth 在完整正状态域上非负；有限 spot grid 或 Monte Carlo sampling
+都不是 exact certificate。
 
 ### Snapshot、manifest 与训练 artifact
 
@@ -703,18 +770,22 @@ oracle 或 reference answer。Private lineage 实例不放入应提交的 `datas
 当前 clean parent 是
 `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2`，位于上述 `parents/` 结构，状态为
 `FROZEN` revision `1`。它只作为 immutable mutation source；不能原地追加或修改。
+完整 schema、所有字段、表关联、eligible mutation slices 和可抽取的 LLM instructions 见
+[`F2A parent DuckDB 数据字典`](snapshots/generated/f2a/parents/DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2/README.md)。
 
 每个 child 从 DRAFT 开始，经 authoring gates 后以新 `snapshot_id/revision` 冻结。Public
-task/child IDs 不编码 operator、target、`arbitrage_type` 或 positive/negative status。Solver bundle
+task/child IDs 不编码 operator、target、requested/realized signature 或 mutation status。Solver bundle
 只挂载 public child、public task/variant contract 与 trajectory/submission schemas。
 
 ### 计划中的验收分层
 
 - `tests/unit/`：v1/v2 schema/registry/curriculum、pure mutation spec、tick materialization、option fee、
-  underlying 单边 `5 bps`、candidate mathematics 与 canonical type order。
+  underlying 单边 `5 bps`、三类 candidate mathematics、calendar cell/tail certificate、signature
+  selector 与 canonical type order。
 - `tests/integration/`：parent read-only、child new identity/freeze/replay、task manifest 仅引用 child
   snapshot，private lineage 不影响 public-child truth。
-- `tests/public/`：public child/variant/schema 与 child -> submission -> verifier smoke。
+- `tests/public/`：public child/variant/schema 与 child -> submission -> verifier smoke，覆盖 `000`
+  和七种 positive signatures。
 - `tests/verifier_robustness/`：错 bool、缺失/错序 `arbitrage_type`、多交 `maximal_spread`、错单位、
   contract ID 或 snapshot revision 必须被拒绝。
 - Production hidden cases 仍只存在 Solver 无法读取的 verifier 环境，不提交到公开仓库。
@@ -750,8 +821,8 @@ task/child IDs 不编码 operator、target、`arbitrage_type` 或 positive/negat
 ├── schemas/                       # Snapshot、variant、trajectory、submission schemas
 ├── scripts/                       # venv、生成、校验和数据集构建入口脚本
 ├── snapshots/
-│   ├── generated/                 # 本地开发快照；仅 README/通用 SQL 提交 Git
-│   │   └── sql_query/             # active DRAFT DuckDB 的参数化只读查询
+│   ├── generated/                 # 本地开发/F2A 派生快照；仅 README/通用 SQL 提交 Git
+│   │   └── sql_query/             # F2A frozen parent 的参数化只读查询
 │   └── public/                    # 小型、可公开且带 revision 的 DRAFT/FROZEN 快照
 │       └── sql_query/             # 可复用、只读且显式排序的常用 DuckDB 查询
 ├── src/

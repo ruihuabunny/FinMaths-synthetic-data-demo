@@ -57,6 +57,10 @@ F2A 明确选择以下 tick-aligned clean parent；它不是默认 active develo
 authoring-time IV answers。该 parent 不得原地追加、同步或 mutation。每个 child 使用
 `f2a/children/<child_snapshot_id>/` 下的新 identity、manifest 和 private lineage。
 
+Parent 的完整 table/field dictionary、业务键关联图、JSON 字段、eligible mutation slices、child
+allowlist、mutation gates 与可抽取的 LLM task instructions 见
+[`F2A parent DuckDB 数据字典`](f2a/parents/DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2/README.md)。
+
 ## Active v3 logical size
 
 当前 manifest 声明：

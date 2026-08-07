@@ -1,6 +1,6 @@
 # DuckDB + QuantLib Authoring Pipeline
 
-> 实现状态（2026-08-06）：underlying simulator 第一阶段与 static
+> 实现状态（2026-08-07）：underlying simulator 第一阶段与 static
 > `OptionChainBuilder` 与 liquidity-filtered quote profile 已经实现。Generator config
 > `1.2.0` 可以用 $\Lambda/D/R$ 相关结构生成物理测度 $\mathbb P$ 下的多个
 > underlying path；config `1.3.0` 生成 expiry × listing-moneyness × call/put 完整网格，
@@ -10,24 +10,50 @@
 > 从 authoring contract 删除 IV solver。当前 authoring
 > 生成 canonical quotes 后停止，不再反解或持久化 IV 答案；schema `2.4.0` 仅为
 > 已有 snapshot 保留 legacy `market.option_pricing_audit` 表。
-> Option/derivative pricing 不读取 underlying 相关矩阵，原有 v1/v1.1/v1.2 pipeline
-> 保持兼容。
+> Option/derivative pricing 不读取 underlying 相关矩阵。v1--v1.4 的既有增量合同继续
+> 兼容；带 authoring-time IV solver 的 config `1.5.0` 只允许读取，当前 pipeline 会拒绝
+> create、append、sync 与 freeze。
 
 ## 目标与范围
 
-第一版 authoring pipeline 将 framework 的 snapshot 合同落实到一个 DuckDB 文件中，并支持三类增量操作：
+第一版 authoring pipeline 将 framework 的 snapshot 合同落实到一个 DuckDB 文件中。最早的
+v1/v1.1 profile 支持三类增量操作：
 
 1. 在已有 5 天数据后追加第 6 天，只生成并插入第 6 天的数据；
 2. 增加 underlying，在当前日期区间内只为新 underlying 生成路径、metadata 和 options；
 3. 增加 option template，在当前日期区间内只生成新 option contracts 和 quotes。
 
-Smoke test 中有 5 个 underlying 定义和 5 个 option templates。每个 template 会实例化到每个 underlying，因此数据库包含 25 个 option contracts，而不是总共 5 个合约。
+Smoke regression test 中有 5 个 underlying 定义和 5 个 option templates。每个 template 会
+实例化到每个 underlying，因此数据库包含 25 个 option contracts，而不是总共 5 个合约。
+这些 additive 语义不能推广到 `1.2.0+` 的 immutable dependence spec 或 `1.3.0+` 的
+static option-chain identity；现代 profile 修改 underlying 集合、chain 或模型参数时必须使用
+新的 snapshot identity。
 
-Mutation + curriculum 本身不直接写 authoring DuckDB：`task_space` 只登记 snapshot
-id/revision 和六维坐标，`mutation` 只产生 child task/lineage，`curriculum` 只计算
-采样权重。联合 simulator 会扩展 authoring pipeline；若 mutation 改变市场状态、共享
-利率路径、边际模型或联合依赖，仍须通过新的 authoring config/snapshot id 生成，再把
-新 revision 注册到 child task。
+Mutation + curriculum 本身不直接写 authoring DuckDB：当前 v1 `task_space` 只登记
+snapshot id/revision 和六维坐标，`mutation` 只产生 lineage，`curriculum` 只计算采样权重。
+F2A 使用并行的七维 v2 contract；其 mutation 层也只应生成 immutable spec、child identity
+与 lineage，实际 child DuckDB 由 authoring 边界 copy-on-write 物化。若 mutation 改变市场状态、
+共享利率路径、边际模型或联合依赖，必须使用新的 snapshot identity，不能把 rows 追加到
+原 snapshot。
+
+## 当前 snapshot 与写入边界
+
+当前存在三个用途不同的 metals snapshot/profile，不能互相 fallback：
+
+| 用途 | Identity 与状态 | Authoring 规则 |
+|:---|:---|:---|
+| 默认 active development database | `DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3 / r1 / DRAFT`，位于 `snapshots/generated/quantlib_bsm_metals_option_chain_smoke_v1_20260807.duckdb` | 使用 legacy config `1.5.0`、generator `0.7.0` 和旁边的 manifest 做读取与检查。虽然状态是 `DRAFT`，当前 pipeline 仍将它视为只读；缺失时必须报告，不能重建该 identity 或 fallback 到 public DB。 |
+| 新 ordinary authoring | `DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v4` | 使用 `quantlib_bsm_metals_option_chain_smoke_v2.json`、config `1.6.0`、generator `0.8.0` 写入新文件。默认 CLI/Make 目标是 `/tmp/metals-liquid-tdgbm-q-v4.duckdb`；不生成 IV audit rows。 |
+| F2A clean parent | `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2 / r1 / FROZEN` | 位于 `snapshots/generated/f2a/parents/.../parent.duckdb`，使用独立 config `1.6.0`、generator `0.8.0`，underlying/option increment 都是 `0.01 USD`。它只在 F2A 任务显式选择时使用，禁止 append、sync 或原地 mutation。 |
+
+Checked-in `snapshots/public/quantlib_bsm_smoke_v1.duckdb` 是 frozen legacy v3 public contract，
+不是 active development database 的缺省替代品。Active v3 和 public v3 都保留 60,368 条
+历史 `option_pricing_audit` rows；v4 与 F2A v2 parent 的 schema-retained audit table 为空。
+
+F2A 目前只有 frozen parent、声明式 config/schema 和 repo-contract tests。Catalogue v3、
+transaction-cost-aware type-signature selector、point-mutation runtime、child materializer、独立
+oracle、Solver/verifier 与 dataset 尚未实现；因此不能把 parent 已冻结描述成 F2A authoring
+端到端完成，也不能在现有 catalogue v2 skeleton 下物化 child。
 
 ## Underlying simulator 第一阶段
 
@@ -154,9 +180,11 @@ $$
 ### no-arbitrage 与质量门控
 
 本阶段的 $R$ 只描述历史 underlying shocks 的联合分布，不是 derivative pricing 的
-no-arbitrage 条件，也不用于构造 derivative quote correlation。Derivative no-arbitrage
-仍应来源于后续选定的合法 pricing model、测度与 numeraire；本次改造不扩大现有 option
-engine 的 no-arbitrage 声明。authoring gate 当前负责：
+no-arbitrage 条件，也不用于构造 derivative quote correlation。Config `1.5.0/1.6.0` 的
+single-asset vanilla quotes 来自已声明的 common-$\mathbb Q$/money-market-numeraire BSM
+marginal model；其 bounds、parity 与 strike consistency 不能从 P-measure $R$ 推出。合法的
+multi-asset Q dependence 与 joint-payoff pricing 仍是后续独立合同。本次 P-dependence 改造
+不扩大现有 option engine 的 no-arbitrage 声明。authoring gate 当前负责：
 
 - 校验 measure、driver ids/order、matrix shape/dtype 和 factorization contract；
 - 校验 $\Lambda$ 有限且 row norm 不超过 1，并重放
@@ -175,7 +203,8 @@ engine 的 no-arbitrage 声明。authoring gate 当前负责：
 | U1. Config + persistence | 完成 | `config.py`、`schema.py`、模板 | config `1.2.0`、schema `2.1.0`、private dependence table、revision/manifest count 和旧配置兼容。 |
 | U2. 联合 underlying path | 完成 | `underlying_daily_generator.py`、`pipeline.py` | factor/idiosyncratic namespaces、相关 close shock、one-shot/append replay 与 metadata lineage。 |
 | U3. Underlying simulator 扩展 | 计划中 | config/generator/tests | time-varying $\Lambda_t$、regime transitions、richer P dynamics；仍不把 option ids 放入 correlation matrix。 |
-| Q1. Pricing context/model | 独立后续 | pricing/model registry | 共同 $\mathbb Q$/numeraire/rate path 和合法 coherent model；若多资产 payoff 需要相关性，相关对象仍是其 Q-measure underlying drivers，而不是 derivative contracts。 |
+| Q0. Single-asset pricing context/model | 完成 | config `1.5.0/1.6.0`、option generator/tests | 共同 $\mathbb Q$/numeraire/rate-path identity、显式 P-to-Q mapping 与 coherent BSM vanilla margins。 |
+| Q1. Joint pricing model | 独立后续 | pricing/model registry | 冻结合法 multi-asset Q dependence 与 joint payoff model；相关对象仍是 Q-measure underlying/model drivers，而不是 derivative contracts。 |
 
 ### 测试与最终验收
 
@@ -199,8 +228,9 @@ option engine 不读取该结构；snapshot 冻结和不可变规则继续成立
 ## OptionChainBuilder 第一阶段
 
 Config `1.3.0/1.4.0` 落实 README 的阶段 1，只改变 option contract construction 和
-spread microstructure；config `1.5.0` 在不改变 frozen chain identity 的前提下替换旧的
-latent-smile volatility 输入，并引入明确的 single-asset common-$\mathbb Q$ contract。
+spread microstructure；config `1.5.0` 保持 static chain construction/contract IDs，替换旧的
+latent-smile volatility 输入，并引入明确的 single-asset common-$\mathbb Q$ contract。Q contract
+变化仍需新的 generator config 与 snapshot identity，不能写回旧 snapshot。
 
 ### Config `1.3.0`
 
@@ -244,7 +274,7 @@ latent-smile volatility 输入，并引入明确的 single-asset common-$\mathbb
 
 ### Schema、增量与边界
 
-Option-chain provenance 首次由 schema `2.2.0` 引入；当前 schema `2.4.0` 支持从
+Option-chain provenance 首次由 schema `2.2.0` 引入；当前 authoring schema `2.4.0` 支持从
 `2.0.0/2.1.0/2.2.0/2.3.0` additive migration：
 
 | 对象 | 作用 |
@@ -298,8 +328,12 @@ discounting 或 underlying simulation。完整 filter 与 quote model 均写入 
 |:---|:---|
 | `configs/generators/quantlib_bsm_smoke_v1.json` | 固定 seed、模型、underlyings、option templates 与 quote rules。 |
 | `authoring/templates/quantlib_bsm_correlated_underlyings.template.json` | 可运行的 config `1.2.0` correlated-underlying 示例。 |
-| `configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json` | Legacy config `1.5.0`；对应 checked-in schema-2.4 public snapshot 及其历史 IV audit。 |
+| `configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json` | Legacy config `1.5.0`；对应 active/public v3 的历史 IV audit，只读使用。 |
 | `configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json` | Current config `1.6.0`；使用新 v4 identity 生成同类 22-underlying profile，不包含 authoring IV solver。 |
+| `configs/generators/quantlib_bsm_metals_f2a_parent_v2.json` | F2A tick-aligned config `1.6.0`；对应独立 frozen v2 parent，不用于 ordinary authoring。 |
+| `snapshots/generated/quantlib_bsm_metals_option_chain_smoke_v1_20260807.duckdb` | 默认 active v3 `DRAFT` database；在当前 pipeline 下只读，文件缺失时不得 fallback。 |
+| `snapshots/generated/quantlib_bsm_metals_option_chain_smoke_v1_20260807.manifest.json` | Active v3 revision、版本、日期范围和 logical counts。 |
+| `snapshots/generated/f2a/parents/DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2/parent.duckdb` | F2A `FROZEN / r1` clean parent；只读 mutation source。 |
 | `snapshots/public/quantlib_bsm_smoke_v1.duckdb` | 已冻结的 metals public snapshot；文件路径为向后兼容保留名。 |
 | `snapshots/public/quantlib_bsm_smoke_v1.manifest.json` | 当前 logical revision、版本标识和行数。 |
 | `scripts/edit_snapshot.py` | 仓库本地 `.venv` 使用的编辑入口。 |
@@ -366,12 +400,16 @@ time-inhomogeneous GBM close：
 `start_date` 为原点的 `piecewise_linear` deterministic function。每个 close
 interval 对 \(\mu(t)\) 精确积分并取算术平均，对 \(\sigma^2(t)\) 精确积分并取
 root-mean-square；得到的 interval-equivalent 参数交给 QuantLib 的 exact GBM
-transition。物理 drift/volatility function 与风险中性定价参数分开保存，完整函数
-和当日有效参数写入 `pricing_metadata.physical_dynamics`。
+endpoint transition。Endpoint 再按 `underlying_minimum_price_increment` 执行
+`ROUND_HALF_EVEN`；量化后的 close 是下一 interval 的 restart state，因此 authored path 是
+明确的 rounded-state Markov chain，而不是未量化连续状态 GBM path。物理 drift/volatility
+function 与风险中性定价参数分开保存，完整函数和当日有效参数写入
+`pricing_metadata.physical_dynamics`。
 
 `start_date` 行只 materialize $S(t_0)=S_0$，OHLC 均为 `initial_spot`，不抽取从虚构前一日
 到 $t_0$ 的 transition。后续行才从 preceding materialized state 按真实 calendar interval
-演化。当前 metals config 由 [`sample_physical_dynamics.py`](../scripts/sample_physical_dynamics.py)
+演化；Friday-to-Monday 使用完整 calendar interval，并只抽取一个该 interval shock。当前 metals
+config 由 [`sample_physical_dynamics.py`](../scripts/sample_physical_dynamics.py)
 按 underlying ID 分区随机流，分别抽取互不相同的 per-underlying seed、7-node offset grid、
 drift phi/std、log-vol phi/std 和有界均值回归 Gaussian/lognormal nodes。Global seed、
 per-underlying seeds、每个参数的 hard bounds 和 realized values 全部冻结；路径生成只消费
@@ -391,7 +429,8 @@ transition 的 $Z_t$；range、volume 与 option activity 仍使用各自的稳�
 ### Option quotes
 
 `1.3.0+` 先由 `OptionChainBuilder` 生成 frozen contract grid；`1.4.0+` 在 materialization
-前应用 liquidity filter。当前 public config `1.5.0` 每个 valuation date 对已挂牌合约使用：
+前应用 liquidity filter。Legacy v3 config `1.5.0` 与当前 v4 config `1.6.0` 每个 valuation
+date 都对已挂牌合约使用：
 
 - `QuantLib.BlackScholesMertonProcess`
 - flat continuous risk-free/dividend curves
@@ -401,8 +440,10 @@ transition 的 $Z_t$；range、volume 与 option activity 仍使用各自的稳�
 - `QuantLib.AnalyticEuropeanEngine`
 - European call/put payoff
 
-QuantLib NPV 先按 `ROUND_HALF_EVEN` 量化到 8 位小数，作为
-`mid = settlement_price`；side-specific deterministic noise 只改变 bid/ask half-spread。
+QuantLib NPV 先按配置的 `option_minimum_price_increment` 执行 `ROUND_HALF_EVEN`，作为
+`mid = settlement_price`；ordinary v3/v4 的 increment 是 `0.00000001 USD`，F2A v2 parent
+则是 `0.01 USD`。Side-specific deterministic noise 只改变 bid/ask half-spread，最终
+bid/ask 再按同一 option increment 量化。
 Authoring 不再对 canonical mid 反解 IV，也不将 derived IV 或 solver status 写入
 DuckDB。Pricing volatility 是 Q-measure quote-generation input，不是下游 IV 答案；答案由
 trusted verifier 从 frozen task-visible price 独立重算。
@@ -438,55 +479,90 @@ validate DRAFT/config
 - config `1.6.0` 的 sampled physical nodes、sampling provenance 与 Q identity/mapping 都属于
   snapshot identity；修改任一项必须使用新的 `snapshot_id`。IV method 属于
   task/verifier contract。
+- 带 `q_pricing.implied_volatility_solver` 的 legacy config `1.5.0` 在当前 pipeline 下只读；
+  即使对应 snapshot 仍是 `DRAFT`，也不能 create、append、sync 或 freeze。
 
 ## 命令
 
 所有命令都必须使用仓库内 `.venv`。
 
-### 创建或幂等同步 smoke snapshot
+### 创建或幂等同步 ordinary v4 snapshot
+
+```bash
+make smoke
+```
+
+等价的显式命令是：
 
 ```bash
 .venv/bin/python scripts/edit_snapshot.py \
-  --database snapshots/public/quantlib_bsm_smoke_v1.duckdb \
-  --config configs/generators/quantlib_bsm_smoke_v1.json \
+  --database /tmp/metals-liquid-tdgbm-q-v4.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json \
   create-smoke
 ```
 
-再次运行返回 `NOOP`，revision 保持不变。
+首次运行生成完整 config horizon；再次运行返回 `NOOP`，revision 保持不变。CLI 和
+`make smoke` 的默认目标都在 `/tmp`，不会改写 active v3 或 checked-in public DB。
 
-### 追加交易日
+### 向 ordinary v4 DRAFT 追加交易日
 
 ```bash
 .venv/bin/python scripts/edit_snapshot.py \
-  --database snapshots/public/quantlib_bsm_smoke_v1.duckdb \
-  --config configs/generators/quantlib_bsm_smoke_v1.json \
+  --database /tmp/metals-liquid-tdgbm-q-v4.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json \
   append-dates --days 1
 ```
 
-### 增加 underlying 或 option
+### Legacy additive `sync-config`
 
-在 config 的 `underlyings` 或 `option_templates` 数组末尾添加新定义，然后执行：
+只有 v1/v1.1 profile 支持在同一 `DRAFT` identity 的 `underlyings` 或 `option_templates`
+末尾增加定义后回填已有日期范围：
 
 ```bash
 .venv/bin/python scripts/edit_snapshot.py \
-  --database snapshots/public/quantlib_bsm_smoke_v1.duckdb \
+  --database /tmp/legacy-additive-smoke.duckdb \
   --config path/to/additive-config.json \
   sync-config
 ```
 
-`sync-config` 使用数据库当前的最小/最大日期，为新增实体回填已有时间范围。
+`sync-config` 使用数据库当前的最小/最大日期，为新增实体回填已有时间范围。它不能用于给
+config `1.2.0+` 的 immutable driver set 或 `1.3.0+` 的 frozen option chain 增加实体；这类
+变化必须创建新 config/snapshot identity。
 
-### 查看与冻结
+### 只读查看 active v3
 
 ```bash
-.venv/bin/python scripts/edit_snapshot.py --database path/to/snapshot.duckdb \
-  --config path/to/config.json summary
+.venv/bin/python - <<'PY'
+import duckdb
 
-.venv/bin/python scripts/edit_snapshot.py --database path/to/snapshot.duckdb \
-  --config path/to/config.json freeze
+database = (
+    "snapshots/generated/"
+    "quantlib_bsm_metals_option_chain_smoke_v1_20260807.duckdb"
+)
+connection = duckdb.connect(database, read_only=True)
+try:
+    print(connection.execute("SELECT * FROM metadata.snapshots").fetchall())
+finally:
+    connection.close()
+PY
 ```
 
-`DRAFT` 可以增量编辑；`FROZEN` 会拒绝任何后续写入。若要扩展已发布 snapshot，复制配置并使用新的 `snapshot_id` 创建新数据库。
+必须显式使用 `read_only=True`。不要用 `edit_snapshot.py` 打开 active v3，因为
+`AuthoringPipeline` 初始化时会执行 schema initialization/migration。数据库缺失时应直接报告；
+不要改查 public DB，也不要尝试用当前 pipeline 重建 legacy v3 identity。
+
+### 冻结新 snapshot
+
+```bash
+.venv/bin/python scripts/edit_snapshot.py \
+  --database /tmp/metals-liquid-tdgbm-q-v4.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json \
+  freeze
+```
+
+一般情况下 `DRAFT` 可以按其 config 合同增量编辑，`FROZEN` 会拒绝任何后续写入；legacy
+authoring-IV v3 是前述只读例外。若要扩展已发布 snapshot，必须使用新的 config、snapshot
+identity 和数据库文件，不能复制 frozen DB 后沿用原 identity。
 
 ### 生成 22 品种 successor metals profile
 
@@ -507,6 +583,63 @@ Candidate grid 是 6 expiries × 11 moneyness × call/put，filter 实际保留 
 不同而使用不同 effective volatility；所有 strike 仍来自同一个 coherent deterministic-
 time-varying-diffusion BSM marginal model。
 
+## F2A parent 与计划中的 child authoring
+
+F2A 必须显式选择以下 clean parent，不能使用 ordinary v4、active v3 或 public v3 代替：
+
+```text
+database    = snapshots/generated/f2a/parents/
+              DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2/parent.duckdb
+snapshot    = DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2
+revision    = 1
+status      = FROZEN
+config      = configs/generators/quantlib_bsm_metals_f2a_parent_v2.json
+increments  = underlying 0.01 USD; option 0.01 USD
+IV audits   = 0
+```
+
+该 parent 已经 materialize 并冻结，不应重新生成、append、sync 或 mutation。当前仓库也没有
+可运行的 F2A child materializer；目标 authoring flow 是：
+
+```text
+open exact parent read-only
+  -> select a complete solver-visible subset by stable business keys
+  -> receive a pure one-point mutation spec
+  -> search the frozen integer-tick grid for the requested realized type signature
+  -> project allowlisted market fields into a new DRAFT child identity
+  -> independently recompute authoring gates from the materialized public child
+  -> write private lineage outside the Solver bundle
+  -> freeze the new child and publish its manifest atomically
+```
+
+第一版 slice key 固定为
+`(parent_snapshot_id, parent_revision, valuation_date, underlying_id)`，并要求完整的
+`4 expiries × 7 strikes × call/put = 56` 行 live chain；缺行时 deterministic skip，不补 quote、
+不 fallback，也不重新定价 parent。Option mutation 只从 parent half-spread 和 integer
+`delta_ticks` 派生一个 logical point 的新 `mid/bid/ask`；spot mutation 只改变 valuation-time
+`spot_close`，不改 option quotes，也不声称生成了新的 P-measure path。
+
+Public child 必须按字段 allowlist 新建最小 `solver_visible` views，不能从 parent `SELECT *`。
+尤其不暴露 `settlement_price`、OHLC/volume/open interest、P dynamics、seed/RNG、authoring
+canonicalization、before/after、private lineage 或 stored reference answer。F2A domain gate 检查
+有限/非负、`bid <= mid <= ask`、tick alignment、chain completeness、identity 与 visibility；它不能
+用 clean-parent BSM bounds、parity、strike monotonicity/convexity 或 calendar relation 修复刻意的
+task signal。
+
+Authoring-side candidate cashflow 必须使用 directional option bid/ask，每条 option 腿每侧收取
+`0.50 USD/contract`，每次 underlying trade 按绝对成交名义金额收取单边 `5 bps`；费用是经济
+输入，不是数值 tolerance。一次 point mutation 可能激活多个 family，必须全量重扫所有 enabled
+families，不能从 operator 或 target 推断 type。
+
+第一批 child 之前必须先 version public catalogue v3 的 cross-sectional/cross-asset exact
+formulas、transaction-cost-aware two-expiry calendar certificate、enumeration/reduction order，
+并把 private selector 从 positive/negative balance 升级为 `000` control 加七种 positive type
+signatures，以及 active/inactive 双边 guards。Authoring selector 只负责样本选择，不能和 Trusted
+verifier 共用 oracle 实现，也不能把 requested signature 或 mutation intention 当成 truth。
+
+完整 F2A 数学、权限与实施顺序见
+[`f2a_arbitrage_finding_agent_task_plan.md`](../src/synthetic_derivatives/mutation/f2a_arbitrage_finding_agent_task_plan.md)。
+
 ## Smoke-test 验收（当前实现）
 
 ```bash
@@ -523,14 +656,20 @@ make test
 - solver-visible views 覆盖 framework 字段；
 - frozen snapshot 拒绝增量写入；
 - config `1.2.0` 的 $\Lambda/D/R$ 可重放，相关 underlying 路径满足 append invariance；
-- 固定 spot 与 pricing inputs 时，underlying correlation 不影响 option quote。
+- 固定 spot 与 pricing inputs 时，underlying correlation 不影响 option quote；
 - config `1.3.0` 展开 3 expiries × 7 strikes × paired call/put，listing strike 跨日固定；
 - chain one-shot/append/`sync-config` invariant，修改 chain spec 或 listed contract 被拒绝；
 - config `1.4.0` candidate grid 只 materialize 期限/moneyness filter 内的合约；
 - quote noise 可重放、bid/ask 独立且不改变 BSM mid；
 - physical node sampling 固定 seed replay，start date 保持精确 initial condition；
-- integrated Q variance reduction、canonical-mid QuantLib IV audit 与 solver visibility boundary；
-- 22 品种 public profile 的 1,232 contracts、60,368 quotes 与等量 private audits 完整生成。
+- integrated Q variance reduction、quote tick quantization 与 solver visibility boundary；
+- legacy config `1.5.0` 的 authoring-IV identity 拒绝写入，config `1.6.0` 不接受 IV solver；
+- ordinary v4 的 1,232 contracts、60,368 quotes 与空 `option_pricing_audit` table；
+- checked-in legacy public v3 的 60,368 条历史 audit rows 与 manifest 保持一致；
+- F2A generator/variant/mutation/private-authoring configs、七维 schemas 和 repo path 合同彼此一致。
+
+最后一项只验证已落位的声明式 F2A skeleton，不证明 catalogue v3、child runtime、独立 oracle
+或端到端 F2A dataset 已实现。
 
 ## 版本与参考
 
