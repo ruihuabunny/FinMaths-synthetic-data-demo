@@ -240,6 +240,92 @@
   extrapolation, weights, and calibration objective all affect the mathematical
   object.
 
+### Arbitrage and no-arbitrage definitions
+
+- For the current arbitrage-finding phase, use a frictionless market with zero
+  transaction costs and one declared executable price for each traded claim. The
+  task contract must identify that price field. Bid/ask execution asymmetry and
+  spread costs are outside the current phase and must not be introduced silently.
+- Fix a finite horizon, a filtered probability space
+  `(Omega, F, (F_t), P)`, a strictly positive numeraire, the traded assets and
+  their cash distributions, and a class of admissible predictable self-financing
+  strategies. Wealth and cashflows at different dates must be accumulated or
+  discounted with the declared funding instruments before they are compared.
+- An admissible self-financing strategy is an arbitrage when it can be entered
+  from zero initial endowment, its terminal liquidation wealth is non-negative
+  `P`-almost surely, and its terminal liquidation wealth is strictly positive
+  with positive `P` probability. Equivalently, a task may use non-positive initial
+  cost and non-negative terminal wealth, provided it requires either a strictly
+  negative initial cost or a strictly positive terminal payoff with positive
+  probability and accounts for the initial surplus using the declared numeraire.
+- Admissibility must exclude doubling strategies. In a dynamic model this normally
+  requires discounted wealth to be bounded below by a declared constant or an
+  equivalent model-appropriate condition. A strategy is not an arbitrage merely
+  because an unconstrained numerical optimization can create unbounded positions.
+- A market satisfies no-arbitrage `NA` when no strategy in the declared admissible
+  self-financing class is an arbitrage. The strategy class is part of the claim:
+  changing short-sale constraints, dynamic trading dates, exercise rights,
+  funding access, or available instruments changes the market and can change the
+  answer.
+- Static arbitrage restricts trading in the non-cash claims to the initial time;
+  declared intermediate cashflows may only be carried according to the frozen
+  funding contract. Semi-static arbitrage holds options statically while allowing
+  declared dynamic trading in the underlying and cash account. Dynamic arbitrage
+  allows the full declared predictable self-financing strategy class. Never use a
+  static price inequality as proof for a dynamic claim, or vice versa, without a
+  theorem connecting them.
+- Arbitrage is defined under `P` up to its null sets; a pricing measure `Q` is
+  relevant only when it is equivalent to `P`. In a finite discrete frictionless
+  market, the applicable fundamental theorem relates `NA` to an equivalent
+  martingale measure under its required technical assumptions. In a general
+  semimartingale market, the standard continuous-time condition is no free lunch
+  with vanishing risk `NFLVR`, which under the theorem's assumptions is equivalent
+  to an equivalent local-martingale measure for correctly discounted gains.
+  Do not claim this equivalence without the required market and admissibility
+  hypotheses.
+- Existence of a pricing measure does not make it unique and does not select BSM,
+  Heston, or another convenient model. Conversely, disagreement between two model
+  prices, a calibration residual, a non-PSD parameter matrix, or a quote that
+  differs from one model's theoretical value is not by itself an arbitrage. It is
+  an arbitrage only if it rules out every admissible pricing system for the
+  declared traded market or yields an admissible self-financing strategy with the
+  required payoff property.
+- For a finite family of traded claims, no-arbitrage can be expressed as existence
+  of a positive linear pricing rule consistent with their cashflows and the
+  declared numeraire. When a task uses a finite template catalogue or a linear
+  program instead of the full admissible strategy set, its truth label is scoped
+  to that declared catalogue or optimization problem; it must not be described as
+  global market no-arbitrage.
+- Calendar arbitrage concerns jointly traded claims with different cashflow dates.
+  Raw option prices at two maturities cannot generally be ordered merely because
+  their strikes are equal. Rates, dividends or carry, forward levels, discounting,
+  exercise, settlement, admissible dynamic trading, and the chosen numeraire all
+  affect the valid cross-maturity restriction. A calendar test must derive its
+  comparison or optimization problem from the declared market and must produce,
+  or invoke a stated theorem guaranteeing, an admissible self-financing arbitrage.
+- Monotonic total implied variance, non-crossing normalized call-price slices, or
+  another surface criterion may be used only with its exact forward/moneyness
+  coordinates, interpolation and extrapolation policy, curve assumptions, and
+  theorem. None is a universal substitute for the arbitrage definition. In
+  particular, never label `longer maturity price < shorter maturity price` as an
+  arbitrage without proving that implication under the task's actual contracts.
+- Current F2A work must use the existing frozen parent snapshot and its declared
+  nonzero rate and dividend/carry inputs. Do not generate a zero-rate or
+  zero-dividend replacement merely to make a convenient calendar inequality true.
+  The parent remains immutable; each mutated child receives a new snapshot
+  identity and records its complete private mutation lineage.
+- An `arbitrage_opportunity` task must freeze the traded universe, observation and
+  trading times, information available at each time, strategy class, position and
+  shorting constraints, funding and cash-distribution rules, exercise and
+  settlement conventions, state space, and exact decision procedure. A positive
+  or negative label must be recomputed from the solver-visible mutated child, not
+  copied from a hidden mutation intention.
+- `maximal_spread` or maximal arbitrage profit is undefined without a normalization
+  and an optimization domain: an arbitrage can otherwise be scaled without bound.
+  Any task requesting it must freeze notional or capital normalization, position
+  constraints, objective, units, candidate strategy space, dtype, reduction order,
+  and canonicalization. A non-spread task such as F2A must not require this value.
+
 ### No-arbitrage and validity
 
 - Require the domain conditions needed by the selected model, including positive
