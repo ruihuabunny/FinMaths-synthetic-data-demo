@@ -18,6 +18,7 @@
 | Single-asset $\mathbb Q$ pricing | 已实现 | 共同 measure/numeraire/rate-path identity；canonical mid 由 QuantLib 反解 IV 并写入 private audit。 |
 | Static option chain | 已实现 | 固定 listing strike、到期日/价内外筛选、可重放 bid/ask spread noise。 |
 | Task space / mutation / curriculum | 最小版本已实现 | 六维 compatibility registry、确定性 lineage 与 adaptive sampling weights。 |
+| F2A arbitrage-finding | 兼容计划已冻结，未实现 | 复用现有 package/权限边界；七维 v2 与六维 v1 并行，不原地迁移旧 task identity。 |
 | Solver / trusted verifier / dataset export | 未实现 | 目录边界已预留，但还没有可运行实现。 |
 | 多资产 $\mathbb Q$ dependence 与 joint payoff | 未实现 | Basket/index/spread 不能由当前 single-asset baseline 推断或定价。 |
 
@@ -95,6 +96,11 @@ Authoring、Solver 和 Trusted verifier 是三个不同的权限边界：
 data/tool 和 risk output。坐标必须先通过 compatibility registry；不能把六个轴无条件做
 Cartesian product。各 level 的完整含义见
 [六维 Task Grammar](docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md#六维-task-grammar-与难度空间)。
+
+上述六维流程是当前可运行 v1 baseline。规划中的 F2A 不原地改写 v1 schema、registry、
+manifests 或 deterministic child IDs；它使用并行的 task-space v2，在同一顶层 repo 设计中增加
+string enum F 轴。F2A 市场数据 child 由 Authoring 边界物化和冻结；Mutation 层只生成
+immutable spec、identity 和 lineage，Trusted verifier 再从 public child 独立复算 ORM truth。
 
 ## Public metals snapshot
 
@@ -589,6 +595,101 @@ dependence。Pricing model registry 仍在市场数据结构、统一定价算�
 underlying 时间序列、option chain、moneyness、pricing context 和 authoring audit。
 每个 SQL 文件都在顶部提供可编辑的 `parameters` CTE，并显式固定结果排序。
 
+## F2A arbitrage-finding 兼容计划
+
+F2A 是在现有 single-asset common-$\mathbb Q$ BSM baseline 上的并行 task-authoring 支线，
+不改变前述 market-realism roadmap 的阶段顺序，也不声称已实现 Solver、Trusted verifier
+或 dataset export。完整数学、交易和 ORM 合同见
+[F2A Arbitrage-Finding Agent Task 计划](src/synthetic_derivatives/mutation/f2a_arbitrage_finding_agent_task_plan.md)。
+
+### 不变的项目边界
+
+- 现有 `snapshots/public/quantlib_bsm_smoke_v1.duckdb` 保持 byte-identical，只作为 legacy replay
+  source。F2A 要求 `0.01 USD` minimum-price increments，因此使用新 generator config、
+  generator version 和 snapshot identity 生成 tick-aligned clean parent。
+- Authoring 仍是唯一可物化、质量门控、revision 和 freeze market DuckDB 的边界。
+  `mutation/` 只生成确定性 point-mutation spec、child identity inputs 和 lineage record，不直接
+  读写 DuckDB、不运行 oracle。
+- Child snapshot 继续表示一个已物化市场世界，使用标准 `bid/ask/mid`，不新增
+  第四个市场价格 `task_price`。BSM method、deterministic Q-volatility function、execution fee、
+  candidate catalogue 和 ORM schema 是 public task convention，由 variant config 声明，不冒充为第二份
+  market DGP。
+- Trusted verifier 只从 public child、public task/variant contract 和 submission 独立重算
+  `(arbitrage_opportunity, arbitrage_type)`；它不导入 Solver，不读 parent、private lineage、mutation
+  intention 或 stored label。
+- Training 只导出已验证的 public task、trajectory、outcome 和 snapshot grouping，不打包
+  private lineage、hidden diagnostics 或 oracle traces。
+
+### 版本兼容
+
+当前六维 task-space/schema/config 是 v1 public contract，不原地增加 string F 字段。F2A 计划
+使用并行 v2：
+
+```text
+v1: (L, P, M, A, D, R)              # 现有 manifests 和 identity 保持不变
+v2: (L, P, M, A, D, R, F)           # F 是 string enum，F2A task 使用 F="F2A"
+```
+
+V2 ordinary rules 显式使用 `F0`，F2A 使用 dedicated compatibility rule。Task-space registry、
+mutation identity 和 curriculum selectors 必须一起增加 v2 dispatch；F enum 转移使用
+`direction=any`，不对 `F0/F2A/...` 做数值比较。旧 v1 task 不在加载时隐式改写为
+七字段，以避免改变 serialization 与 deterministic child ID。
+
+### 配置和实现归属
+
+F2A 不增加 `configs/arbitrage/` 或 `src/synthetic_derivatives/arbitrage/` 这类新顶层分区，
+而是按现有 repo 责任边界归属：
+
+| 现有边界 | F2A 计划中的责任 |
+|:---|:---|
+| `authoring/configs/` | Private parent selectors、authoring guard、label balance、split 与 smoke/pilot 规模。 |
+| `configs/generators/` | Tick-aligned clean parent DGP、minimum increments、rounding 和新 generator/snapshot identity。 |
+| `configs/variants/` | Solver-visible Q/numeraire/rate-path、BSM method、execution cost、candidate catalogue 与 output contract。 |
+| `configs/mutations/` | Logical option-price/spot operator IDs、integer-tick grids 和稳定枚举顺序。 |
+| `configs/task_space/` | 保留 v1，并行增加七维 registry v2 和 F2A compatibility rule。 |
+| `configs/curricula/` | 保留 v1，并行增加 v2；旧 stages 路由到 F0，另加 F2A stage。 |
+| `schemas/` | V2 difficulty/task/mutation、F2A private-lineage 形状、trajectory 和 submission schemas。 |
+| `authoring/` | Read-only parent selection、copy-on-write child materialization、market field 派生、quality gates、private lineage 和 freeze。 |
+| `mutation/` | 纯 immutable spec、identity 与 lineage records；不持有 DB write 或 oracle 权限。 |
+| `solver/` | 从 public child/variant 手工枚举 cross-sectional/calendar candidates 并生成 trajectory/submission。 |
+| `verifier/` | Verifier-owned independent oracle、submission projection 和 canonical exact equality。 |
+| `training/` | Verified records、snapshot-grouped split 和 JSONL/Parquet export。 |
+| `scripts/` | 统一非交互 materialization/verification/manifest 编排入口；不存业务数学。 |
+
+上表只是实施计划；在对应阶段开始前，不需要提前创建或移动 repo 目录。
+
+### Snapshot、manifest 与训练 artifact
+
+```text
+snapshots/generated/f2a/<child_snapshot_id>/child.duckdb
+snapshots/generated/f2a/<child_snapshot_id>/child.manifest.json
+snapshots/private/f2a/<task_id>/lineage.json
+
+datasets/manifests/tasks/f2a/<task_id>.json
+datasets/manifests/splits/f2a_v1.json
+datasets/generated/f2a/<dataset_id>.jsonl
+```
+
+`snapshots/generated/` 与 `snapshots/private/` 已被 `.gitignore` 排除。Public task manifest 只引用
+child snapshot id/revision、registry/rule 和 public contract IDs，不复制 DuckDB、parent、before/after、
+oracle 或 reference answer。Private lineage 实例不放入应提交的 `datasets/manifests/`；
+`datasets/generated/` 只保存最终可重建的训练 JSONL/Parquet。
+
+每个 child 从 DRAFT 开始，经 authoring gates 后以新 `snapshot_id/revision` 冻结。Public
+task/child IDs 不编码 operator、target、`arbitrage_type` 或 positive/negative status。Solver bundle
+只挂载 public child、public task/variant contract 与 trajectory/submission schemas。
+
+### 计划中的验收分层
+
+- `tests/unit/`：v1/v2 schema/registry/curriculum、pure mutation spec、tick materialization、candidate
+  mathematics 与 canonical type order。
+- `tests/integration/`：parent read-only、child new identity/freeze/replay、task manifest 仅引用 child
+  snapshot，private lineage 不影响 public-child truth。
+- `tests/public/`：public child/variant/schema 与 child -> submission -> verifier smoke。
+- `tests/verifier_robustness/`：错 bool、缺失/错序 `arbitrage_type`、多交 `maximal_spread`、错单位、
+  contract ID 或 snapshot revision 必须被拒绝。
+- Production hidden cases 仍只存在 Solver 无法读取的 verifier 环境，不提交到公开仓库。
+
 ## 仓库结构
 
 ```text
@@ -730,5 +831,6 @@ python3 -m venv .venv
 ## 设计文档
 
 - [DuckDB + QuantLib Authoring Pipeline](docs/authoring_pipeline.md)
+- [F2A Arbitrage-Finding Agent Task 兼容计划](src/synthetic_derivatives/mutation/f2a_arbitrage_finding_agent_task_plan.md)
 - [金融衍生品联合模拟、Task Mutation 与 Curriculum 最终设计](docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md)
 - [合成期权链 IV、Greeks 与 Smile Agent Trajectory 样例](docs/examples/synthetic_derivatives_iv_greeks_smile_deterministic_orm_agent_trajectory_example.md)

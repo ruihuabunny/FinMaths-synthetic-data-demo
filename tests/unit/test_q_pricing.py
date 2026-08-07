@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 from dataclasses import replace
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -217,3 +218,41 @@ def test_q_effective_volatility_is_integrated_piecewise_variance(
     )
 
     assert actual == pytest.approx(expected)
+
+
+def test_option_quotes_use_rounded_underlying_and_option_increments(
+    repository_root: Path,
+) -> None:
+    config = replace(
+        _small_q_config(repository_root),
+        underlying_minimum_price_increment=Decimal("0.01"),
+        option_minimum_price_increment=Decimal("0.01"),
+    )
+    underlying = config.underlyings[0]
+    generator = OptionDailyGenerator(config)
+    contract = generator.option_contract_row(
+        underlying, config.option_templates[0], "increment-test"
+    )
+
+    first = generator.option_daily_result(
+        underlying,
+        contract,
+        config.start_date,
+        Decimal("100.001"),
+        "increment-test",
+    )
+    second = generator.option_daily_result(
+        underlying,
+        contract,
+        config.start_date,
+        Decimal("100.004"),
+        "increment-test",
+    )
+
+    assert first is not None and second is not None
+    assert first.quote_row == second.quote_row
+    assert first.pricing_audit_row == second.pricing_audit_row
+    assert all(
+        value % Decimal("0.01") == 0
+        for value in first.quote_row[10:14]
+    )

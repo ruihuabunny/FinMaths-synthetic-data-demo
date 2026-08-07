@@ -1,5 +1,25 @@
 # Agent Guidelines
 
+## Active development database
+
+- Unless a task explicitly selects another snapshot, base ongoing development,
+  data inspection, examples, and end-to-end verification on
+  `snapshots/generated/quantlib_bsm_metals_option_chain_smoke_v1_20260807.duckdb`.
+- Use `configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json` as the
+  generator contract for that database and
+  `snapshots/generated/quantlib_bsm_metals_option_chain_smoke_v1_20260807.manifest.json`
+  as its materialized snapshot metadata.
+- Do not silently fall back to
+  `snapshots/public/quantlib_bsm_smoke_v1.duckdb` or another convenient database
+  when the active development database is expected. If the active database is
+  missing, report it or regenerate it from the declared config with the authoring
+  pipeline.
+- The active database is snapshot
+  `DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3`, revision `1`, currently in
+  `DRAFT` state. Do not describe it as frozen or use it where a frozen parent is
+  mathematically required. Freezing, mutating, or regenerating it must remain an
+  explicit task action and must follow the snapshot-identity rules below.
+
 ## Follow mathematical facts
 
 - Treat mathematical facts as hard constraints. Implementations, tests, fixtures,

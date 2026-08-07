@@ -40,7 +40,7 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
             underlying.underlying_id,
             self.config.currency,
             "synthetic_equity",
-            self.quantize_price(underlying.initial_spot),
+            self.quantize_underlying_price(underlying.initial_spot),
             underlying.physical_drift,
             underlying.physical_volatility,
             underlying.risk_free_rate,
@@ -104,6 +104,7 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
         dt = self.day_count.yearFraction(previous_ql_date, valuation_date)
         if dt <= 0:
             raise ValueError("underlying dates must be strictly increasing")
+        previous_close = self.quantize_underlying_price(previous_close)
 
         effective_drift, effective_volatility = self.physical_interval_parameters(
             underlying, previous_date, market_date
@@ -138,20 +139,20 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
         range_shock = abs(
             self._gaussian("underlying-range", underlying.underlying_id, market_date)
         )
-        close = self.quantize_price(
+        close = self.quantize_underlying_price(
             process.evolve(0.0, float(previous_close), dt, close_shock)
         )
         # Persisted precision is part of the path law: an append run restarts
         # from this configured-precision close, exactly as a one-shot run advances
         # from the preceding in-memory row.
-        open_price = self.quantize_price(previous_close)
+        open_price = self.quantize_underlying_price(previous_close)
         range_fraction = effective_volatility * math.sqrt(dt) * range_shock * 0.25
-        high = self.quantize_price(
+        high = self.quantize_underlying_price(
             max(open_price, close) * Decimal(str(1.0 + range_fraction))
         )
-        low = self.quantize_price(
+        low = self.quantize_underlying_price(
             max(
-                self.price_quantum,
+                self.underlying_price_increment,
                 min(open_price, close)
                 * Decimal(str(max(0.0, 1.0 - range_fraction))),
             )
@@ -180,7 +181,7 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
     ) -> tuple[Any, ...]:
         """Materialize ``S(start_date)=initial_spot`` without a fake transition."""
 
-        initial_spot = self.quantize_price(underlying.initial_spot)
+        initial_spot = self.quantize_underlying_price(underlying.initial_spot)
         volume_uniform = self._uniform(
             "underlying-volume", underlying.underlying_id, self.config.start_date
         )
@@ -231,6 +232,21 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
             "state_precision_contract": "published_decimal_close_is_restart_state",
             "ohlc_model": "separate_synthetic_range-v1",
         }
+        has_market_price_increments = (
+            self.config.underlying_minimum_price_increment != self.price_quantum
+            or self.config.option_minimum_price_increment != self.price_quantum
+        )
+        if has_market_price_increments:
+            physical_dynamics_value.update(
+                {
+                    "state_precision_contract": (
+                        "published_minimum_price_increment_close_is_restart_state"
+                    ),
+                    "underlying_minimum_price_increment": str(
+                        self.config.underlying_minimum_price_increment
+                    ),
+                }
+            )
         if self.config.underlying_simulation is not None:
             simulation = self.config.underlying_simulation
             physical_dynamics_value.update(
@@ -313,6 +329,10 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
                 ),
                 "quote_iv_source": "QuantLib inversion of canonical option mid",
             }
+        if has_market_price_increments:
+            pricing_dynamics_value["option_minimum_price_increment"] = str(
+                self.config.option_minimum_price_increment
+            )
         pricing_dynamics = canonical_json(pricing_dynamics_value)
         discount_curve = canonical_json(
             {"type": "flat_continuous", "rate": underlying.risk_free_rate}
@@ -320,19 +340,24 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
         dividend_curve = canonical_json(
             {"type": "flat_continuous", "yield": underlying.dividend_yield}
         )
-        input_precision = canonical_json(
-            {
-                "dtype": "float64",
-                "market_quote_decimal_places": self.config.quote_decimal_places,
+        input_precision_value: dict[str, Any] = {
+            "dtype": "float64",
+            "market_quote_decimal_places": self.config.quote_decimal_places,
+        }
+        canonicalization_value: dict[str, Any] = {
+            "decimal_places": self.config.quote_decimal_places,
+            "rounding": "ROUND_HALF_EVEN",
+            "encoding": "UTF-8",
+        }
+        if has_market_price_increments:
+            price_increments = {
+                "underlying": str(self.config.underlying_minimum_price_increment),
+                "option": str(self.config.option_minimum_price_increment),
             }
-        )
-        canonicalization = canonical_json(
-            {
-                "decimal_places": self.config.quote_decimal_places,
-                "rounding": "ROUND_HALF_EVEN",
-                "encoding": "UTF-8",
-            }
-        )
+            input_precision_value["minimum_price_increments"] = price_increments
+            canonicalization_value["minimum_price_increments"] = price_increments
+        input_precision = canonical_json(input_precision_value)
+        canonicalization = canonical_json(canonicalization_value)
         logical = [
             self.config.snapshot_id,
             valuation_timestamp,

@@ -84,6 +84,29 @@ def test_five_underlyings_five_options_five_days_smoke(
             "SELECT bool_and(bid <= mid AND mid <= ask) FROM market.option_daily"
         ).fetchone()[0]
         assert connection.execute(
+            """
+            SELECT bool_and(
+                spot_open = round(spot_open, 2)
+                AND spot_high = round(spot_high, 2)
+                AND spot_low = round(spot_low, 2)
+                AND spot_close = round(spot_close, 2)
+                AND adjusted_close = round(adjusted_close, 2)
+            )
+            FROM market.underlying_daily
+            """
+        ).fetchone()[0]
+        assert connection.execute(
+            """
+            SELECT bool_and(
+                bid = round(bid, 2)
+                AND ask = round(ask, 2)
+                AND mid = round(mid, 2)
+                AND settlement_price = round(settlement_price, 2)
+            )
+            FROM market.option_daily
+            """
+        ).fetchone()[0]
+        assert connection.execute(
             "SELECT count(DISTINCT pricing_engine) FROM market.pricing_metadata"
         ).fetchone()[0] == 1
     finally:

@@ -10,7 +10,10 @@ from typing import Any
 
 import QuantLib as ql
 
-from synthetic_derivatives.authoring.config import GeneratorConfig
+from synthetic_derivatives.authoring.config import (
+    GeneratorConfig,
+    quantize_to_increment,
+)
 
 
 PINNED_QUANTLIB_VERSION = "1.39"
@@ -73,12 +76,32 @@ class QuantLibGeneratorBase:
         self.calendar = ql.WeekendsOnly()
         self.day_count = ql.Actual365Fixed()
         self.price_quantum = price_quantum(config.quote_decimal_places)
+        self.underlying_price_increment = config.underlying_minimum_price_increment
+        self.option_price_increment = config.option_minimum_price_increment
 
     def quantize_price(self, value: float | Decimal) -> Decimal:
         """Quantize a published value using the JSON precision contract."""
 
         return quantize_price(
             value, decimal_places=self.config.quote_decimal_places
+        )
+
+    def quantize_underlying_price(self, value: float | Decimal) -> Decimal:
+        """Round one underlying price to its configured minimum increment."""
+
+        return quantize_to_increment(
+            value,
+            self.underlying_price_increment,
+            decimal_places=self.config.quote_decimal_places,
+        )
+
+    def quantize_option_price(self, value: float | Decimal) -> Decimal:
+        """Round one option quote to its configured minimum increment."""
+
+        return quantize_to_increment(
+            value,
+            self.option_price_increment,
+            decimal_places=self.config.quote_decimal_places,
         )
 
     def business_dates(self, start: date, count: int) -> list[date]:

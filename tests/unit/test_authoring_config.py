@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,7 @@ from synthetic_derivatives.authoring.config import (
     DeterministicFunction,
     DeterministicFunctionNode,
     load_generator_config,
+    quantize_to_increment,
 )
 from synthetic_derivatives.authoring.underlying_daily_generator import (
     UnderlyingDailyGenerator,
@@ -145,4 +147,78 @@ def test_quote_precision_controls_generated_values_and_metadata(
     assert json.loads(metadata_row[19]) == {
         "dtype": "float64",
         "market_quote_decimal_places": 4,
+        "minimum_price_increments": {
+            "option": "0.01",
+            "underlying": "0.01",
+        },
     }
+
+
+def test_market_prices_round_to_configured_minimum_increments(
+    tmp_path: Path, smoke_config_path: Path
+) -> None:
+    raw = json.loads(smoke_config_path.read_text(encoding="utf-8"))
+    raw["underlying_minimum_price_increment"] = "0.05"
+    raw["option_minimum_price_increment"] = "0.01"
+    raw["underlyings"][0]["initial_spot"] = 80.03
+    config_path = tmp_path / "minimum-price-increments.json"
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+    config = load_generator_config(config_path)
+    generator = UnderlyingDailyGenerator(config)
+
+    initial_row = generator.initial_underlying_daily_row(
+        config.underlyings[0], "increment-test"
+    )
+
+    assert initial_row[3:8] == (Decimal("80.05000000"),) * 5
+    assert quantize_to_increment(
+        Decimal("1.025"), Decimal("0.05"), decimal_places=8
+    ) == Decimal("1.00000000")
+
+
+def test_f2a_and_ticked_authoring_config_use_the_same_price_increments(
+    repository_root: Path, smoke_config_path: Path
+) -> None:
+    authoring = load_generator_config(smoke_config_path)
+    f2a = json.loads(
+        (
+            repository_root / "configs/arbitrage/f2a_us_options_v1.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert authoring.underlying_minimum_price_increment == Decimal(
+        f2a["underlying_minimum_price_increment"]
+    )
+    assert authoring.option_minimum_price_increment == Decimal(
+        f2a["option_minimum_price_increment"]
+    )
+    assert Decimal(f2a["option_price_mutation_increment"]) % (
+        authoring.option_minimum_price_increment
+    ) == 0
+    assert Decimal(f2a["spot_mutation_increment"]) % (
+        authoring.underlying_minimum_price_increment
+    ) == 0
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    [
+        ("underlying_minimum_price_increment", "0"),
+        ("underlying_minimum_price_increment", "0.000000001"),
+        ("option_minimum_price_increment", "-0.01"),
+        ("option_minimum_price_increment", "not-a-decimal"),
+    ],
+)
+def test_minimum_price_increment_must_be_positive_and_storable(
+    tmp_path: Path,
+    smoke_config_path: Path,
+    field_name: str,
+    invalid_value: str,
+) -> None:
+    raw = json.loads(smoke_config_path.read_text(encoding="utf-8"))
+    raw[field_name] = invalid_value
+    config_path = tmp_path / f"invalid-{field_name}.json"
+    config_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=field_name):
+        load_generator_config(config_path)

@@ -12,7 +12,7 @@ snapshot。Solver 不应直接导入本包，也不能访问其中的 private ge
 | 模块 | 职责 |
 |:---|:---|
 | [`config.py`](config.py) | 解析 generator config；校验 deterministic physical functions、underlying dependence、option-chain grid 和稳定 ID；规范派生 $D$ 与 $R$。 |
-| [`generator_common.py`](generator_common.py) | 两个 generator 共享的 pinned QuantLib 检查、calendar/day-count、日期转换、8 位 decimal canonicalization，以及 namespaced deterministic RNG。 |
+| [`generator_common.py`](generator_common.py) | 两个 generator 共享的 pinned QuantLib 检查、calendar/day-count、日期转换、配置化 minimum-price-increment 量化，以及 namespaced deterministic RNG。 |
 | [`underlying_daily_generator.py`](underlying_daily_generator.py) | 生成 underlying master、private P-measure dependence、`underlying_daily` 和 `pricing_metadata`；这是唯一消费 $\Lambda/D/R$ 的 generator。 |
 | [`option_daily_generator.py`](option_daily_generator.py) | 生成 private option-chain spec、冻结的 option contracts、Q-measure `option_daily`，并从 canonical mid 生成 private QuantLib IV audit；不提供 underlying path/dependence API。 |
 | [`pipeline.py`](pipeline.py) | 编排两个 generator、DuckDB transaction、incremental MERGE、snapshot compatibility、quality gates、revision 和 manifest。 |
@@ -70,8 +70,9 @@ option IDs、Greeks 或其他 derivative contracts。
 
 `start_date` materialize 的是 $S(t_0)=S_0$ initial condition，不从虚构前一日抽 shock。
 之后每个 actual-calendar interval 对 piecewise-linear $\mu_P(t)$ 精确积分取平均，并对
-$\sigma_P^2(t)$ 精确积分取 RMS；这两个 flat-equivalent coefficients 使 QuantLib GBM
-transition 与 deterministic time-inhomogeneous GBM 在 observation endpoints 上同分布。
+$\sigma_P^2(t)$ 精确积分取 RMS；这两个 flat-equivalent coefficients 先给出连续 GBM endpoint，
+再按 `underlying_minimum_price_increment` 做 `ROUND_HALF_EVEN`。量化后的 close 是下一步 restart
+state，因此 authored path 是明确的 rounded-state Markov chain。
 
 ### Option generation
 
@@ -101,7 +102,8 @@ Config `1.5.0` 删除 `base_implied_volatility` 和 legacy smile，改为 snapsh
 `q_pricing` contract。当前 baseline 明确选择 drift-only Girsanov mapping：Q drift 为
 $r-q$，deterministic diffusion 保持 $\sigma_Q(t)=\sigma_P(t)$。每个 valuation/expiry
 区间使用 integrated-variance RMS 作为 QuantLib analytic BSM 的 exact constant equivalent。
-NPV 先量化为 solver 可见的 8-decimal canonical mid，再调用
+Option generator 只使用已经按 underlying increment 量化的 spot。NPV、mid、bid、ask 和 settlement
+price 再按 `option_minimum_price_increment` 量化，然后调用
 `QuantLib.VanillaOption.impliedVolatility`。输入 Q volatility、未舍入价、mid、derived IV、
 solver contract 和合法失败状态写入 private `market.option_pricing_audit`；不会把 hidden
 pricing volatility 当作 IV 发布。
@@ -126,6 +128,9 @@ $\mathbb Q$/numeraire/rate-path identity；multi-asset Q-dependence 与 joint pa
 | `1.5.0` | 增加 per-underlying sampled-and-frozen physical functions（含 seeds/hard bounds）、显式 Q mapping 与 canonical-mid QuantLib IV audit。 |
 
 当前 authoring schema 为 `2.4.0`，支持从 `2.0.0/2.1.0/2.2.0/2.3.0` additive migration。
+所有 generator configs 还必须显式声明可由 DuckDB `DECIMAL(24,8)` 表示的正数
+`underlying_minimum_price_increment` 和 `option_minimum_price_increment`。改变任一 increment 会改变
+underlying path law 或 option quote law，必须使用新的 generator/snapshot identity。
 `market.option_chain_specs` 同时保存 liquidity filter 和完整 quote model。Private
 authoring tables 包括：
 

@@ -1,8 +1,8 @@
 {
   "schema_version": "1.1.0",
-  "generator_config_id": "quantlib-bsm-example-v1",
-  "generator_version": "0.2.0",
-  "snapshot_id": "DERIVATIVES-EXAMPLE-v1",
+  "generator_config_id": "quantlib-bsm-ticked-example-v2",
+  "generator_version": "0.2.1",
+  "snapshot_id": "DERIVATIVES-TICKED-EXAMPLE-v2",
   "seed": 20260804,
   "rng": "QuantLib.BoxMullerMersenneTwisterGaussianRng/partitioned-sha256-seed-v1",
   "start_date": "2026-08-03",
@@ -15,6 +15,8 @@
   "physical_process": "QuantLib.BlackScholesMertonProcess",
   "currency": "USD",
   "quote_decimal_places": 8,
+  "underlying_minimum_price_increment": "0.01",
+  "option_minimum_price_increment": "0.01",
   "underlyings": [
     {
       "underlying_id": "SYNTH-EXAMPLE-01",

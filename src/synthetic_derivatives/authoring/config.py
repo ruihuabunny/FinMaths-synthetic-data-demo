@@ -12,6 +12,23 @@ from pathlib import Path
 from typing import Any
 
 
+def quantize_to_increment(
+    value: float | Decimal,
+    increment: Decimal,
+    *,
+    decimal_places: int,
+) -> Decimal:
+    """Round a market price to an exact configured increment."""
+
+    ticks = (Decimal(str(value)) / increment).quantize(
+        Decimal("1"), rounding=ROUND_HALF_EVEN
+    )
+    result = (ticks * increment).quantize(
+        Decimal(1).scaleb(-decimal_places), rounding=ROUND_HALF_EVEN
+    )
+    return abs(result) if result == 0 else result
+
+
 @dataclass(frozen=True)
 class DeterministicFunctionNode:
     """One value on a calendar-day-offset deterministic parameter curve."""
@@ -483,6 +500,8 @@ class GeneratorConfig:
     physical_process: str
     currency: str
     quote_decimal_places: int
+    underlying_minimum_price_increment: Decimal
+    option_minimum_price_increment: Decimal
     underlyings: tuple[UnderlyingConfig, ...]
     option_templates: tuple[OptionTemplate, ...]
     smile: dict[str, float] | None
@@ -536,6 +555,16 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
         or not 1 <= quote_decimal_places <= 8
     ):
         raise ValueError("quote_decimal_places must be an integer between 1 and 8")
+    underlying_minimum_price_increment = _parse_minimum_price_increment(
+        raw.get("underlying_minimum_price_increment"),
+        field_name="underlying_minimum_price_increment",
+        decimal_places=quote_decimal_places,
+    )
+    option_minimum_price_increment = _parse_minimum_price_increment(
+        raw.get("option_minimum_price_increment"),
+        field_name="option_minimum_price_increment",
+        decimal_places=quote_decimal_places,
+    )
 
     underlyings_list: list[UnderlyingConfig] = []
     for item in raw["underlyings"]:
@@ -586,7 +615,12 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
         )
         builder = OptionChainBuilder(option_chain)
         templates = builder.build_templates()
-        _validate_chain_strikes(underlyings, builder)
+        _validate_chain_strikes(
+            underlyings,
+            builder,
+            underlying_minimum_price_increment,
+            quote_decimal_places,
+        )
     else:
         if "option_chain" in raw:
             raise ValueError(
@@ -661,6 +695,8 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
         physical_process=raw["physical_process"],
         currency=raw["currency"],
         quote_decimal_places=quote_decimal_places,
+        underlying_minimum_price_increment=underlying_minimum_price_increment,
+        option_minimum_price_increment=option_minimum_price_increment,
         underlyings=underlyings,
         option_templates=templates,
         smile=smile,
@@ -670,6 +706,31 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
         underlying_simulation=underlying_simulation,
         option_chain=option_chain,
     )
+
+
+def _parse_minimum_price_increment(
+    raw: Any,
+    *,
+    field_name: str,
+    decimal_places: int,
+) -> Decimal:
+    """Validate one positive price increment representable by DuckDB scale."""
+
+    try:
+        increment = Decimal(str(raw))
+    except Exception as error:
+        raise ValueError(f"{field_name} must be a decimal") from error
+    storage_quantum = Decimal(1).scaleb(-decimal_places)
+    if (
+        not increment.is_finite()
+        or increment <= 0
+        or increment != increment.quantize(storage_quantum)
+    ):
+        raise ValueError(
+            f"{field_name} must be positive and representable with "
+            f"quote_decimal_places={decimal_places}"
+        )
+    return increment
 
 
 def _parse_option_chain(raw: Any, *, schema_version: str) -> OptionChainConfig:
@@ -1002,7 +1063,10 @@ def _parse_q_pricing(raw: Any) -> QPricingConfig:
 
 
 def _validate_chain_strikes(
-    underlyings: tuple[UnderlyingConfig, ...], builder: OptionChainBuilder
+    underlyings: tuple[UnderlyingConfig, ...],
+    builder: OptionChainBuilder,
+    underlying_minimum_price_increment: Decimal,
+    quote_decimal_places: int,
 ) -> None:
     """Reject a grid whose exchange rounding collapses distinct contracts.
 
@@ -1013,9 +1077,14 @@ def _validate_chain_strikes(
 
     for underlying in underlyings:
         grid = builder.selected_grid()
+        listing_spot = quantize_to_increment(
+            underlying.initial_spot,
+            underlying_minimum_price_increment,
+            decimal_places=quote_decimal_places,
+        )
         strikes = [
             builder.absolute_strike(
-                underlying.initial_spot,
+                listing_spot,
                 strike_input if builder.chain.moneyness_grid is not None else None,
                 strike_input if builder.chain.strike_grid is not None else None,
             )
