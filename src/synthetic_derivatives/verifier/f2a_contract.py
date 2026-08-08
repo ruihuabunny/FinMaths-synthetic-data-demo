@@ -22,6 +22,35 @@ class CandidateCertificate:
 
 
 @dataclass(frozen=True)
+class FittedCounterfactualQuote:
+    """Typed v5 model input; it is not an executable market quote."""
+
+    row_id: str
+    fitted_price: float
+    parameter_standard_error: float
+    price_gradient: tuple[float, ...]
+
+
+@dataclass(frozen=True)
+class ModelSignalEdge:
+    """Typed post-cost fitted edge kept separate from v4 certificates."""
+
+    candidate_id: str
+    family: str
+    gross_model_edge: float
+    option_spread_cost: float
+    option_fees: float
+    underlying_costs: float
+    funding_and_dividend: float
+    net_signal_edge: float
+    parameter_standard_error: float
+
+    @property
+    def active(self) -> bool:
+        return self.net_signal_edge > 0.0
+
+
+@dataclass(frozen=True)
 class OptionQuote:
     """One executable quote used by the runtime-independent contract scanner."""
 

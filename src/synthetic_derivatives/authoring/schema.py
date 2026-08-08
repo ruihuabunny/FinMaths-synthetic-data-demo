@@ -288,11 +288,106 @@ CREATE OR REPLACE VIEW solver_visible.pricing_metadata AS
 SELECT
     snapshot_id, valuation_timestamp, underlying_id, currency,
     discount_curve, risk_free_rate, dividend_curve, dividend_yield,
-    borrow_or_carry_rate, calendar, day_count, physical_dynamics,
-    pricing_dynamics, pricing_model, pricing_engine, generator_version,
-    seed, rng, input_precision, canonicalization
+    borrow_or_carry_rate, calendar, day_count,
+    json_object(
+        'measure', json_extract_string(physical_dynamics, '$.measure'),
+        'process', json_extract_string(physical_dynamics, '$.process'),
+        'time_origin', json_extract_string(physical_dynamics, '$.time_origin'),
+        'time_axis', json_extract_string(physical_dynamics, '$.time_axis'),
+        'state_precision_contract',
+            json_extract_string(physical_dynamics, '$.state_precision_contract'),
+        'drift_function', json_object(
+            'type', json_extract_string(physical_dynamics, '$.drift_function.type'),
+            'node_offsets_calendar_days',
+                json_extract(physical_dynamics, '$.drift_function.nodes[*].day_offset'),
+            'extrapolation',
+                json_extract_string(physical_dynamics, '$.drift_function.extrapolation')
+        ),
+        'volatility_function', json_object(
+            'type', json_extract_string(physical_dynamics, '$.volatility_function.type'),
+            'node_offsets_calendar_days',
+                json_extract(physical_dynamics, '$.volatility_function.nodes[*].day_offset'),
+            'extrapolation',
+                json_extract_string(physical_dynamics, '$.volatility_function.extrapolation')
+        )
+    ) AS physical_dynamics,
+    json_object(
+        'measure', json_extract_string(pricing_dynamics, '$.measure'),
+        'process', json_extract_string(pricing_dynamics, '$.process'),
+        'risk_neutral_drift',
+            json_extract_string(pricing_dynamics, '$.risk_neutral_drift'),
+        'q_pricing', json_extract(pricing_dynamics, '$.q_pricing'),
+        'volatility_parameterization',
+            'linked_stage1_piecewise_linear_diffusion',
+        'stage1_diffusion_reference', 'physical_dynamics.volatility_function'
+    ) AS pricing_dynamics,
+    pricing_model, pricing_engine, generator_version,
+    NULL::UBIGINT AS seed, rng, input_precision, canonicalization
 FROM market.pricing_metadata;
 """
+
+
+PRIVATE_METADATA_KEYS = frozenset(
+    {
+        "seed",
+        "sampling_seed",
+        "mutation_seed",
+        "parameter_generator_seed",
+        "value",
+        "drift",
+        "volatility",
+        "clean_quotes",
+        "quote_noise_realization",
+        "requested_signature",
+        "private_truth_signature",
+        "mutation_lineage",
+        "canonical_answer",
+    }
+)
+
+
+def public_dynamics_projection(raw: dict[str, Any]) -> dict[str, Any]:
+    """Expose node locations and model semantics without private node heights."""
+
+    def function_projection(function: Any) -> dict[str, Any]:
+        if not isinstance(function, dict):
+            raise ValueError("node function metadata must be an object")
+        nodes = function.get("nodes")
+        if not isinstance(nodes, list) or not nodes:
+            raise ValueError("node function metadata requires public locations")
+        return {
+            "type": function.get("type"),
+            "node_offsets_calendar_days": [int(node["day_offset"]) for node in nodes],
+            "extrapolation": function.get("extrapolation"),
+        }
+
+    return {
+        key: raw[key]
+        for key in (
+            "measure",
+            "process",
+            "time_origin",
+            "time_axis",
+            "state_precision_contract",
+        )
+        if key in raw
+    } | {
+        "drift_function": function_projection(raw["drift_function"]),
+        "volatility_function": function_projection(raw["volatility_function"]),
+    }
+
+
+def assert_no_private_metadata_leakage(value: Any, path: str = "public") -> None:
+    """Recursively reject private values even when nested or renamed by a wrapper."""
+
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if str(key).casefold() in PRIVATE_METADATA_KEYS:
+                raise ValueError(f"private metadata field leaked at {path}.{key}")
+            assert_no_private_metadata_leakage(item, f"{path}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            assert_no_private_metadata_leakage(item, f"{path}[{index}]")
 
 
 @dataclass(frozen=True)

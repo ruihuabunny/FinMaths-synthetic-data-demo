@@ -411,7 +411,8 @@ function 与风险中性定价参数分开保存，完整函数和当日有效�
 到 $t_0$ 的 transition。后续行才从 preceding materialized state 按真实 calendar interval
 演化；Friday-to-Monday 使用完整 calendar interval，并只抽取一个该 interval shock。当前 metals
 config 由 [`sample_physical_dynamics.py`](../scripts/sample_physical_dynamics.py)
-按 underlying ID 分区随机流，分别抽取互不相同的 per-underlying seed、7-node offset grid、
+按 underlying ID 分区随机流，分别抽取互不相同的 per-underlying seed、3-node offset grid；
+全部 scored nodes 位于 126-business-day public horizon 内。脚本同时抽取
 drift phi/std、log-vol phi/std 和有界均值回归 Gaussian/lognormal nodes。Global seed、
 per-underlying seeds、每个参数的 hard bounds 和 realized values 全部冻结；路径生成只消费
 realized nodes。
@@ -574,8 +575,8 @@ identity 和数据库文件，不能复制 frozen DB 后沿用原 identity。
   create-smoke
 ```
 
-期望规模为 22 个 underlyings、1,232 个 option contracts、65 个 business dates、1,430
-条 underlying daily、60,368 条 expiry 前 option daily、1,430 条 pricing metadata，以及
+期望规模为 22 个 underlyings、1,232 个 option contracts、126 个 business dates、2,772
+条 underlying daily、79,156 条 expiry 前 option daily、2,772 条 pricing metadata，以及
 0 条 legacy option pricing audit。Successor 使用新 snapshot/config/generator identity，不用
 旧 v3 identity 表示改变后的 authoring output。
 Candidate grid 是 6 expiries × 11 moneyness × call/put，filter 实际保留 4 × 7 × 2。

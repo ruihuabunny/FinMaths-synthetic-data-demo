@@ -414,7 +414,7 @@ def test_checked_in_metals_profile_has_22_underlying_only_drivers_and_liquid_cha
     )
 
     assert config.schema_version == "1.6.0"
-    assert config.business_days == 65
+    assert config.business_days == 126
     assert len(config.underlyings) == 22
     assert len(config.option_templates) == 4 * 7 * 2
     assert config.underlying_simulation is not None
@@ -437,8 +437,8 @@ def test_checked_in_metals_profile_has_22_underlying_only_drivers_and_liquid_cha
         underlying.base_implied_volatility is None
         and underlying.physical_drift_function.function_type == "piecewise_linear"
         and underlying.physical_volatility_function.function_type == "piecewise_linear"
-        and len(underlying.physical_drift_function.nodes) == 7
-        and len(underlying.physical_volatility_function.nodes) == 7
+        and len(underlying.physical_drift_function.nodes) == 3
+        and len(underlying.physical_volatility_function.nodes) == 3
         for underlying in config.underlyings
     )
 

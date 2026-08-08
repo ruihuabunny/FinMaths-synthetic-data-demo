@@ -12,6 +12,8 @@ from itertools import combinations
 from math import exp, gcd, isfinite
 from typing import Any, Mapping
 
+from synthetic_derivatives.solver.f2a_v5 import solve_f2a_database
+
 
 FAMILY_ORDER = ("cross-sectional", "cross-asset", "calendar")
 ETA = 1e-8
@@ -265,3 +267,9 @@ def build_submission(public_child: Mapping[str, Any]) -> dict[str, Any]:
             "Outcome": {"orm_answer": orm},
         },
     }
+
+
+def build_v5_submission(public_database: str) -> dict[str, Any]:
+    """Dispatch to the independent public-only full-trajectory v5 Solver."""
+
+    return solve_f2a_database(public_database)

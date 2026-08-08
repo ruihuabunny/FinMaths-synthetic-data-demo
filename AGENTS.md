@@ -44,6 +44,24 @@
   candidates. Truth is recomputed from the public child by the independent v4
   oracle; requested signatures and mutation intention are private authoring
   inputs only.
+- Full-trajectory work uses the separate executable variant
+  `bsm_model_reconstruction_xut_signal_f2a_v5`, three public shared
+  drift/diffusion node locations per underlying, linked Stage-1 diffusion BSM
+  counterfactuals, and a post-cost model-signal catalogue. Its scored X/U/T
+  label is recomputed from the public child and is not an executable-arbitrage
+  certificate. The frozen v4 oracle remains a separate execution audit.
+- V5 production authoring requires the distinct tick-aligned parent identity
+  `DERIVATIVES-METALS-F2A-MODEL-SIGNAL-TICK-ALIGNED-TDGBM-Q-v1`; an unqualified
+  legacy v3 database is never a fallback. Public packages expose node locations
+  but not node values, clean quotes, seeds, mutation lineage, private truth, or
+  FP/FN calibration flags.
+- V5 task generation defaults to pilot status. A release must explicitly provide
+  a private, gate-passing 2,000+ task-seed cohort report; the authoring boundary
+  rechecks task/family FP/FN confidence bounds, exact-signature accuracy and the
+  bootstrap maximum statistic. The current 126-day, three-node configuration
+  remains a pilot until that cohort gate passes and must not be described as
+  release-ready. Under its frozen v4 mutation tick grid, `011` is parent-wide
+  unreachable; the runnable pilot scope is `001/010/100/101/110/111`.
 
 ## Follow mathematical facts
 

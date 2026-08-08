@@ -20,10 +20,13 @@ import QuantLib as ql
 
 # Structural choices are fixed; every numerical sampling parameter below is
 # drawn within a recorded hard bound before node values are sampled.
-NODE_COUNT = 7
+NODE_COUNT = 3
+PROFILE_BUSINESS_DAYS = 126
 SAMPLING_SEED_BOUNDS = (1, 2**32 - 1)
-INTERIOR_NODE_OFFSET_BOUNDS = (14, 181)
-TERMINAL_NODE_OFFSET_BOUNDS = (182, 365)
+# The 126-business-day profile spans calendar offsets 0--175.  Every scored
+# basis function must therefore affect a public close-to-close transition.
+INTERIOR_NODE_OFFSET_BOUNDS = (70, 103)
+TERMINAL_NODE_OFFSET_BOUNDS = (149, 175)
 DRIFT_PHI_BOUNDS = (0.35, 0.85)
 DRIFT_INITIAL_STDDEV_BOUNDS = (0.002, 0.015)
 DRIFT_INNOVATION_STDDEV_BOUNDS = (0.005, 0.030)
@@ -72,7 +75,7 @@ def _uniform_integer(
 
 
 def _sample_node_offsets(sampling_seed: int) -> tuple[int, ...]:
-    """Sample a strictly increasing grid that spans the liquid option horizon."""
+    """Sample a strictly increasing grid supported by the public path horizon."""
 
     lower, upper = INTERIOR_NODE_OFFSET_BOUNDS
     priorities = sorted(
@@ -229,6 +232,7 @@ def sample_config(
             ),
             "generator_version": "0.8.0",
             "snapshot_id": "DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v4",
+            "business_days": PROFILE_BUSINESS_DAYS,
         }
     )
     used_underlying_seeds: set[int] = set()

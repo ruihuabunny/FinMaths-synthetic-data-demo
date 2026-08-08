@@ -18,8 +18,8 @@
 | Single-asset $\mathbb Q$ pricing | 已实现 | 共同 measure/numeraire/rate-path identity；QuantLib 生成 canonical mid，authoring 不反解或持久化 IV 答案。 |
 | Static option chain | 已实现 | 固定 listing strike、到期日/价内外筛选、可重放 bid/ask spread noise。 |
 | Task space / mutation / curriculum | 最小版本已实现 | 六维 compatibility registry、确定性 lineage 与 adaptive sampling weights。 |
-| F2A arbitrage-finding | v4 可执行 | Calendar stock-flip catalogue、三类 mutation、authoring selector、独立 oracle、Solver/verifier、lineage v4、真实 tick reachability 与 smoke 已实现；v2/v3 保留为历史 blocked records。 |
-| Solver / trusted verifier / dataset export | F2A v4 范围已实现 | Ordinary 数值任务与正式多-parent training export 仍是后续工作；F2A v4 已有独立 Solver/verifier 和 audit-only 单-parent artifact。 |
+| F2A arbitrage-finding | v4 可执行；v5 pilot 可运行 | V4 保留 transaction-cost-aware executable catalogue；v5 独立实现 8-underlying 三节点 fitting、linked BSM counterfactual、localisation、post-cost model-signal scan 与 FP/FN authoring audit；release 仍受 cohort gate 阻挡。 |
+| Solver / trusted verifier / dataset export | F2A v4/v5 范围已实现 | V5 reference Solver 只读 public DuckDB，并与 V0/V1/V2/V3 trusted verifier exact-match；正式 release 仍须通过独立 task-seed cohort calibration。 |
 | 多资产 $\mathbb Q$ dependence 与 joint payoff | 未实现 | Basket/index/spread 不能由当前 single-asset baseline 推断或定价。 |
 
 当前的 volatility mapping 是一个明确的 baseline 假设：Girsanov change of measure 只改变
@@ -620,6 +620,63 @@ F2A 是在现有 single-asset common-$\mathbb Q$ BSM baseline 上的并行 task-
 verifier 和 audit-only dataset artifact；它不声称完成 ordinary task runtime 或正式多-parent
 training export。完整数学、交易和 ORM 合同见
 [F2A Arbitrage-Finding Agent Task 计划](src/synthetic_derivatives/mutation/f2a_arbitrage_finding_agent_task_plan.md)。
+
+Full-trajectory v5 使用独立 identity
+`bsm_model_reconstruction_xut_signal_f2a_v5`。它的 X/U/T 是 public child 上 fitted
+counterfactual 的 **model-based signal**，不能表述成 executable-arbitrage proof；v4 oracle
+只作为分开的 execution audit。先用新 tick-aligned parent config 物化并冻结 parent，再运行：
+
+该 F2A parent 把 `0.01 USD` published close 作为下一步 restart state。Stage 1 对每个日历
+interval 的 drift 与 squared diffusion 使用精确 hat-basis 积分，但 Gaussian objective 是明确
+冻结的 latent-transition quasi-likelihood：它不把分位后的 observed close 错称为具有连续
+Gaussian density。
+
+```bash
+.venv/bin/python scripts/edit_snapshot.py \
+  --database /tmp/f2a-v5-parent.duckdb \
+  --config configs/generators/quantlib_bsm_metals_f2a_v5_parent_v1.json \
+  create-smoke
+.venv/bin/python scripts/edit_snapshot.py \
+  --database /tmp/f2a-v5-parent.duckdb \
+  --config configs/generators/quantlib_bsm_metals_f2a_v5_parent_v1.json \
+  freeze
+.venv/bin/python scripts/materialize_f2a_agent_tasks.py \
+  --parent-db /tmp/f2a-v5-parent.duckdb \
+  --sampling-seed 20260808 --mutation-seed 20260808 \
+  --target-signatures 001,010,100,101,110,111 \
+  --publication-mode pilot \
+  --output-dir /tmp/f2a-v5-tasks
+```
+
+Public bundle 只含 bid/ask、路径、curves、node locations 和冻结 estimator contracts；node
+values、seeds、clean quotes、mutation lineage、private truth 与 FP/FN audit 只进入 private
+authoring bundle。单样本命令生成 pilot；没有通过 2,000+ independent task-seed confidence
+bounds 的 cohort 不得宣称 release-ready。
+
+正式发布必须显式切换模式并提供 private calibration report；CLI 会重新核对 task/family
+Wilson bounds、exact-signature 下界、8×8 confusion conservation 与 bootstrap maximum statistic：
+
+```bash
+.venv/bin/python scripts/materialize_f2a_agent_tasks.py \
+  --parent-db /tmp/f2a-v5-parent.duckdb \
+  --sampling-seed 20260808 --mutation-seed 20260808 \
+  --target-signatures 001,010,011,100,101,110,111 \
+  --publication-mode release \
+  --cohort-calibration-report /private/f2a-v5-cohort-report.json \
+  --output-dir /tmp/f2a-v5-release
+```
+
+当前 successor 使用 126 business dates、3 个 shared nodes。确定性重跑得到 22 个 underlyings、
+1,232 个 contracts、79,156 条 parent option quotes；seed `20260808` 的 8-underlying child 含
+1,008 个 slices。Clean Stage-1/2 均收敛，最大 diffusion-node RSE 为 `0.2120479128`，但 public
+fitted signal 在全部 1,008 个 clean slices 上均为 active：X/U 各命中 1,008 slices，T 命中
+520 slices；private generator truth 与 clean v4 execution audit 均为 `000`，所以该 cohort 仍未
+通过 task-level FP gate。
+
+在 frozen `f2a-complete-mutation-v4` tick grid 上对 22×126 parent universe 做 exact local rescan 后，
+pilot 可达 `001/010/100/101/110/111`，`011` 不可达。默认 pilot 只请求六个可达 signatures；
+release 仍要求七个 signatures 与独立 2,000+ task-seed cohort gate，因此当前配置不能描述成
+release-ready。Private requested signature 不能覆盖 public canonical answer。
 
 ### 当前落地状态
 

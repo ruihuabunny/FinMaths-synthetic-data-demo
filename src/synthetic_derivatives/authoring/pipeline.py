@@ -60,8 +60,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         """Generate the complete business-date horizon declared by config.
 
         The historical command name is retained for CLI compatibility; the
-        method is not limited to five days and currently authors the 65-day
-        metals profile when invoked with the public config.
+        method is not limited to the original five-day smoke profile.
         """
 
         dates = self.underlying_generator.business_dates(

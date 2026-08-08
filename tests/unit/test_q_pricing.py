@@ -113,7 +113,7 @@ def test_physical_node_sampling_script_is_replayable(
         assert item["sampling_seed_hard_bounds"] == [1, 2**32 - 1]
         offsets = item["node_offsets_calendar_days"]
         offset_contract = item["node_offset_distribution"]
-        assert len(offsets) == offset_contract["node_count"] == 7
+        assert len(offsets) == offset_contract["node_count"] == 3
         assert offsets[0] == offset_contract["initial_offset"] == 0
         assert offsets == sorted(set(offsets))
         assert all(

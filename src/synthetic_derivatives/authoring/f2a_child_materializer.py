@@ -41,6 +41,11 @@ from synthetic_derivatives.verifier.f2a_oracle import (
     scan_market_slice,
     scan_public_child,
 )
+from synthetic_derivatives.verifier.f2a_database import (
+    extract_subset_db as _extract_v5_subset_db,
+    iter_market_slices as _iter_v5_market_slices,
+    sample_underlyings as _sample_v5_underlyings,
+)
 
 
 V4_VARIANT_ID = "bsm-arbitrage-finding-f2a-v4"
@@ -48,6 +53,47 @@ V4_CATALOGUE_ID = "bsm-f2a-candidate-catalogue-v5"
 V4_ENGINE_ID = "f2a-complete-mutation-v4"
 V4_EXECUTION_ID = "us-options-underlying-5bps-options-flat-050-v4"
 V4_OUTPUT_ID = "arbitrage-opportunity-type-trajectory-v5"
+
+
+def sample_underlyings(
+    universe: Iterable[str],
+    *,
+    sample_size: int = 8,
+    seed: int,
+) -> tuple[str, ...]:
+    """F2A v5 repeated-cluster sampler; v4 materialization is unchanged."""
+
+    return _sample_v5_underlyings(
+        tuple(universe),
+        sample_size=sample_size,
+        seed=seed,
+    )
+
+
+def extract_subset_db(
+    parent_db: str | Path,
+    output_db: str | Path,
+    underlying_ids: tuple[str, ...],
+    *,
+    sampling_seed: int = 0,
+):
+    """Create the v5 public-only DuckDB projection from a qualified parent."""
+
+    return _extract_v5_subset_db(
+        parent_db,
+        output_db,
+        underlying_ids,
+        sampling_seed=sampling_seed,
+    )
+
+
+def iter_market_slices(
+    db_path: str | Path,
+    underlying_ids: tuple[str, ...],
+):
+    """Stream v5 database slices without changing the v4 single-slice loader."""
+
+    return _iter_v5_market_slices(db_path, underlying_ids)
 
 
 @dataclass(frozen=True)

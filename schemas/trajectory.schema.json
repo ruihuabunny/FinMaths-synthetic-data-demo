@@ -34,6 +34,27 @@
     }
   },
   "$defs": {
+    "model_signal_signature_v5": {
+      "type": "string",
+      "enum": ["000", "001", "010", "011", "100", "101", "110", "111"]
+    },
+    "semantic_output_v5": {
+      "description": "Additive typed definition for the independent submission-v5 contract; v4 Outcome remains frozen.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "underlying_fits",
+        "option_fits",
+        "mutation_diagnosis",
+        "model_signals"
+      ],
+      "properties": {
+        "underlying_fits": {"type": "array", "items": {"type": "object"}},
+        "option_fits": {"type": "array", "items": {"type": "object"}},
+        "mutation_diagnosis": {"type": "array", "items": {"type": "object"}},
+        "model_signals": {"type": "object"}
+      }
+    },
     "orm_answer": {
       "oneOf": [
         {

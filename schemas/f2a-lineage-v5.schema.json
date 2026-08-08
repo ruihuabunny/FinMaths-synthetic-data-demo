@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "f2a-lineage-v5.schema.json",
+  "title": "Private F2A v5 authoring lineage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id", "variant_id", "parent_snapshot_id", "child_snapshot_id",
+    "selected_underlyings", "sampling_seed", "mutation_seed",
+    "requested_signatures", "mutation_groups", "private_truth_scan",
+    "public_signal_scan", "execution_audit", "fp_fn_task_audit"
+  ],
+  "properties": {
+    "task_id": {"type": "string"},
+    "variant_id": {"const": "bsm_model_reconstruction_xut_signal_f2a_v5"},
+    "parent_snapshot_id": {"type": "string"},
+    "child_snapshot_id": {"type": "string"},
+    "selected_underlyings": {
+      "type": "array", "minItems": 8, "maxItems": 8,
+      "uniqueItems": true, "items": {"type": "string"}
+    },
+    "sampling_seed": {"type": "integer", "minimum": 0},
+    "mutation_seed": {"type": "integer", "minimum": 0},
+    "requested_signatures": {
+      "type": "array", "uniqueItems": true,
+      "items": {"enum": ["001", "010", "011", "100", "101", "110", "111"]}
+    },
+    "mutation_groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "kind", "operator_id", "delta_ticks", "valuation_date",
+          "underlying_id", "requested_signature",
+          "realized_private_signature", "mutation_spec_id"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "single_option_quote_shift",
+              "call_put_pair_equal_shift",
+              "underlying_spot_shift"
+            ]
+          },
+          "operator_id": {"type": "string", "minLength": 1},
+          "delta_ticks": {"type": "integer", "not": {"const": 0}},
+          "valuation_date": {"type": "string", "format": "date"},
+          "underlying_id": {"type": "string", "minLength": 1},
+          "requested_signature": {
+            "enum": ["001", "010", "011", "100", "101", "110", "111"]
+          },
+          "realized_private_signature": {
+            "enum": ["001", "010", "011", "100", "101", "110", "111"]
+          },
+          "mutation_spec_id": {"type": "string", "minLength": 1},
+          "quote_mutations": {"type": "array"}
+        }
+      }
+    },
+    "private_truth_scan": {
+      "type": "object",
+      "required": ["slices", "full_scan_summary"]
+    },
+    "public_signal_scan": {
+      "type": "object",
+      "required": ["slices", "full_scan_summary"]
+    },
+    "execution_audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signature", "orm_answer", "candidate_count",
+        "active_candidate_ids", "claim_scope"
+      ],
+      "properties": {
+        "signature": {"enum": ["000", "001", "010", "011", "100", "101", "110", "111"]},
+        "orm_answer": {"type": "object"},
+        "candidate_count": {"type": "integer", "minimum": 0},
+        "active_candidate_ids": {
+          "type": "array", "uniqueItems": true,
+          "items": {"type": "string"}
+        },
+        "claim_scope": {"const": "frozen-v4-catalogue-executable-audit"}
+      }
+    },
+    "fp_fn_task_audit": {
+      "type": "object",
+      "required": [
+        "report_scope", "slice_count", "exact_signature_count", "any_fp",
+        "any_fn", "public_task_signature", "private_task_signature",
+        "task_hamming_error", "slice_audit", "release_gate_role"
+      ],
+      "properties": {
+        "report_scope": {"const": "single_task_seed_diagnostic_not_cohort_release"},
+        "slice_count": {"type": "integer", "minimum": 1},
+        "exact_signature_count": {"type": "integer", "minimum": 0},
+        "any_fp": {"type": "boolean"},
+        "any_fn": {"type": "boolean"},
+        "public_task_signature": {"enum": ["000", "001", "010", "011", "100", "101", "110", "111"]},
+        "private_task_signature": {"enum": ["000", "001", "010", "011", "100", "101", "110", "111"]},
+        "task_hamming_error": {"type": "integer", "minimum": 0, "maximum": 3},
+        "slice_audit": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "valuation_date", "underlying_id", "public_signature",
+              "private_signature", "fp_families", "fn_families"
+            ],
+            "properties": {
+              "valuation_date": {"type": "string", "format": "date"},
+              "underlying_id": {"type": "string"},
+              "public_signature": {"enum": ["000", "001", "010", "011", "100", "101", "110", "111"]},
+              "private_signature": {"enum": ["000", "001", "010", "011", "100", "101", "110", "111"]},
+              "fp_families": {
+                "type": "array", "uniqueItems": true,
+                "items": {"enum": ["X", "U", "T"]}
+              },
+              "fn_families": {
+                "type": "array", "uniqueItems": true,
+                "items": {"enum": ["X", "U", "T"]}
+              }
+            }
+          }
+        },
+        "release_gate_role": {"const": "task_record_only_requires_separate_cohort_calibration"}
+      }
+    }
+  }
+}

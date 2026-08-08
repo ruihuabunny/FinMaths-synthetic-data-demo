@@ -1,0 +1,57 @@
+{
+  "schema_version": "5.0.0",
+  "dataset_config_id": "f2a-dataset-v5",
+  "variant_id": "bsm_model_reconstruction_xut_signal_f2a_v5",
+  "runtime_enabled": true,
+  "sample_size": 8,
+  "default_physical_node_count": 3,
+  "source": {
+    "preferred_parent_snapshot_id": "DERIVATIVES-METALS-F2A-MODEL-SIGNAL-TICK-ALIGNED-TDGBM-Q-v1",
+    "general_v4_snapshot_id": "DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v4",
+    "parent_required_status": "FROZEN",
+    "legacy_active_snapshot_id": "DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3",
+    "legacy_active_snapshot_policy": "read_only_and_must_pass_qualification_without_fallback",
+    "missing_or_unqualified_parent_policy": "fail_and_require_distinct_v5_parent"
+  },
+  "public_projection": {
+    "publish_bid_ask_without_mid": true,
+    "publish_node_locations_without_values": true,
+    "publish_generator_or_mutation_seeds": false,
+    "publish_private_truth_or_fp_fn": false
+  },
+  "target_signature_order": ["001", "010", "011", "100", "101", "110", "111"],
+  "pilot_parent_reachability": {
+    "mutation_engine_id": "f2a-complete-mutation-v4",
+    "absolute_tick_grid": [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096],
+    "reachable_signatures": ["001", "010", "100", "101", "110", "111"],
+    "unreachable_signatures": ["011"],
+    "scope": "126-business-date_v5-parent_all-22-underlyings_exact-local-rescan"
+  },
+  "fp_fn_calibration_contract": {
+    "private_truth_definition": "generator_counterfactual_vs_final_child_quotes",
+    "independent_unit": "task_seed",
+    "analytic_method": "delta_method",
+    "empirical_method": "parametric_bootstrap",
+    "multiple_scan_method": "bootstrap_maximum_statistic",
+    "required_cohort_identity": [
+      "variant_id",
+      "parent_snapshot_id",
+      "parent_logical_checksum",
+      "business_date_count",
+      "physical_node_count",
+      "node_grid_shape"
+    ],
+    "min_pilot_task_seeds": 2000,
+    "clean_task_any_fp_upper_95": 0.01,
+    "mutated_task_any_fn_upper_95": 0.05,
+    "family_fp_upper_95": 0.01,
+    "family_fn_upper_95": 0.05,
+    "exact_signature_accuracy_lower_95": 0.95
+  },
+  "artifacts": {
+    "public_root": "artifacts/f2a_agent_tasks",
+    "private_root": "artifacts/f2a_agent_tasks_private",
+    "submission_schema": "schemas/submission-v5.schema.json",
+    "private_lineage_schema": "schemas/f2a-lineage-v5.schema.json"
+  }
+}
