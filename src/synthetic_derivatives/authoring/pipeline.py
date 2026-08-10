@@ -1,4 +1,10 @@
-"""Incremental, append-safe authoring pipeline for a DuckDB snapshot."""
+"""Incremental, append-safe orchestration for one DuckDB market snapshot.
+
+The pipeline is the write boundary: it validates immutable identities, orders
+P-path generation before Q-pricing, commits market rows and revision metadata
+atomically, and publishes the adjacent manifest only after commit.  Financial
+transition laws remain in the two generator modules.
+"""
 
 from __future__ import annotations
 
@@ -54,8 +60,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         """Generate the complete business-date horizon declared by config.
 
         The historical command name is retained for CLI compatibility; the
-        method is not limited to five days and currently authors the 65-day
-        metals profile when invoked with the public config.
+        method is not limited to the original five-day smoke profile.
         """
 
         dates = self.underlying_generator.business_dates(
@@ -111,6 +116,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         a separate FAILED audit row is then recorded without partial market data.
         """
 
+        self._reject_legacy_authoring_iv_config()
         dates = self.underlying_generator.business_dates_between(start_date, end_date)
         if not dates:
             raise ValueError("requested range contains no business dates")
@@ -184,6 +190,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
     def freeze(self) -> dict[str, Any]:
         """Run final gates and irreversibly mark the logical snapshot FROZEN."""
 
+        self._reject_legacy_authoring_iv_config()
         self.connection.execute("BEGIN TRANSACTION")
         try:
             self._ensure_snapshot_is_editable()
@@ -204,6 +211,26 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         summary = self.summary()
         self._write_manifest(summary)
         return summary
+
+    def _reject_legacy_authoring_iv_config(self) -> None:
+        """Keep legacy IV-authored snapshot identities read-only.
+
+        Config parsing accepts 1.5 so maintainers can inspect an existing
+        database with its historical contract.  A mutating operation cannot
+        use it: current generation emits quotes but no IV audit rows, which
+        would mix two different output contracts under one snapshot ID.
+        """
+
+        q_pricing = self.config.q_pricing
+        if (
+            q_pricing is not None
+            and q_pricing.legacy_authoring_iv_solver_present
+        ):
+            raise RuntimeError(
+                "legacy authoring-IV config is read-only under the current "
+                "pipeline; use config schema 1.6.0 with new config, generator, "
+                "and snapshot identities"
+            )
 
     def summary(self) -> dict[str, Any]:
         """Return manifest-ready identity, date bounds and logical row counts."""
@@ -452,22 +479,10 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 [self.config.snapshot_id, dates[0], dates[-1]],
             ).fetchall()
         }
-        existing_option_pricing_audit = {
-            (row[0], row[1])
-            for row in self.connection.execute(
-                """
-                SELECT date, option_id
-                FROM market.option_pricing_audit
-                WHERE snapshot_id = ? AND date BETWEEN ? AND ?
-                """,
-                [self.config.snapshot_id, dates[0], dates[-1]],
-            ).fetchall()
-        }
         underlyings_by_id = {
             item.underlying_id: item for item in self.config.underlyings
         }
         option_daily_rows: list[tuple[Any, ...]] = []
-        option_pricing_audit_rows: list[tuple[Any, ...]] = []
         # Options are priced only after the realized spot slice is materialized.
         # The option generator receives no Lambda/D/R object; dependence reaches
         # it only through spot_by_key.
@@ -476,8 +491,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             for market_date in dates:
                 quote_key = (market_date, contract[1])
                 quote_exists = quote_key in existing_option_daily
-                audit_exists = quote_key in existing_option_pricing_audit
-                if quote_exists and (self.config.q_pricing is None or audit_exists):
+                if quote_exists:
                     continue
                 spot = spot_by_key[(market_date, underlying_id)]
                 result = self.option_generator.option_daily_result(
@@ -488,17 +502,9 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                     run_id,
                 )
                 if result is not None:
-                    if not quote_exists:
-                        option_daily_rows.append(result.quote_row)
-                    if result.pricing_audit_row is not None and not audit_exists:
-                        option_pricing_audit_rows.append(result.pricing_audit_row)
+                    option_daily_rows.append(result.quote_row)
         stats["option_daily"] = merge_rows(
             self.connection, TABLE_SPECS["option_daily"], option_daily_rows
-        )
-        stats["option_pricing_audit"] = merge_rows(
-            self.connection,
-            TABLE_SPECS["option_pricing_audit"],
-            option_pricing_audit_rows,
         )
         return stats
 
@@ -737,30 +743,6 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 WHERE daily.snapshot_id = ? AND quote.option_id IS NULL
             """,
         }
-        if self.config.q_pricing is not None:
-            checks.update(
-                {
-                    "missing_option_pricing_audit": """
-                        SELECT count(*)
-                        FROM market.option_daily quote
-                        LEFT JOIN market.option_pricing_audit audit
-                          ON audit.snapshot_id = quote.snapshot_id
-                         AND audit.date = quote.date
-                         AND audit.option_id = quote.option_id
-                        WHERE quote.snapshot_id = ? AND audit.option_id IS NULL
-                    """,
-                    "option_pricing_audit_mid_mismatch": """
-                        SELECT count(*)
-                        FROM market.option_pricing_audit audit
-                        JOIN market.option_daily quote
-                          ON quote.snapshot_id = audit.snapshot_id
-                         AND quote.date = audit.date
-                         AND quote.option_id = audit.option_id
-                        WHERE audit.snapshot_id = ?
-                          AND audit.canonical_mid != quote.mid
-                    """,
-                }
-            )
         failures = {
             name: self.connection.execute(sql, [self.config.snapshot_id]).fetchone()[0]
             for name, sql in checks.items()

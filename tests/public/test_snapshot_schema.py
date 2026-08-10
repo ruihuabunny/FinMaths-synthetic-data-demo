@@ -9,7 +9,6 @@ import duckdb
 
 from synthetic_derivatives.authoring.config import load_generator_config
 from synthetic_derivatives.authoring.pipeline import AuthoringPipeline
-from synthetic_derivatives.authoring.schema import TABLE_SPECS
 
 
 EXPECTED_UNDERLYING_FIELDS = {
@@ -196,7 +195,7 @@ def test_checked_in_snapshot_is_the_22_metal_liquid_bsm_profile(
         connection.close()
 
 
-def test_checked_in_snapshot_replays_from_current_generator_config(
+def test_current_generator_uses_new_identity_without_legacy_iv_audit(
     tmp_path: Path, repository_root: Path
 ) -> None:
     public_database = (
@@ -204,8 +203,14 @@ def test_checked_in_snapshot_replays_from_current_generator_config(
     )
     config = load_generator_config(
         repository_root
-        / "configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json"
+        / "configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json"
     )
+    public_manifest = json.loads(
+        public_database.with_suffix(".manifest.json").read_text(encoding="utf-8")
+    )
+    assert config.snapshot_id != public_manifest["snapshot_id"]
+    assert config.generator_config_id != public_manifest["generator_config_id"]
+    assert config.generator_version != public_manifest["generator_version"]
     replay_config = replace(
         config,
         business_days=2,
@@ -213,31 +218,13 @@ def test_checked_in_snapshot_replays_from_current_generator_config(
     )
     replay_database = tmp_path / "public-snapshot-replay.duckdb"
     with AuthoringPipeline(replay_database, replay_config) as pipeline:
-        pipeline.create_smoke_snapshot()
+        result = pipeline.create_smoke_snapshot()
+        audit_count = pipeline.connection.execute(
+            "SELECT count(*) FROM market.option_pricing_audit"
+        ).fetchone()[0]
 
-    connection = duckdb.connect()
-    try:
-        public_path = str(public_database).replace("'", "''")
-        replay_path = str(replay_database).replace("'", "''")
-        connection.execute(
-            f"ATTACH '{public_path}' AS public_snapshot (READ_ONLY)"
-        )
-        connection.execute(f"ATTACH '{replay_path}' AS replay (READ_ONLY)")
-        for table_name, spec in TABLE_SPECS.items():
-            logical_columns = ", ".join(spec.columns[:-1])
-            missing_rows = connection.execute(
-                f"""
-                SELECT count(*)
-                FROM (
-                    SELECT {logical_columns} FROM replay.{spec.name}
-                    EXCEPT ALL
-                    SELECT {logical_columns} FROM public_snapshot.{spec.name}
-                )
-                """
-            ).fetchone()[0]
-            assert missing_rows == 0, table_name
-    finally:
-        connection.close()
+    assert result["summary"]["option_daily_count"] > 0
+    assert result["summary"]["option_pricing_audit_count"] == audit_count == 0
 
 
 def test_checked_in_bsm_mids_satisfy_discounted_bounds_and_put_call_parity(

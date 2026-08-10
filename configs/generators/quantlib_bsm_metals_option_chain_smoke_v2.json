@@ -1,8 +1,8 @@
 {
-  "schema_version": "1.5.0",
-  "generator_config_id": "quantlib-randomized-tdgbm-metals-liquid-option-chain-v3",
-  "generator_version": "0.7.0",
-  "snapshot_id": "DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3",
+  "schema_version": "1.6.0",
+  "generator_config_id": "quantlib-randomized-tdgbm-metals-liquid-option-chain-v4",
+  "generator_version": "0.8.0",
+  "snapshot_id": "DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v4",
   "seed": 20260806,
   "rng": "QuantLib.BoxMullerMersenneTwisterGaussianRng/underlying-factor-idiosyncratic-sha256-v1",
   "start_date": "2026-08-03",
@@ -3670,14 +3670,6 @@
     "numeraire_id": "USD-MONEY-MARKET-ACCOUNT-v1",
     "rate_path_id": "USD-FLAT-CONTINUOUS-RATE-v1",
     "measure_change": "girsanov_drift_only",
-    "volatility_mapping": "same_deterministic_diffusion",
-    "implied_volatility_solver": {
-      "method": "QuantLib.VanillaOption.impliedVolatility",
-      "target_quote": "canonical_mid",
-      "accuracy": 1e-12,
-      "max_evaluations": 1000,
-      "minimum_volatility": 1e-06,
-      "maximum_volatility": 4.0
-    }
+    "volatility_mapping": "same_deterministic_diffusion"
   }
 }

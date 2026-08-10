@@ -410,10 +410,10 @@ def test_checked_in_metals_profile_has_22_underlying_only_drivers_and_liquid_cha
 ) -> None:
     config = load_generator_config(
         repository_root
-        / "configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json"
+        / "configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json"
     )
 
-    assert config.schema_version == "1.5.0"
+    assert config.schema_version == "1.6.0"
     assert config.business_days == 65
     assert len(config.underlyings) == 22
     assert len(config.option_templates) == 4 * 7 * 2
@@ -441,3 +441,23 @@ def test_checked_in_metals_profile_has_22_underlying_only_drivers_and_liquid_cha
         and len(underlying.physical_volatility_function.nodes) == 7
         for underlying in config.underlyings
     )
+
+
+def test_config_1_6_rejects_authoring_iv_solver(
+    tmp_path: Path, repository_root: Path
+) -> None:
+    source = repository_root / (
+        "configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json"
+    )
+    raw = json.loads(source.read_text(encoding="utf-8"))
+    raw["q_pricing"]["implied_volatility_solver"] = {
+        "method": "QuantLib.VanillaOption.impliedVolatility"
+    }
+    path = tmp_path / "authoring-iv-solver.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match="belongs to task/verifier configuration",
+    ):
+        load_generator_config(path)

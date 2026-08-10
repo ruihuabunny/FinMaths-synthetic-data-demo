@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "difficulty-v2.schema.json",
+  "title": "Seven-dimensional derivatives task coordinates",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["L", "P", "M", "A", "D", "R", "F"],
+  "properties": {
+    "L": {"type": "integer", "minimum": 0, "maximum": 6},
+    "P": {"type": "integer", "minimum": 0, "maximum": 8},
+    "M": {"type": "integer", "minimum": 0, "maximum": 9},
+    "A": {"type": "integer", "minimum": 0, "maximum": 8},
+    "D": {"type": "integer", "minimum": 0, "maximum": 8},
+    "R": {"type": "integer", "minimum": 0, "maximum": 9},
+    "F": {
+      "type": "string",
+      "enum": ["F0", "F1", "F2A", "F2B", "F3A", "F3B", "F4A", "F4B", "F5A", "F5B", "F6A", "F6B"]
+    }
+  }
+}

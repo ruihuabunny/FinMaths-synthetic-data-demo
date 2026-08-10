@@ -1,4 +1,9 @@
-"""Deterministic option-chain contract and daily quote generation."""
+"""Materialize frozen option contracts and deterministic daily BSM quotes.
+
+The module stops at solver-visible market prices.  Implied volatility is an
+inverse problem over the canonicalized quote and belongs to a task/verifier
+contract, so current authoring never solves or stores it.
+"""
 
 from __future__ import annotations
 
@@ -27,10 +32,9 @@ from synthetic_derivatives.authoring.generator_common import (
 
 @dataclass(frozen=True)
 class OptionDailyResult:
-    """One public quote and its optional private quote-IV audit row."""
+    """One generated public option quote."""
 
     quote_row: tuple[Any, ...]
-    pricing_audit_row: tuple[Any, ...] | None
 
 
 class OptionDailyGenerator(QuantLibGeneratorBase):
@@ -88,7 +92,7 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
             ),
             (
                 canonical_json(self.config.quote_model)
-                if self.config.schema_version in {"1.4.0", "1.5.0"}
+                if self.config.schema_version in {"1.4.0", "1.5.0", "1.6.0"}
                 else None
             ),
             self.config.generator_config_id,
@@ -120,18 +124,19 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         """
 
         listing_date = self.option_chain_listing_date()
+        listing_spot = self.quantize_underlying_price(underlying.initial_spot)
         if template.chain_id is None:
             if template.strike_moneyness is None:
                 raise ValueError("legacy template requires strike_moneyness")
             strike = self.quantize_price(
-                underlying.initial_spot * template.strike_moneyness
+                listing_spot * template.strike_moneyness
             )
         else:
             if self.config.option_chain is None:
                 raise ValueError("chain template requires option_chain config")
             strike = self.quantize_price(
                 OptionChainBuilder(self.config.option_chain).absolute_strike(
-                    underlying.initial_spot,
+                    listing_spot,
                     template.strike_moneyness,
                     template.strike_absolute,
                 )
@@ -158,7 +163,7 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
             self.quantize_price(template.contract_multiplier),
             template.chain_id,
             listing_date,
-            self.quantize_price(underlying.initial_spot),
+            listing_spot,
             (
                 self.quantize_price(template.strike_moneyness)
                 if template.strike_moneyness is not None
@@ -216,6 +221,7 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         expiry_date = ql_date(expiry)
         ql.Settings.instance().evaluationDate = evaluation_date
         maturity = self.day_count.yearFraction(evaluation_date, expiry_date)
+        spot_close = self.quantize_underlying_price(spot_close)
         pricing_volatility = self._pricing_volatility(
             underlying, market_date, expiry, spot_close, strike, maturity
         )
@@ -246,7 +252,7 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         # Analytic engines can return a tiny negative floating-point artifact for
         # a mathematically zero deep-OTM value. The observable option price obeys
         # the non-negative payoff bound before decimal canonicalization.
-        mid = self.quantize_price(max(0.0, theoretical_price))
+        mid = self.quantize_option_price(max(0.0, theoretical_price))
         half_spread = max(
             Decimal(str(self.config.quote_model["minimum_half_spread"])),
             mid * Decimal(str(self.config.quote_model["relative_half_spread"])),
@@ -260,8 +266,8 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         # Side-specific noise widens/narrows only executable quotes.  Flooring
         # bid at zero and keeping both spreads non-negative preserves
         # bid <= BSM mid <= ask by construction.
-        bid = self.quantize_price(max(Decimal("0"), mid - bid_half_spread))
-        ask = self.quantize_price(mid + ask_half_spread)
+        bid = self.quantize_option_price(max(Decimal("0"), mid - bid_half_spread))
+        ask = self.quantize_option_price(mid + ask_half_spread)
         activity = self._uniform("option-activity", option_identifier, market_date)
         volume = int(25 + activity * 475)
         open_interest = int(500 + activity * 4_500)
@@ -284,49 +290,7 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
             open_interest,
         ]
         quote_row = (*logical, run_id)
-        pricing_audit_row = None
-        q_pricing = self.config.q_pricing
-        if q_pricing is not None:
-            solver = q_pricing.implied_volatility_solver
-            try:
-                derived_implied_volatility = float(
-                    option.impliedVolatility(
-                        float(mid),
-                        process,
-                        solver.accuracy,
-                        solver.max_evaluations,
-                        solver.minimum_volatility,
-                        solver.maximum_volatility,
-                    )
-                )
-                iv_status = "CONVERGED"
-                iv_error = None
-            except RuntimeError as error:
-                derived_implied_volatility = None
-                iv_status = "NO_FINITE_IV"
-                iv_error = str(error)
-            pricing_audit_row = (
-                self.config.snapshot_id,
-                market_date,
-                option_identifier,
-                q_pricing.risk_neutral_measure_id,
-                q_pricing.numeraire_id,
-                q_pricing.rate_path_id,
-                q_pricing.measure_change,
-                q_pricing.volatility_mapping,
-                pricing_volatility,
-                theoretical_price,
-                mid,
-                derived_implied_volatility,
-                iv_status,
-                iv_error,
-                canonical_json(solver.as_dict()),
-                run_id,
-            )
-        return OptionDailyResult(
-            quote_row=quote_row,
-            pricing_audit_row=pricing_audit_row,
-        )
+        return OptionDailyResult(quote_row=quote_row)
 
     def _pricing_volatility(
         self,
