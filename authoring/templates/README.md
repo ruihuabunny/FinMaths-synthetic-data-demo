@@ -11,8 +11,11 @@ paths；option pricing 不读取该相关矩阵。
 
 完整 option-chain 例子见
 `configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json`。它使用 config
-`1.4.0` 的 static candidate grid、liquidity filter 和 quote noise，实际生成
-22 × 4 × 7 × 2 个流动性合约，并继续保证相关矩阵只排列 22 个 underlyings。
+`1.5.0` 的 sampled physical functions、Q pricing、static candidate grid、liquidity filter
+和 quote noise，实际生成 22 × 4 × 7 × 2 个流动性合约。它是 checked-in frozen demo，仍
+保留 legacy private IV audit。当前 writable 22-asset authoring 基线是
+`configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json`（config `1.6.0`，不生成
+IV answers）；golden task builder 再以新 identity 将其升级为 config `1.7.0` P/Q pair。
 
 ## 使用方式
 

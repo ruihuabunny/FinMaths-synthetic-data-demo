@@ -146,8 +146,8 @@ $\sigma_{Q,\mathrm{eff}}=\sqrt{(T-t)^{-1}\int_t^T\sigma_Q^2(u)du}$ 在 European 
 
 每条 quote 都在 private `market.option_pricing_audit` 中保存未舍入理论价，并用
 `QuantLib.VanillaOption.impliedVolatility` 对实际 canonical mid 反解 IV（bracket
-`[1e-6, 4.0]`，accuracy `1e-12`，最多 1,000 evaluations）。59,860 条为 `CONVERGED`；
-508 条临近到期、深度价内 quote 因 8 位 mid 落在所声明有限-vol bracket 的可达价格区间
+`[1e-6, 4.0]`，accuracy `1e-12`，最多 1,000 evaluations）。59,836 条为 `CONVERGED`；
+532 条临近到期、深度价内 quote 因 8 位 mid 落在所声明有限-vol bracket 的可达价格区间
 之外而记为 `NO_FINITE_IV`，不会用 hidden pricing volatility 填充假答案。该 audit table
 没有 solver-visible view。
 
@@ -167,6 +167,11 @@ Solver 可读 views：
 Private authoring/audit tables（包括 dependence、candidate-grid liquidity rule、quote-noise
 contract、Q pricing/IV audit、run lineage）没有对应 solver view。当前 `pricing_metadata` 仍是项目早期的
 过渡公开合同；更严格的 public/private pricing metadata split 属于后续阶段。
+
+这是不可变的 config `1.5.0` 历史 demo，保留 private authoring IV audit 只为重放与维护。
+当前 writable authoring config `1.6.0+` 不再生成 IV answers；accepted D4 Greeks task 从新的
+config `1.7.0` P/Q parent 导出独立 public child，并不修改或直接交付本文件。详见
+[`task_packages/README.md`](../../task_packages/README.md)。
 
 ## Read-only queries
 

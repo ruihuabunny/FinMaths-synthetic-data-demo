@@ -140,7 +140,8 @@ authoring tables 包括：
 
 - `market.underlying_dependence`
 - `market.option_chain_specs`
-- `market.option_pricing_audit`
+- `market.option_pricing_audit`（只为 legacy `1.5.0` frozen snapshot 读取保留；当前
+  `1.6.0+` materialization 不写入）
 - 带 run lineage 的 market/master tables
 - `metadata.snapshots`、`generation_runs`、`snapshot_revisions`
 
@@ -167,8 +168,10 @@ public provenance 中，factor matrices 与 seed/private lineage 不进入 Agent
 Packaging 随后冻结 prompt、effective runtime、submission schema、hidden QuantLib verifier、
 stdlib reference solver 和 observable trajectory，并导出严格 allowlisted 的 authoring、
 train/dev、evaluation views。Authoring private artifact manifest 校验全部源制品 hash；package
-verifier 再比较每个 view copy 与源文件字节。该实现目前只接受一条 golden task，batch
-selector/date 参数化仍属后续工作。详见
+verifier 再比较每个 view copy 与源文件字节。Checked-in artifact 目前仍是一条
+`ACCEPTED` golden task；Phase F 已参数化 private selector seed，并提供 verified nine-field
+dataset exporter。Valuation date 仍由 package contract 固定，完整 100-task run 与
+`RELEASED` promotion 尚未执行。详见
 [`task_packages/README.md`](../../../task_packages/README.md)。
 
 ## 使用方式
@@ -205,7 +208,7 @@ selector/date 参数化仍属后续工作。详见
   freeze
 ```
 
-当前 public metals profile 使用
+Checked-in historical public metals profile 使用
 [`quantlib_bsm_metals_option_chain_smoke_v1.json`](../../../configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json)，
 生成 22 个 underlying、65 个交易日、1,232 个流动性固定合约和 60,368 条有效期内
 option quotes。候选网格是 6 expiries × 11 moneyness × call/put，filter 只保留

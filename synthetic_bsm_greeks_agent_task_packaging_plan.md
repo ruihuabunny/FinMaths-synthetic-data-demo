@@ -13,7 +13,9 @@
   - `docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md`
   - `docs/plans/synthetic_bsm_multi_asset_psd_duckdb_greeks_plan.md`
   - `docs/plans/synthetic_bsm_multi_asset_psd_duckdb_greeks_codex_checklist.md`
-- Status: packaging implementation plan; do not materialize a release package until the required BSM/Greeks verifier and public-child exporter are complete.
+- Status: Phase A–E complete；golden task `bsm-mig-v1-1f1fc1880b42253725b118eb` is
+  `ACCEPTED`。Phase F runner and nine-field dataset exporter are implemented, but the full
+  batch has not been executed and no artifact has been promoted to `RELEASED`.
 
 ## 1. Executive decision
 
@@ -38,7 +40,10 @@ database + prompt + pytest + reference agent trajectory
 - `V_i`：hidden `pytest` hard verifier；
 - `τ_i*`：在同一 solver 权限下可 replay 的参考 trajectory。
 
-第一条 golden package 应做 `bsm_market_implied_greeks_v1`：从公开 bid/ask midpoint 做固定 80 步 BS inversion，再输出 Delta、Gamma、Vega、Theta、Rho。`bsm_analytic_greeks_v1` 作为较小的 convention/solver acceptance fixture，用来快速区分“Greek 公式错误”和“IV inversion 错误”，但不是主交付。
+第一条 golden package 已落地为 `bsm_market_implied_greeks_v1`：从公开 bid/ask midpoint
+做固定 80 步 BS inversion，再输出 Delta、Gamma、Vega、Theta、Rho。
+`bsm_analytic_greeks_v1` 是较小的 convention/solver acceptance fixture，用来快速区分
+“Greek 公式错误”和“IV inversion 错误”，但不是主交付。
 
 本任务不迁移 F2A 的 arbitrage mutation、X/U/T、certificate、FP/FN 或 executable-spread 语义。
 
@@ -83,7 +88,7 @@ Public child 来自同一个 22-asset、P/Q measure-qualified、PSD-by-construct
 
 ## 3. Golden package directory
 
-建议先只落地一个 task instance：
+已落地的 source task instance 结构如下：
 
 ```text
 environments/
@@ -117,12 +122,17 @@ task_packages/
         │       ├── solver.py
         │       ├── input_digest.json
         │       └── self_check.json
-        └── authoring_private/
-            ├── parent_identity.json
-            ├── sample_manifest.json
-            ├── oracle_answer.json
-            ├── build_report.json
-            └── leakage_report.json
+        ├── authoring_private/
+        │   ├── artifact_manifest.json
+        │   ├── parent_identity.json
+        │   ├── sample_manifest.json
+        │   ├── oracle_answer.json
+        │   ├── build_report.json
+        │   └── leakage_report.json
+        └── views/
+            ├── authoring/manifest.json
+            ├── train_dev/manifest.json
+            └── evaluation/manifest.json
 ```
 
 目录边界：
@@ -157,30 +167,32 @@ solver_visible.greeks_task_inputs
 solver_visible.greeks_task_contract
 ```
 
-`metadata.public_task` 建议字段：
+`metadata.public_task` 固定字段：
 
 ```text
-task_id, task_family, task_version, variant_id,
-snapshot_id, valuation_date, currency,
+schema_version, task_id, task_family, task_version, variant_id,
+snapshot_id, snapshot_revision, status, valuation_date, currency,
 underlying_count, option_row_count,
 joint_market_contract_id,
 p_dependence_spec_id, q_dependence_spec_id,
 dependence_policy_id,
-public_database_schema_version
+risk_neutral_measure_id, numeraire_id, rate_path_id,
+selection_policy_id
 ```
 
 `solver_visible.greeks_task_inputs` 至少包含：
 
 ```text
-row_id, snapshot_id, valuation_date,
+row_id, task_id, snapshot_id, valuation_date,
 underlying_id, option_id, call_put,
 spot, strike, expiry, time_to_expiry_actual365,
 bid, ask, contract_multiplier, currency,
 risk_free_rate, dividend_yield,
-calendar, day_count
+calendar, day_count, exercise_style, settlement_type
 ```
 
-`solver_visible.greeks_task_contract` 是一行 canonical JSON，锁定：
+`solver_visible.greeks_task_contract` 固定为一行
+`(task_id, method_id, contract_json)`；其中 canonical JSON 锁定：
 
 - method ID；
 - midpoint construction；
@@ -290,9 +302,9 @@ denied:
 
 `duckdb==1.5.5` 可以存在于 trusted query adapter/runtime image，但不因此给 Agent raw database connection 权限。
 
-### 6.2 Initial resource budget
+### 6.2 Frozen resource budget
 
-Golden task 建议先冻结为：
+Golden task 已冻结为：
 
 ```text
 vCPU: 1
@@ -316,6 +328,11 @@ process spawning: disabled
 - runtime audit 由 harness 保存，Agent 不可修改；
 - reference solver 必须在完全相同的 `E_i` 下 replay。
 
+仓库内 reference harness 以独立 `spawn` 子进程执行 solver，并强制 import/builtin/tool-call/
+submission-size policy、CPU affinity、`RLIMIT_AS`、`RLIMIT_CPU` 和 parent wall timeout。
+这些是可执行的本地 reference controls；生产 deployment 仍必须由 OS/container 层独立实施
+network、filesystem 和 process isolation，不能把 AST/source policy 当作完整安全边界。
+
 ## 7. Canonical submission
 
 MVP 只使用一个文件：
@@ -324,13 +341,13 @@ MVP 只使用一个文件：
 submission/submission.json
 ```
 
-建议结构：
+固定结构：
 
 ```json
 {
-  "task_id": "bsm_mig_v1_<stable_id>",
-  "submission_schema_version": "1.0.0",
-  "method_id": "bsm-market-iv-80bisect-greeks-v1",
+  "task_id": "bsm-mig-v1-<24-hex>",
+  "submission_schema_version": "bsm-market-implied-greeks-submission-v1.0.0",
+  "method_id": "bsm-mid-iv-bisection80-analytic-greeks-v1",
   "status": "completed",
   "rows": [
     {
@@ -399,8 +416,10 @@ Trusted verifier 使用 pinned `QuantLib==1.39`：
 ### 8.4 Required negative tests
 
 - 最后一位 decimal perturbation；
-- 79/81-step 或 tolerance early-stop 导致的 root；
-- midpoint 在 Decimal 之前提前转 float；
+- 79/81-step 或 tolerance early-stop 导致且在 canonical output 上可观察的 root；显式
+  schedule/source drift 即使舍入后不可观察，也由 runtime/source policy 拒绝；
+- midpoint 在 Decimal 之前提前转 float；若 8-decimal output 未发生变化，只做 source-policy
+  claim，不把不可观察实现差异伪装成 semantic verifier 能区分的事实；
 - vega/rho 未按 1% scaling；
 - theta per-year、per-business-day 或 sign 错误；
 - call/put 公式混淆；
@@ -597,13 +616,27 @@ require frozen parent + exact source commit
 
 ### Phase F — Batch packaging
 
-Golden package 稳定后才参数化 selector/date/task ID，批量构建。不要在 prompt、runtime、submission schema 或 verifier 尚未冻结时批量生成。
+Golden interfaces 不变，只把 private nonnegative `sampling_seed` 参数化；valuation date、
+method、runtime、submission schema 和 verifier 均保持冻结。
 
-## 14. Proposed repository changes
+- [x] batch runner 只 materialize 一次 private frozen 22-underlying parent；
+- [x] 按递增 seed 选择 distinct 8-underlying subsets，并记录可解释的 candidate rejection；
+- [x] 每个 accepted package 都经过 reference replay、QuantLib exact verifier、leakage 与
+  release-view checks；
+- [x] verified packages 可导出按 `task_id` 排序的九字段 JSONL dataset，且不包含 private
+  oracle 或 sampling seed；
+- [x] dataset exporter 的单 package contract test；
+- [x] 2-task scratch smoke：两个 task IDs/subsets 唯一，reference/QuantLib/package checks
+  all-pass，dataset 恰有 2 records 且无 private oracle/seed；
+- [ ] 执行并保存完整 100-task batch run 与独立 dataset copy；
+- [ ] 审核 run summary/split policy 后，将获批 artifacts 显式 promote 为 `RELEASED`。
+
+## 14. Actual repository changes
 
 ```text
 environments/solver/capabilities.bsm_greeks_v1.json
-environments/solver/tests/test_bsm_greeks_capabilities.py
+environments/solver/capabilities.global_v1.json
+environments/solver/README.md
 
 schemas/agent-task-package-v1.schema.json
 schemas/agent-task-runtime-contract-v1.schema.json
@@ -614,25 +647,32 @@ schemas/bsm-greeks-oracle-config-v1.schema.json
 configs/task_packages/bsm_market_implied_greeks_v1.json
 
 src/synthetic_derivatives/packaging/contracts.py
-src/synthetic_derivatives/packaging/prompt_renderer.py
-src/synthetic_derivatives/packaging/manifest.py
-src/synthetic_derivatives/packaging/export_views.py
+src/synthetic_derivatives/packaging/database.py
 src/synthetic_derivatives/packaging/leakage.py
+src/synthetic_derivatives/packaging/package.py
+src/synthetic_derivatives/packaging/parent.py
+src/synthetic_derivatives/packaging/prompt_renderer.py
+src/synthetic_derivatives/packaging/reference_solver.py
+src/synthetic_derivatives/packaging/runtime.py
 src/synthetic_derivatives/packaging/trajectory.py
+src/synthetic_derivatives/packaging/views.py
+src/synthetic_derivatives/training/bsm_market_greeks.py
 
 scripts/package_bsm_greeks_task.py
+scripts/run_bsm_greeks_batch.py
 
+tests/packaging/conftest.py
+tests/packaging/test_bsm_greeks_database_and_replay.py
+tests/packaging/test_bsm_greeks_dataset_export.py
+tests/packaging/test_bsm_greeks_negative_submissions.py
 tests/packaging/test_bsm_greeks_package_contract.py
 tests/packaging/test_bsm_greeks_prompt_runtime_drift.py
-tests/packaging/test_bsm_greeks_eval_view.py
-tests/packaging/test_bsm_greeks_leakage.py
-tests/packaging/test_bsm_greeks_reference_replay.py
-tests/packaging/test_bsm_greeks_negative_submissions.py
+tests/packaging/test_bsm_greeks_release_views.py
 ```
 
 不要复制 F2A-specific capability profile、submission schema、trajectory outcome 或 certificate files；只复用通用 packaging abstractions。
 
-## 15. Suggested commit sequence
+## 15. Suggested commit sequence（尚未执行）
 
 1. `add generic agent-task package and runtime schemas`；
 2. `add BSM Greeks capability profile and prompt contract`；
@@ -640,7 +680,8 @@ tests/packaging/test_bsm_greeks_negative_submissions.py
 4. `add hidden QuantLib verifier and negative submissions`；
 5. `add reference replay and golden package views`。
 
-每个 commit 都必须保持现有 frozen parents、F2A branches 和 `main` 不变。
+当前实现尚未按这五项形成新的 commit split。若在 review 后提交，每个 commit 都必须保持
+现有 frozen parents、F2A branches 和 `main` 不变。
 
 ## 16. Definition of Done
 
@@ -677,11 +718,23 @@ tests/packaging/test_bsm_greeks_negative_submissions.py
 - [x] replay is byte-identical；
 - [x] evaluation bundle excludes verifier/oracle/reference/private files；
 - [x] train/dev and authoring views contain only their declared files；
-- [x] manifests and hashes verify every released artifact；
-- [x] full repository tests pass and no frozen snapshot changes。
+- [x] manifests and hashes verify every accepted source artifact；
+- [x] full repository tests pass (`260 passed`, 2026-08-10) and no frozen snapshot changes。
+
+### Batch and release promotion
+
+- [x] batch runner and nine-field dataset exporter are implemented and contract-tested；
+- [x] batch records distinct task IDs/subsets, candidate rejections and verification summary；
+- [ ] full 100-task batch and exported dataset have been executed and audited；
+- [ ] approved packages have been explicitly rebuilt/promoted as `RELEASED`。
 
 ## 17. Final recommendation
 
-先冻结 `runtime_contract + prompt + submission schema + verifier oracle config + trajectory schema` 五个接口，再制作一条 8-underlying market-implied Greeks golden package。Golden package 在 clean-room、negative submissions、runtime attacks 和 leakage scan 全部通过后，才把 selector/date 参数化做批量包装。
+五个接口和 8-underlying golden package 已冻结并通过 clean-room、negative submissions、
+runtime attacks 与 leakage scan。当前只参数化 private selector seed，batch runner 与 dataset
+exporter 已就绪；下一项受控工作是执行完整 batch、审核数据集与 split provenance，然后再
+显式决定是否 promotion 到 `RELEASED`。
 
-这能保留 `(database, prompt, pytest, reference trajectory)` 的直观业务结构，同时把 allowlist 真正放在 runtime enforcement 层，而不是仅写进 prompt；也能避免把 F2A 的复杂 arbitrage 语义再次带回这个更容易验收的 BSM Greeks task。
+现有结构保留 `(database, prompt, pytest, reference trajectory)` 的直观业务边界，并把
+allowlist 落在可执行 reference runtime 层；生产环境仍需 OS/container isolation。F2A 的
+arbitrage 语义没有进入本 task。

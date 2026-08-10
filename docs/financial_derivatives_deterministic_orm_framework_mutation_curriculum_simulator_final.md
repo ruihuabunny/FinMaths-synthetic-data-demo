@@ -10,6 +10,23 @@
 
 ---
 
+## 当前仓库实现状态（2026-08-10）
+
+本文是完整目标框架，不表示每个产品、模型、套利层级或训练导出都已落地。当前仓库已经
+实现 config `1.6.0` authoring/IV 边界、config `1.7.0` measure-qualified P/Q dependence、
+七维 runtime（现有 BSM tasks 固定 `F0`）、独立 public-child exporter，以及一条
+`ACCEPTED` 的 D4 `bsm_market_implied_greeks_v1` golden package。该 package 使用三关系
+DuckDB、trusted query/submit adapters、标准库 80-step IV + Greeks solver、独立 QuantLib
+verifier 和隔离 release views。
+
+仓库内 checked-in `snapshots/public/quantlib_bsm_smoke_v1.duckdb` 仍是不可变的 config
+`1.5.0` 历史 demo，只含 P dependence 和 private authoring IV audit；新任务从另一个冻结的
+config `1.7.0` P/Q parent 构建，不原地迁移该文件。Phase F batch runner 与 BSM-specific
+nine-field dataset exporter 已实现，但完整 100-task run 与 release promotion 尚未执行。
+Basket/index/spread joint payoff、F2A+ 套利业务与跨 task-family 通用 training exporter 仍未实现。当前精确边界以
+[主 README](../README.md)、[执行清单](plans/synthetic_bsm_multi_asset_psd_duckdb_greeks_codex_checklist.md)
+和 [golden package 说明](../task_packages/README.md) 为准。
+
 ## 摘要
 
 本文给出金融数学与衍生品市场任务的独立数据方案。与普通统计/数据科学领域不同，出题端以固定版本的 QuantLib 作为统一市场数据生成器：在固定 generator configuration、seed 与 RNG 下生成 underlying daily panel、完整 option daily chain 及 pricing metadata，materialize 后立即冻结为只读 market snapshot。Greeks、implied volatility、smile/surface、VaR 与 ES 不再分别造数据，而是从同一快照派生 task variants。对于同币种多资产市场，所有资产定义在共同风险中性测度 $\mathbb Q$、共同 numeraire 与共享利率路径下；每个资产的完整 option surface 由一个合法且内部一致的边际 pricing model 生成，再以对称、单位对角且半正定的相关矩阵对 underlying/model drivers 进行联合耦合。Derivative contracts 本身不占相关矩阵的行列。随后固定定价模型、underlying dependence、day-count、Greek convention、IV 求根算法、smile/surface 拟合方法、VaR/ES 定义、dtype、操作/归约顺序与 canonical output schema，使 solver 与 verifier 在同一 method contract 下生成逐字段唯一的规范答案。
@@ -119,7 +136,7 @@ $$
 | `option_contracts` | 稳定 `option_id`、underlying、call/put、frozen absolute strike、expiry、exercise/settlement/multiplier，以及 listing date/spot/moneyness provenance。 |
 | `option_chain_specs` | `chain_id`、candidate expiry 与 strike/moneyness grid、call/put、listing/roll rule、strike increment/rounding、liquidity filter、quote model 和合约约定；属于 private authoring provenance。 |
 
-`underlying_daily` 中用于历史收益、VaR/ES 的路径属于物理测度 $\mathbb P$；`option_daily` 的定价属于风险中性测度 $\mathbb Q$。两者可共享当日 spot、variance state 与市场日期，但 drift、风险溢价及模型参数必须分别保存为 `physical_dynamics` 与 `pricing_dynamics`。$\mathbb P$ 与 $\mathbb Q$ 下的 underlying dependence 使用 measure-qualified spec id；不得把历史相关参数无声明地复用到风险中性定价。当前 authoring simulator materialize `measure=P` 的 cross-asset `underlying_dependence`；config `1.5.0` 已为 single-asset vanilla margins 声明共同 $\mathbb Q$/numeraire/rate-path identity 和 drift-only Girsanov diffusion mapping，而 multi-asset $\mathbb Q$ dependence 仍属于后续阶段。如果某题只需 flat rate/dividend，可以把完整 curves 简化为固定 $r,q$，但简化规则本身仍是合同字段。
+`underlying_daily` 中用于历史收益、VaR/ES 的路径属于物理测度 $\mathbb P$；`option_daily` 的定价属于风险中性测度 $\mathbb Q$。两者可共享当日 spot、variance state 与市场日期，但 drift、风险溢价及模型参数必须分别保存为 `physical_dynamics` 与 `pricing_dynamics`。$\mathbb P$ 与 $\mathbb Q$ 下的 underlying dependence 使用 measure-qualified spec id；不得把历史相关参数无声明地复用到风险中性定价。当前 config `1.7.0` authoring simulator 同时 materialize 独立 P/Q dependence identities；Q row 显式引用 source P spec、drift-only mapping、共同 $\mathbb Q$/numeraire/rate-path identity，并在这一 baseline 下保存相同 Brownian covariance。只有 P spec 生成 historical path shock，Q spec 只声明 pricing/joint-market provenance。若某题只需 flat rate/dividend，可以把完整 curves 简化为固定 $r,q$，但简化规则本身仍是合同字段。
 
 Authoring pipeline 固定为：QuantLib 先在共同时间网格上生成全部 underlying path/state，再对每个 valuation date、underlying 与 strike--maturity grid $\mathcal{K}\times\mathcal{T}$ 用指定 QuantLib pricing engine 生成 option chain，最后按题面精度量化并冻结。题目的 IV 真值必须从 solver 实际可见的、已量化 option price 按指定求根法重新反解，不能直接拿 QuantLib 内部未公开的 latent volatility 作答案。这样一套数据即可派生 Greeks、IV、smile/surface、underlying VaR/ES、option-portfolio VaR/ES 以及同一联合过程下的 basket/index/spread variants；不需要维护彼此不一致的独立“Greeks 数据表”或“VaR 数据表”。
 
@@ -132,16 +149,20 @@ increment 与 listing/roll rules 冻结为 private chain spec；moneyness 模式
 留给 exchange-profile 阶段。Config `1.4.0` 进一步把该网格定义为 candidate grid，并按
 listing-moneyness inclusive band 与 maximum expiry 只 materialize 流动性较好的合约；
 side-specific deterministic quote noise 只乘在 BSM bid/ask half-spread 上，不改变
-`mid = settlement_price`。Config `1.5.0` 进一步移除 legacy `base_implied_volatility`
-与 smile：physical drift/volatility 节点从声明的概率分布抽样一次后冻结；在明确的
+`mid = settlement_price`。冻结的 config `1.5.0` public demo 移除 legacy
+`base_implied_volatility` 与 smile：physical drift/volatility 节点从声明的概率分布抽样
+一次后冻结；在明确的
 drift-only Girsanov baseline 中，Q drift 改为 $r-q$ 且 deterministic diffusion 满足
 $\sigma_Q(t)=\sigma_P(t)$。每个 valuation-to-expiry interval 对 $\sigma_Q^2$ 精确积分并
 取 constant-equivalent RMS，再用 QuantLib analytic BSM 定价；最终 IV 则从实际已量化
-canonical mid 调用 QuantLib 反解并写入 private audit。当前 public profile 使用 22 个 underlying，每个实际保留
+canonical mid 调用 QuantLib 反解并写入 private audit。该历史 public profile 使用 22 个 underlying，每个实际保留
 4 expiries × 7 strikes × call/put，共 1,232 个固定合约，65 个 business dates 内生成
 60,368 条 expiry 前 quotes。各期限来自同一个 deterministic-time-varying-diffusion BSM
 marginal model，而不是 `physical volatility + 0.02` 或逐 quote latent smile。Option
-contracts 不加入 correlation matrix；multi-asset Q-dependence 仍是下一阶段。
+contracts 不加入 correlation matrix。Config `1.6.0+` 已把 IV inversion 移出 authoring；
+config `1.7.0` 已加入完整 P/Q dependence pair。当前 D4 golden task 只把 P/Q identities 与
+joint-market policy 作为 provenance，单资产 vanilla IV/Greeks 仍不读取 cross-asset
+correlation；多资产联合 payoff 定价仍是后续阶段。
 
 ### 同币种 Conditional-Independent Baseline 与相关矩阵扰动
 
@@ -368,7 +389,7 @@ CIR 通常描述短利率而非 equity spot。任务必须分别声明 spot、vo
 | D1 | 单张结构化表 | 读取、筛选、类型转换 |
 | D2 | 多张关联表 | join market、contract、curve、position |
 | D3 | 原始 option chain | 清洗、构造 forward、反求 IV |
-| D4 | DuckDB market snapshot | SQL 查询、期限匹配、curve interpolation |
+| D4 | DuckDB market snapshot | SQL 或受计数 trusted relation adapters、跨关系读取、期限匹配、curve interpolation；是否暴露 raw connection 由 runtime contract 决定 |
 | D5 | 缺失值和异常值 | arbitrage filter、stale quote、确定性修复 |
 | D6 | 隐藏产品标签 | 根据 legs/payoff 识别交易结构 |
 | D7 | 完整 agent environment | 查询、写代码、执行、诊断、修复、保存 artifact |

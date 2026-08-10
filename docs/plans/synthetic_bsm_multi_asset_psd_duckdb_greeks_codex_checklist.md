@@ -5,6 +5,14 @@
 > 设计依据：`docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md`  
 > 配套计划：`docs/plans/synthetic_bsm_multi_asset_psd_duckdb_greeks_plan.md`
 
+> 完成状态（2026-08-10）：P0–P6 已完成，唯一保留项是人工 review 后的 commit split。
+> Golden D4 task 为 `bsm-mig-v1-1f1fc1880b42253725b118eb`，含 8 underlyings、160 rows、
+> 3 relations，public logical checksum 为
+> `eda816dd104fad3682c11b452237ddafe1d0b08646c23ec39a25f032a3430758`，状态为
+> `ACCEPTED`。后续 packaging 以根目录
+> `synthetic_bsm_greeks_agent_task_packaging_plan.md` 为准：Phase A–E 已完成，Phase F
+> runner/dataset exporter 已实现；完整 100-task batch 与 `RELEASED` promotion 待执行。
+
 ## 给 Codex 的执行指令
 
 只在 `synthetic-BSM-agent-task` 上继续工作。先阅读上面的框架文档和配套计划，再按本清单从 P0 到 P6 实施。不要 merge/cherry-pick 整个 F2A 分支，不要修改 `main`，不要改写任何已冻结 snapshot。
@@ -149,7 +157,7 @@ Authoring DB 和 task DB 必须是两个安全边界；不能仅依赖同一个�
 - [x] 生成至少一个 small smoke task set，覆盖多个 underlyings、call/put、strike、expiry 和合法 non-diagonal Q correlation。
 - [x] 从 public DuckDB 运行 solver，再由 trusted verifier exact-compare canonical output。
 - [x] 两次独立 replay 的 task IDs、row order、checksums、prices、Greeks、IV（若已实现）完全一致。
-- [x] 运行 `make test`，并新增一个不依赖 checked-in 私有 child 的 end-to-end temp-directory test。
+- [x] 运行 `make test`，并新增一个不依赖 checked-in 私有 child 的 end-to-end temp-directory test；最终结果为 `260 passed`（2026-08-10）。
 - [x] 更新 README/authoring docs，只描述实际已实现功能；不要把 P-only dependence 写成 P/Q 都已实现。
 - [ ] 最终提交按职责拆分，建议顺序：dependence contract → public DB export → BSM/Greeks → IV → seven-axis runtime → docs/tests。（本轮未创建 commit，留待人工 review 后处理。）
 

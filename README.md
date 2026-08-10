@@ -21,7 +21,7 @@
 | Public solver DuckDB export | 已实现 | Frozen parent → 独立 public child；稳定采样/任务 ID、subset manifest、logical checksum、递归 leakage scan 与只读打开。 |
 | Analytic BSM/IV/Greeks Solver / trusted verifier | 已实现 | 标准库 price/Greeks/固定 80 步 IV 与 pinned QuantLib 独立 oracle 按 canonical decimal exact compare。 |
 | BSM Greeks agent task package | 已实现 golden task | 8-underlying、160-row 三关系 DuckDB、自动渲染 prompt、有效 runtime allowlist、hidden pytest、reference trajectory 与三种 release views。 |
-| Training export | 部分实现 | Golden package 已含 observable reference trajectory；通用 ORM 记录与批量 dataset export 尚未实现。 |
+| Training export | BSM-specific 已实现 | Golden package 含 observable reference trajectory；Phase F runner 可把 verified packages 导出为九字段 JSONL。完整 100-task batch 尚未执行，跨 family 通用 ORM exporter 仍未实现。 |
 | 多资产 $\mathbb Q$ dependence / joint payoff | 部分实现 | P/Q underlying-driver covariance 已显式分层；basket/index/spread payoff 尚未实现。 |
 
 当前的 volatility mapping 是一个明确的 baseline 假设：Girsanov change of measure 只改变
@@ -128,7 +128,12 @@ Agent 不获得 raw DuckDB handle；trusted query adapter 各读取 contract/inp
 动态安装、子进程、QuantLib/现成 IV/Greek packages 和私有路径。Reference solver 在同一
 权限与工具预算下两次 replay 得到 byte-identical submission，再由独立 QuantLib verifier
 从公开 bid/ask 重做 80-step inversion 和五个 unit Greeks，最终逐字符串 exact compare。
-Package 保持 `ACCEPTED`（单条 golden task），尚未参数化为 batch release。Authoring 私有
+该输入仍标为 `D4`：任务载体是 DuckDB market snapshot，并要求读取冻结的 contract/input
+relations、保持跨关系 identity 与 canonical row workflow；`D1` 只表示直接给一张结构化表。
+是否把 raw SQL connection 暴露给 Agent 是 runtime security 选择，不会把 market-snapshot
+data/tool axis 降成 D1。
+Package 保持 `ACCEPTED`（单条 golden task）。Selector seed 已可由 Phase F batch runner
+参数化，并可导出九字段 JSONL；完整 100-task run 与 `RELEASED` promotion 尚未执行。Authoring 私有
 artifact manifest 覆盖全部 public/verifier/reference/private 源制品；package verifier 还会
 逐文件确认 authoring、train/dev、evaluation 三个 view 与各自源文件字节一致。
 
@@ -158,13 +163,15 @@ artifact manifest 覆盖全部 public/verifier/reference/private 源制品；pac
   -> Pinned QuantLib trusted verifier canonical exact compare
   -> 注册七维 task variant 与 compatibility decision（当前 BSM task 固定 F0）
   -> 物化三关系 D4 golden task package 与 authoring/train-dev/evaluation views
+  -> 参数化 private selector seed 批量构建 accepted packages
+  -> 将已验证 package 导出为九字段 JSONL dataset
   -> Mutation Engine 生成带 lineage 的 candidate pool
   -> Curriculum Scheduler 按 mastery 选择训练分布
 
 规划中：
-  -> 参数化 selector/date 进行 batch packaging
-  -> 记录通用 ORM outcome 与批量 agent trajectory
-  -> 导出 LLM training dataset
+  -> 执行并审核完整 100-task batch 与 split provenance
+  -> 将获批 artifacts 显式 promote 为 RELEASED
+  -> 泛化跨 task-family ORM outcome/dataset export
 ```
 
 Authoring、Solver 和 Trusted verifier 是三个不同的权限边界：
@@ -203,6 +210,10 @@ $\sigma_Q^2(t)$ 精确积分并取 RMS，再用 QuantLib analytic BSM engine 计
 `mid = settlement_price`，deterministic clipped-Gaussian quote noise 只作用于 bid/ask
 half-spread。Private audit 从这个已量化 canonical mid 反解 IV，不把定价输入 volatility
 直接冒充 IV。
+
+以上计数和 private IV audit 只描述不可变的 config `1.5.0` checked-in demo。当前 writable
+config `1.6.0+` 不再生成 authoring IV answers；D4 golden task 使用另一个冻结的 config
+`1.7.0` P/Q parent，并从 public bid/ask 重新定义 inverse problem，不修改这个历史 snapshot。
 
 查看已冻结 public snapshot：
 
@@ -334,7 +345,7 @@ reduction method 写入 `market.pricing_metadata.physical_dynamics`。`start_dat
 $S(t_0)=S_0$ 的 initial condition，不伪造前一日 transition；后续 business-date 行按真实
 calendar interval 演化。
 
-当前 config `1.5.0` 另声明一个明确、局部的模型假设：在这个 deterministic-diffusion
+本节所述 frozen config `1.5.0` 另声明一个明确、局部的模型假设：在这个 deterministic-diffusion
 GBM baseline 中，Girsanov change of measure 只把 drift 从 $\mu_P(t)$ 改为 $r-q$，扩散函数
 保持 $\sigma_Q(t)=\sigma_P(t)$。这不是“physical volatility 按定义等于 IV”，也不是通用
 的 volatility-risk-premium 结论。European option 在 $[t,T]$ 使用
@@ -344,7 +355,7 @@ $$
 =\sqrt{\frac{1}{T-t}\int_t^T\sigma_Q^2(u)\,du},
 $$
 
-由 QuantLib 计算未舍入理论价；mid 量化到 8 位后，再由声明的 QuantLib solver 对这个
+由 QuantLib 计算未舍入理论价；mid 量化到 8 位后，再由该历史配置声明的 QuantLib solver 对这个
 可见 canonical mid 反解 IV。完整 Q mapping、输入 volatility、未舍入价格、反解结果和
 失败状态只保存在 private `market.option_pricing_audit`，没有 solver-visible view。
 
@@ -609,13 +620,14 @@ derivatives、多币种利率或 numeraire conversion。该方案保证模型内
    为绝对 strike，合约跨 valuation dates 保持身份不变；候选网格按期限和 listing
    moneyness 做 immutable liquidity filtering。Weekly/monthly/quarterly 动态 listing/roll
    仍待 exchange profile 阶段实现。
-2. **同币种 common-$\mathbb Q$ pricing context。** 当前 config `1.5.0` 已为 single-asset
-   vanilla margins 冻结共同 $\mathbb Q$/money-market numeraire/rate-path identity、
-   drift-only Girsanov mapping 和 private quote-IV audit。若联合 payoff 需要相关性，仍需
-   增加只耦合 Q-measure underlying/model drivers 的 PSD $R_t$；derivative contracts
-   不进入 correlation matrix。
-3. **公共市场状态与私有 DGP 隔离。** 先完成上面的 metadata split，再扩充模型；否则
-   更复杂的 Heston/Bates parameters 只会成为更明显的答案泄漏。
+2. **同币种 common-$\mathbb Q$ pricing context（已完成 vanilla baseline）。** Config
+   `1.7.0` 已冻结共同 $\mathbb Q$/money-market numeraire/rate-path identity、独立 P/Q
+   dependence IDs，以及 drift-only same-Brownian-covariance mapping。Derivative contracts
+   不进入 correlation matrix；basket/index/spread 等联合 payoff 定价仍未实现。
+3. **公共市场状态与私有 DGP 隔离（task 发布边界已完成）。** Authoring DB 内部的
+   `pricing_metadata` 仍是过渡 view，但 generic exporter 与 task-specific materializer 已将
+   production task 投影为独立 public-only child。扩充 Heston/Bates 等 richer DGP 前仍应继续
+   收紧 authoring 内部 metadata 分层。
 4. **曲线、日历与合约约定。** 用非 flat discount/dividend/borrow term structures、离散
    dividend/corporate actions、真实交易所 holidays/early closes、strike increments、
    multiplier、exercise/settlement style 和 valuation timezone 替换 smoke 简化项。
@@ -648,6 +660,8 @@ derivatives、多币种利率或 numeraire conversion。该方案保证模型内
 | 1（已完成） | `OptionChainBuilder` | config `1.3.0/1.4.0` 声明 candidate expiry/moneyness grid、成对 call/put、static listing/roll、liquidity filter 与 strike increment；listing date 冻结绝对 strike；quote noise 只扰动 BSM half-spread | 合约 id 跨日稳定；one-shot、append 与 `sync-config` 一致；22 品种、65 日 public profile 通过；far-expiry/far-strike candidates 不挂牌 |
 | 2（已完成） | `CommonQPricingContext` / `QUnderlyingDependenceSpec` | config `1.7.0` 声明唯一的 $\mathbb Q$/numeraire/rate path、独立 P/Q IDs，以及 drift-only same-Brownian-covariance mapping | P/Q specs 同时由 $\Lambda/D/R$ 构造；option ids 不进入 $R_t$；合法相关性不改变 vanilla margins；后续联合 payoff 必须来自同一 joint process |
 | 3（已完成） | Independent public-child exporter | Frozen authoring parent 确定性投影 task rows；public 层只留 spot/contract/quotes/curves/P-Q dependence，private 层保留 generation provenance | child 无 `market` schema、seed/RNG/run/oracle/node heights；stable IDs、subset manifest、logical checksum 与 read-only replay 通过 |
+| 3A（已完成） | D4 BSM Greeks golden package | 三关系 8-underlying/160-row DuckDB、trusted adapters、fixed-80 IV + five Greeks、QuantLib verifier 与三种 release views | reference replay byte-identical；canonical exact compare、runtime attacks、negative submissions、leakage 和 view allowlists 全部通过 |
+| 3B（工具已完成，运行待审核） | Phase F batch / BSM training export | 共享一次 frozen parent materialization，按 distinct selector seeds 构建 accepted packages，并导出按 task ID 排序的九字段 JSONL | batch runner 与单包 dataset contract test 已完成；完整 100-task run、split audit 与 `RELEASED` promotion 尚未执行 |
 | 4 | `ExchangeProfile` 与 `QuoteModel` | 加入真实 holiday/early-close、timezone、expiry/settlement、strike/tick rules，以及随 moneyness、maturity、vega、premium、liquidity 变化的 spread；补充 size、stale/missing/zero-bid 与 quality flags | 所有公开报价符合声明的 exchange profile；volume/open interest 和 liquidity state 具有跨日持续性 |
 | 5 | `CurveState` 与 richer driver blocks | 在 common-$\mathbb Q$ 与 measure-qualified underlying dependence 合同下支持非 flat curves、离散 dividend/corporate actions、共享 variance/regime/jump state、time-varying $R_t$ 及 spot--volatility/rate blocks | 同一 valuation timestamp 使用同一个 market-state/dependence version；边际内部相关结构不被 cross-asset coupling 改写；$\mathbb P/\mathbb Q$ 差异由显式 risk premia 描述 |
 | 6 | `GenerationModel` / `GenerationEngine` registry | 先保留 deterministic-time-varying-diffusion BSM baseline，再分别加入 Heston、Bates/jump-diffusion、local-vol snapshot DGP；每个 snapshot 只选一个 canonical engine，另一个 engine 做 verifier | 不同 DGP 使用不同 `snapshot_id`；同一 snapshot/合约/时间仍只有一条市场报价；cross-engine error 在预设 tolerance 内 |
@@ -664,12 +678,15 @@ derivatives、多币种利率或 numeraire conversion。该方案保证模型内
 3. 已为当前 vanilla authoring contract 加入共同 $\mathbb Q$/numeraire/rate-path identity、
    独立 P/Q dependence specs 与显式 covariance mapping；需要多资产联合 payoff 时必须
    消费这一 joint underlying context，而不是构造 derivative correlation。
-4. 完成 public/private metadata migration；此后 Heston/Bates 等新 DGP 才能接入，避免把
-   richer latent parameters 暴露给 Solver。
+4. 已完成独立 public-child、D4 golden-package 发布边界，以及 Phase F batch/dataset tooling；
+   完整 batch 执行与 release promotion 仍需审核。Authoring DB 内部更细的 metadata split、
+   Heston/Bates 等新 DGP 需分别版本化后再接入。
 
-因此 measure-qualified P/Q underlying dependence、static `OptionChainBuilder` 与
-common-$\mathbb Q$ vanilla baseline 已经完成；下一项工作是独立 public child database
-边界。Pricing model registry 仍在市场数据结构、统一定价算子和权限边界建立之后推进。
+因此 measure-qualified P/Q underlying dependence、static `OptionChainBuilder`、
+common-$\mathbb Q$ vanilla baseline、独立 public child 和一条 accepted D4 golden package
+均已完成。Batch 参数化与 BSM-specific dataset exporter 也已实现；后续工作是执行并审核
+完整 batch、显式 release promotion、部署级 OS/container sandbox，以及
+exchange/curve/richer-DGP roadmap；pricing model registry 仍应在这些边界稳定后推进。
 
 常用的只读 DuckDB 查询集中保存在
 [`snapshots/public/sql_query/`](snapshots/public/sql_query/README.md)，包括 snapshot 摘要、
@@ -698,9 +715,9 @@ underlying 时间序列、option chain、moneyness、pricing context 和 authori
 │   ├── examples/                  # 完整设计样例
 │   └── *.md                       # 框架、架构和方法说明
 ├── environments/
-│   ├── authoring/                 # Authoring 隔离环境定义
-│   ├── solver/                    # Solver allowlist、denylist 与沙箱定义
-│   └── verifier/                  # Trusted verifier 隔离环境定义
+│   ├── authoring/                 # Authoring dependency lock
+│   ├── solver/                    # Solver dependency lock、capability profiles 与本地受限 harness contract
+│   └── verifier/                  # Trusted verifier dependency lock 与说明
 ├── examples/
 │   ├── submissions/               # 可公开的 canonical submission 样例
 │   └── trajectories/              # 可公开的正向/负向 agent trajectory 样例
@@ -720,13 +737,13 @@ underlying 时间序列、option chain、moneyness、pricing context 和 authori
 │       ├── curriculum/            # 不改 task/reward 的 adaptive sampling
 │       ├── packaging/             # Agent package、prompt/runtime、三关系 DB 与 view materializer
 │       ├── solver/                # 受限环境中的公式、求根、Greeks 与拟合实现
-│       ├── training/              # Trajectory 清洗、split 和 LLM 数据导出实现
+│       ├── training/              # Verified BSM package → 九字段 JSONL；通用跨 family exporter 待实现
 │       └── verifier/              # 独立 package oracle 与 hard verifier 实现
 └── tests/
     ├── fixtures/                  # 小型冻结测试输入和公开期望结构
     ├── unit/                      # task-space、mutation、curriculum 单元测试
     ├── integration/               # task manifest 与 authoring snapshot 边界
-    ├── verifier_robustness/       # 验证错误数字、方法和 schema 必须被拒绝
+    ├── verifier_robustness/       # 预留目录；当前定向拒绝测试位于 integration/packaging
     ├── packaging/                 # Golden package E2E、runtime attacks、replay 与 release views
     └── public/                    # Snapshot、contract、重放和端到端公开测试
 ```
@@ -781,13 +798,16 @@ IV、Greeks、smile、surface、VaR 和 ES 是从统一快照派生的任务结�
 - `packaging/`：从 frozen P/Q parent 构建三关系 agent DB，组合 runtime allowlist、渲染 prompt、记录 observable trajectory，并导出隔离 views。
 - `solver/`：只使用合同允许的基础原语，自行实现指定计算方法。
 - `verifier/`：不得导入 Solver 的定价实现；使用独立 package oracle 复算并做 canonical exact equality。
-- `training/`：把通过校验的任务、trajectory、证据和 outcome 转换为 LLM 训练记录，并按 snapshot 分组切分数据，避免泄漏。
+- `training/`：验证 source package 后导出 BSM market-Greeks 九字段 JSONL，并记录 parent
+  grouping、task ordering 与无 private-oracle/seed 声明；通用跨 family exporter 尚未实现。
 
 生产部署时，四个子包不会共享同一个运行权限；代码分目录只是 repo 层面的组织方式。
 
 ### `environments/`
 
-保存三个隔离环境的依赖与容器定义。Authoring/verifier 可以安装固定版本的金融包，Solver 环境只安装 allowlist 依赖，并禁用网络、动态安装和 hidden verifier 访问。
+保存三个权限边界的 dependency locks 与 capability declarations。当前仓库提供 solver 的
+受限 reference harness，但不提交完整 production container；部署时仍须在 OS/container 层
+禁用网络、动态安装、未声明 filesystem 和 hidden verifier 访问。
 
 ### `datasets/`
 
@@ -804,7 +824,10 @@ IV、Greeks、smile、surface、VaR 和 ES 是从统一快照派生的任务结�
 - `unit/` 检查 task grammar、受约束 mutation、lineage 与 curriculum sampling。
 - `integration/` 检查 task/authoring 边界，以及 frozen parent 到 public-only child 的确定性重放、
   parent byte immutability、logical checksum、leakage 和 read-only handoff。
-- `verifier_robustness/` 主动修改末位数字、单位、method ID、行顺序或 import，确认 hard verifier 必须失败；该目录与正式 task mutation engine 无关。
+- `packaging/` 构建 temp P/Q parent 与完整 golden package，覆盖 runtime attacks、negative
+  submissions、clean evaluation replay、leakage、hashes 和 release views。
+- `verifier_robustness/` 当前是预留目录；末位数字、单位、method ID、行顺序和 import 的
+  定向拒绝测试现位于 `integration/` 与 `packaging/`。
 
 生产 hidden tests 应放在 Solver 无法读取的独立环境中，不提交到公开仓库。
 

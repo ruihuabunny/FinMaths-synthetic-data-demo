@@ -34,6 +34,10 @@
 | [`test_mutation.py`](test_mutation.py) | Deterministic single-axis mutation、snapshot lineage、incompatible child rejection 和 method identity。 |
 | [`test_curriculum.py`](test_curriculum.py) | 20/60/20 stage mass、mastery-adaptive sampling，以及 diagnostics 不改变 binary reward。 |
 
+Golden package 的 trusted-adapter runtime、reference replay、QuantLib verifier、release views、
+negative submissions 以及 BSM-specific nine-field dataset export 属于跨边界行为，统一在
+`tests/packaging/` 覆盖，不在 unit suite 重复构造完整 package。
+
 ## Authoring unit-test 边界
 
 ### Underlying 与 option 必须分离

@@ -1,6 +1,14 @@
 # 基于现有 DuckDB 合成 Agent Task 的实施计划
 
-## 1. 目标与当前结论
+> 实现状态（2026-08-10）：本文件记录最初基于 checked-in config `1.5.0` snapshot 的 pilot
+> 设计，§1 的计数与 §3 的 B0–B5 catalogue 应按“历史设计输入”阅读。当前仓库已经落地
+> config `1.6.0` authoring/IV separation、config `1.7.0` P/Q joint-market identities、七维
+> runtime、独立 public-child exporter、`bsm_iv_scalar_v1` 与一条 `ACCEPTED` 的 D4
+> `bsm_market_implied_greeks_v1` 三关系 package。该 D4 task 通过 counted trusted adapters
+> 读取 DuckDB relations，不给 Agent raw SQL connection。Phase F batch/dataset tooling 已实现，
+> 完整 100-task run 与 release promotion 尚未执行；B4/B5、F2A 和 joint-payoff tasks 仍未实现。
+
+## 1. 初始目标与历史结论
 
 本计划使用已冻结的
 `snapshots/public/quantlib_bsm_smoke_v1.duckdb` 作为第一版 agent task 的
@@ -20,7 +28,7 @@ Frozen DuckDB snapshot
 但不能原样作为 Solver 的数据库。它同时包含 `solver_visible` views、private
 `market.option_pricing_audit` 和 authoring provenance；数据库内的 view 不是权限边界。
 
-当前快照的可用规模如下：
+该历史 checked-in 快照的可用规模如下：
 
 | 对象 | 数量 |
 |:---|---:|
@@ -35,7 +43,7 @@ Frozen DuckDB snapshot
 这些数字只是 raw candidate universe。最终可发布任务还必须通过模型定义域、根存在性、
 数值稳定性、权限隔离和 canonical replay 等质量门。
 
-现有基础 task manifest 仍为 `DRAFT` 且 `publication_eligible=false`。当前
+在初始审计时，基础 task manifest 仍为 `DRAFT` 且 `publication_eligible=false`。当时的
 [`task.schema.json`](../../../schemas/task.schema.json) 主要覆盖 task identity；Solver、
 verifier、submission、trajectory 和训练数据闭环仍需实现。
 
@@ -43,7 +51,7 @@ verifier、submission、trajectory 和训练数据闭环仍需实现。
 
 ### 2.1 概率测度、状态与信息
 
-第一批 option pricing、IV 和 Greek tasks 只使用风险中性测度
+初始第一批 option pricing、IV 和 Greek 设计只使用风险中性测度
 `Q = USD-MONEY-MARKET-Q-v1`，其 numeraire 为
 `USD-MONEY-MARKET-ACCOUNT-v1`。在过滤概率空间
 
@@ -59,8 +67,10 @@ verifier、submission、trajectory 和训练数据闭环仍需实现。
 - task contract 明确公开的 deterministic pricing-volatility input；
 - calendar、day-count、valuation timestamp 和 canonical quote。
 
-第一版不使用 stochastic rate、stochastic volatility、jumps、regime switching 或
-Q-measure multi-asset dependence。Task contract 在实现前必须明确 \(S_t\) 的经济含义；
+该 pilot 不使用 stochastic rate、stochastic volatility、jumps 或 regime switching；它当时
+也未声明 Q-measure multi-asset dependence。当前 config `1.7.0` 已增加独立 P/Q driver
+dependence identities 和 drift-only covariance mapping，但仍未实现 joint payoff。Task
+contract 必须明确 \(S_t\) 的经济含义；
 BSM baseline 应把它声明为同币种 ex-dividend spot，而不能只写成含义不明的 `spot`。
 
 ### 2.2 Q-measure dynamics 与精确区间缩减
@@ -122,6 +132,10 @@ dependence-statistic tasks，必须另行冻结：
 
 B0--B2 用于先冻结数学、方法、单位和 verifier。B3 在保持相同数值合同的前提下，
 把数据入口升级为 DuckDB agent workflow。B4--B5 在基础闭环稳定之后进入下一批。
+
+实际落地没有逐字实现整个 B0–B5 catalogue：仓库已完成 analytic BSM/Greek fixture、
+`bsm_iv_scalar_v1`，以及组合 visible-price IV + five Greeks 的 D4
+`bsm_market_implied_greeks_v1`；parity-audit 与 term-structure variants 尚未实现。
 
 ### 3.1 Price task
 
@@ -213,7 +227,9 @@ analytic method 混用同一个 method id。
 同一个数学 task family 支持两种独立 variant：
 
 - D0：task JSON 直接给出全部输入参数，不要求 Solver 查询数据库；
-- D4：Solver 获得只读 solver-only DuckDB 和 selector，需要自行执行 SQL、排序和输出 artifact。
+- D4：任务输入来自只读 solver-only DuckDB market snapshot，Solver 需要完成关系读取、排序和
+  artifact workflow。当前 accepted package 用 counted trusted query adapters 投影固定 relations，
+  不授予 raw DuckDB/SQL connection；这仍是 D4 data/tool difficulty，而不是 D1 单表输入。
 
 D0 用于验证数值合同；D4 用于验证完整 agent workflow。两者不能因为输入方式不同而改变
 数学 truth 或 verifier method。
@@ -227,7 +243,8 @@ D0 用于验证数值合同；D4 用于验证完整 agent workflow。两者不�
 描述一个不可变任务族及其方法：
 
 - `task_family_id`；
-- 六维 coordinates `(L, P, M, A, D, R)`；
+- 七维 coordinates `(L, P, M, A, D, R, F)`；当前 BSM variants 固定 `F0`，旧六维数据只能
+  通过显式 migration adapter 补入 `F0`；
 - compatibility rule id；
 - market convention id；
 - method contract id；
@@ -336,14 +353,19 @@ vega/conditioning 和 canonical replay 筛除不稳定普通题。
 - Solver 使用禁用的 finance/IV/Greek API 必须失败；
 - hidden oracle/private schema 对 Solver 可访问时，environment test 必须失败。
 
-## 7. 实施阶段
+## 7. 原始实施阶段与当前映射
+
+阶段 0–3 的合同、隔离与 verifier primitives 已在当前 BSM variants/package 中完成；阶段 5
+以 market-implied Greeks D4 trusted-adapter workflow 落地，而非原拟的 raw-SQL IV batch。
+阶段 4 的完整约 100-task pilot 尚未执行。阶段 6 只完成七维 registry、deterministic mutation/
+curriculum baseline 与 Phase F exporter，尚无多 snapshot split benchmark。
 
 ### 阶段 0：冻结设计合同
 
 - 明确 ex-dividend spot、currency、settlement 和 quote definition；
 - 冻结 B0--B2 的 method/output/canonicalization contracts；
 - 明确 task variant 与 task instance 的边界；
-- 为六维 coordinates 选择兼容坐标并通过 registry；
+- 为七维 coordinates 选择兼容坐标并通过 registry；当前 family 固定 `F0`；
 - 明确 authoring、Solver 和 verifier 的读取权限。
 
 完成标准：同一个输入只对应一个声明方法下的 canonical output，不存在 measure、单位、
@@ -421,9 +443,11 @@ data access。
 
 ### 8.2 Q-measure multi-asset derivatives
 
-当前 snapshot 中的 underlying dependence 属于 P-measure spot-path DGP。没有声明的
-Q-measure multi-asset driver dependence 和 joint payoff pricing process，因此不能据此生成
-basket、index、spread、best/worst-of 或 correlated option-pricing tasks。
+Checked-in config `1.5.0` snapshot 的 underlying dependence 仅属于 P-measure spot-path DGP。
+当前另一个 config `1.7.0` parent 已声明 measure-qualified Q driver dependence、共同 Q/
+numeraire/rate-path identity 与 drift-only mapping，但仍没有 joint payoff pricing process。
+因此可以把 P/Q identities 用作 vanilla task provenance，却仍不能据此声称已经实现 basket、
+index、spread、best/worst-of 或 correlated option-pricing tasks。
 
 ### 8.3 OHLC/range tasks
 
@@ -448,7 +472,7 @@ valuation、quantile convention、scenario order 和 interpolation。Business-da
 
 - 原 authoring snapshot 保持 frozen；
 - Solver 使用独立、只读、无 private tables 的 DuckDB；
-- Task variant/instance 完整记录 snapshot id/revision 和六维坐标；
+- Task variant/instance 完整记录 snapshot id/revision 和七维坐标；
 - Q measure、numeraire、state、clock、units 和 method 无歧义；
 - IV truth 从实际 canonical mid 按指定算法重建；
 - Solver 与 verifier 使用同一数学对象、算法、dtype、顺序和 canonicalization；
@@ -458,20 +482,18 @@ valuation、quantile convention、scenario order 和 interpolation。Business-da
 - failure-status samples 与普通数值任务隔离；
 - pilot 的正确 submission 全部通过，定向错误 submission 全部被拒绝。
 
-## 10. 推荐的下一份具体产物
+## 10. 已完成产物与下一步
 
-下一步先冻结 `bsm_iv_scalar_v1` 的完整设计，不立即批量生成任务。该设计应包含：
+`bsm_iv_scalar_v1` 的合同、固定 80-step solver 与 independent verifier 已完成；其核心数学
+随后复用于 accepted D4 `bsm_market_implied_greeks_v1` package。当前 package 已包含：
 
-1. 一个 task variant 示例；
-2. 一个从 DuckDB business key 选出的 task instance 示例；
-3. 完整 input schema；
-4. `bsm-bisection-float64-80-v1` method contract；
-5. submission/output schema；
-6. private verifier manifest；
-7. canonicalization 和 failure-status examples；
-8. solver-only input projection；
-9. authoring QC checklist。
+1. versioned task variant 与七维坐标；
+2. 从 frozen P/Q parent 确定性选出的 8-underlying/160-row task instance；
+3. 三关系 public DuckDB、prompt、runtime 与 submission schemas；
+4. `bsm-bisection-float64-80-v1` + analytic five-Greek method contract；
+5. hidden independent QuantLib verifier、negative submissions 与 leakage checks；
+6. observable reference trajectory、byte-identical replay 与三种 isolated views。
 
-该 scalar 合同通过评审和 verifier pilot 后，再复用同一数学 truth 构建
-`duckdb_bsm_iv_batch_v1`，避免同时调试数据库权限、SQL、root method 和 output
-canonicalization 多个边界。
+Phase F runner 和 BSM-specific nine-field dataset exporter 也已实现。下一步是执行并审核
+完整 100-task batch、按 parent snapshot identity 检查 split provenance，再显式决定是否将
+获批 artifacts promote 为 `RELEASED`；这不等同于已完成 B4/B5 或通用跨-family exporter。

@@ -25,3 +25,11 @@ QuantLib remains available only to trusted authoring and verifier code. The task
 contract must freeze formulas, conventions, dtype, operation order and canonical
 serialization so the solver implementation and independent verifier can be
 compared exactly.
+
+The repository reference harness executes solver source in a separate `spawn`
+process. It enforces the frozen import/builtin policy, counted trusted adapters,
+submission call/size limits, one-CPU affinity, `RLIMIT_AS`, `RLIMIT_CPU`, and a
+parent-side wall timeout. These controls make the checked-in reference replay an
+executable contract; they are not a substitute for deployment isolation. A
+production runner must independently enforce network, mount/filesystem, process,
+user/namespace, and resource policy at the OS or container boundary.

@@ -61,9 +61,12 @@ Public pipeline 必须满足：
 Checked-in snapshot 的 manifest 位于
 [`quantlib_bsm_smoke_v1.manifest.json`](../../snapshots/public/quantlib_bsm_smoke_v1.manifest.json)。
 更新 snapshot 时必须同步 status、revision、日期范围和各表 row counts。
-当前逻辑 snapshot 是 config `1.5.0` 的 22-metal、65-business-day liquid option-chain
+当前 checked-in 逻辑 snapshot 是历史 config `1.5.0` 的 22-metal、65-business-day liquid option-chain
 profile，包含 sampled-and-frozen physical functions、Q pricing contract 和 private
 canonical-mid IV audit；legacy 5-underlying config 只服务快速 incremental regression tests。
+Current writable config `1.6.0+` 不再写 authoring IV answers；accepted D4 package 使用独立
+临时生成并冻结的 `1.7.0` P/Q parent。该 agent-package boundary 由 `tests/packaging/` 验证，
+不应把这里的 frozen authoring-demo assertions 当作三关系 task DB contract。
 
 ## Public SQL queries
 

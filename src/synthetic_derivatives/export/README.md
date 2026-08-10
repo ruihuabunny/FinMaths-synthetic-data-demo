@@ -60,8 +60,9 @@ volume/open interest、`mid`、`settlement_price` 与 authoring-derived analytic
 - Parent 以 `READ_ONLY` attach，完成复制后立即 detach；child 经 pre/post recursive leakage scan
   后原子发布。扫描会进入 JSON 字符串内的 nested objects/lists。
 - `open_solver_database()` 只以 DuckDB read-only mode 打开已经通过安全扫描的 child。生产环境
-  仍须只挂载 child，不向 Solver 挂载或传递 parent；更严格的 SQL/API denylist 属于后续
-  solver-sandbox 阶段。
+  仍须只挂载 child，不向 Solver 挂载或传递 parent。当前 D4 Greeks package 进一步只通过
+  counted trusted query adapter 暴露 task rows，不把 raw DuckDB connection 交给 Agent；生产
+  部署仍须在 OS/container 层执行同一 filesystem/network policy。
 
 最小调用方式：
 
@@ -84,8 +85,13 @@ manifest = export_solver_database(
 )
 ```
 
-当前仓库不提交 P2 生成的 child；integration tests 全部在 pytest 临时目录中创建、重放和销毁。
-P3 的 direct-volatility BSM/Greeks contract、stdlib solver 与 QuantLib trusted verifier 位于
-独立的 `tasks`、`solver` 和 `verifier` 包。当前 exporter 尚未在 child 中物化 Greeks task
-rows。P4 已实现独立 scalar mid-quote IV contract 和固定 80 步 solver/verifier，但尚未把它
-接到 public child 的 batch task relations；该端到端接线属于后续阶段。
+Generic 六关系 P2 child 仍只在 integration/packaging 临时目录中创建，不作为独立长期制品
+提交。其上已经完成 task-specific 二次投影：accepted
+`bsm_market_implied_greeks_v1` package 提交一份独立三关系 DuckDB，包含
+`metadata.public_task`、`solver_visible.greeks_task_inputs` 和
+`solver_visible.greeks_task_contract`。它通过 trusted adapters 接到标准库固定 80 步 IV +
+Greeks solver，并由 pinned QuantLib verifier exact-compare；详见
+[`task_packages/README.md`](../../../task_packages/README.md)。当前 checked-in source artifact
+仍只有一条 `ACCEPTED` golden task；Phase F 已参数化 private selector seed，并提供 verified
+nine-field dataset exporter。Valuation date 仍由 frozen package contract 固定，完整 100-task
+batch 与 `RELEASED` promotion 尚未执行。

@@ -11,7 +11,8 @@
 > dependence identities。Authoring schema `2.5.0` 保存 source/mapping/common-Q context。
 > Option/derivative pricing 不读取 underlying 相关矩阵，原有 v1/v1.1/v1.2 pipeline
 > 保持兼容。独立 exporter 与 BSM Greeks packaging pipeline 已能从 frozen P/Q parent
-> 生成一条 accepted 的 8-underlying D4 golden task；batch packaging 尚未实现。
+> 生成一条 accepted 的 8-underlying D4 golden task；Phase F batch runner 与九字段 dataset
+> exporter 已实现，完整 batch run 与 release promotion 尚未执行。
 
 ## 目标与范围
 
@@ -30,7 +31,7 @@ id/revision 和七维坐标（当前 task 固定 `F0`；旧六维输入仅由显
 利率路径、边际模型或联合依赖，仍须通过新的 authoring config/snapshot id 生成，再把
 新 revision 注册到 child task。
 
-## Underlying simulator 第一阶段
+## Underlying simulator 第一阶段（历史基线）
 
 本节以
 [`financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md`](financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md)
@@ -102,7 +103,9 @@ underlying 生成器，同时保持确定性重放、事务写入、snapshot 不
 
 ### DuckDB schema 与持久化
 
-authoring schema 已升级到 `2.1.0`，并从 `2.0.0` 执行 additive migration：
+本节记录 config `1.2.0` 当时将 authoring schema 从 `2.0.0` additive migration 到
+`2.1.0` 的里程碑；当前实现已经是 schema `2.5.0` / config `1.7.0`，同时保存独立的
+P/Q dependence identities、共同定价测度与 measure mapping：
 
 | 对象 | 业务主键 | 当前内容 |
 |:---|:---|:---|
@@ -110,9 +113,11 @@ authoring schema 已升级到 `2.1.0`，并从 `2.0.0` 执行 additive migration
 | `market.pricing_metadata.physical_dynamics` | 现有主键 | 每个 underlying/date 保存 `dependence_spec_id`、`driver_id`、driver order 与 shock/RNG namespace。 |
 | `metadata.snapshot_revisions` / manifest | 现有主键 | 新增 `underlying_dependence_count`。 |
 
-`market.underlying_dependence` 是 private authoring DGP，不创建
-`solver_visible.underlying_dependence` view，避免把 latent dependence 参数自动暴露给
-Solver。Option tables 和 pricing schema 在本阶段没有增加 correlation 字段。
+在历史 `1.2.0` 阶段，`market.underlying_dependence` 只是 private P-measure authoring
+DGP，且没有创建 `solver_visible.underlying_dependence` view。当前 `1.7.0` 只在完整 P/Q
+pair、共同 Q/numeraire/rate-path identity 与映射均可验证时投影经过裁剪的 safe view；seed、
+run provenance 和 private function nodes 仍不向 Solver 暴露。Option quote table 本身不增加
+correlation 字段。
 
 矩阵以规范 JSON/list 或等价的确定形态持久化；必须固定 float dtype、row-major 顺序、
 driver order、数字 canonicalization 与 serialization order，确保相同 config 重放时
@@ -154,10 +159,12 @@ $$
 
 ### no-arbitrage 与质量门控
 
-本阶段的 $R$ 只描述历史 underlying shocks 的联合分布，不是 derivative pricing 的
-no-arbitrage 条件，也不用于构造 derivative quote correlation。Derivative no-arbitrage
-仍应来源于后续选定的合法 pricing model、测度与 numeraire；本次改造不扩大现有 option
-engine 的 no-arbitrage 声明。authoring gate 当前负责：
+历史 `1.2.0` 阶段的 $R$ 只描述 P-measure underlying shocks 的联合分布，不是
+derivative pricing 的 no-arbitrage 条件，也不用于构造 derivative quote correlation。
+当前 `1.7.0` 已为 vanilla margins 声明共同 Q、money-market numeraire、rate-path context、
+独立 Q-dependence identity 和 drift-only same-Brownian-covariance mapping；这些声明仍不把
+相关性注入单资产 vanilla price。更复杂边际或联合 payoff 必须另行声明合法的 Q dynamics
+与 measure mapping。authoring gate 负责：
 
 - 校验 measure、driver ids/order、matrix shape/dtype 和 factorization contract；
 - 校验 $\Lambda$ 有限且 row norm 不超过 1，并重放
@@ -176,7 +183,7 @@ engine 的 no-arbitrage 声明。authoring gate 当前负责：
 | U1. Config + persistence | 完成 | `config.py`、`schema.py`、模板 | config `1.2.0`、schema `2.1.0`、private dependence table、revision/manifest count 和旧配置兼容。 |
 | U2. 联合 underlying path | 完成 | `underlying_daily_generator.py`、`pipeline.py` | factor/idiosyncratic namespaces、相关 close shock、one-shot/append replay 与 metadata lineage。 |
 | U3. Underlying simulator 扩展 | 计划中 | config/generator/tests | time-varying $\Lambda_t$、regime transitions、richer P dynamics；仍不把 option ids 放入 correlation matrix。 |
-| Q1. Pricing context/model | 独立后续 | pricing/model registry | 共同 $\mathbb Q$/numeraire/rate path 和合法 coherent model；若多资产 payoff 需要相关性，相关对象仍是其 Q-measure underlying drivers，而不是 derivative contracts。 |
+| Q1. Pricing context/model | 已完成（vanilla baseline） | config/schema/gates | `1.7.0` 已冻结共同 $\mathbb Q$/numeraire/rate path、独立 P/Q dependence identities 与 drift-only mapping；联合 payoff 与 richer Q dynamics 仍是后续范围。 |
 
 ### 测试与最终验收
 
@@ -252,7 +259,7 @@ Option-chain provenance 首次由 schema `2.2.0` 引入；当前 schema `2.5.0` 
 |:---|:---|
 | `market.option_chain_specs` | 私有保存 chain candidate grid、listing/roll、strike rounding、合约约定、liquidity/quote model 与 lineage；无 solver view。 |
 | `market.option_contracts` | 新增 nullable `chain_id, listing_date, listing_spot, strike_moneyness`；legacy 已有行不改写。 |
-| `market.option_pricing_audit` | 私有保存 Q identity/mapping、effective volatility、未舍入理论价、canonical mid、derived IV/状态和 solver contract；无 solver view。 |
+| `market.option_pricing_audit` | Legacy `1.5.0` 私有保存 Q identity/mapping、effective volatility、未舍入理论价、canonical mid、derived IV/状态和 solver contract；current `1.6+` 不写；无 solver view。 |
 | `metadata.snapshot_revisions` / manifest | 保存 `option_chain_spec_count` 与 `option_pricing_audit_count`。 |
 
 一个 `1.3.0` snapshot 将 chain spec、underlying 集合和全部已挂牌 contracts 视为不可变
@@ -299,11 +306,14 @@ discounting 或 underlying simulation。完整 filter 与 quote model 均写入 
 |:---|:---|
 | `configs/generators/quantlib_bsm_smoke_v1.json` | 固定 seed、模型、underlyings、option templates 与 quote rules。 |
 | `authoring/templates/quantlib_bsm_correlated_underlyings.template.json` | 可运行的 config `1.2.0` correlated-underlying 示例。 |
-| `configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json` | config `1.5.0` 的 22-underlying、sampled physical functions、Q pricing/IV audit、1,232-contract、65-day public profile。 |
+| `configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json` | 冻结 config `1.5.0` 的 22-underlying 历史 profile；保留 private authoring IV audit 仅用于迁移审计。 |
+| `configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json` | 当前 writable config `1.6.0` baseline；保留 Q pricing inputs，但不在 authoring 层生成 IV answers。 |
+| `configs/task_packages/bsm_market_implied_greeks_v1.json` | D4 golden task 的七维坐标、确定性 selection、精确 method/schema/capability 合同。 |
 | `snapshots/public/quantlib_bsm_smoke_v1.duckdb` | 已冻结的 metals public snapshot；文件路径为向后兼容保留名。 |
 | `snapshots/public/quantlib_bsm_smoke_v1.manifest.json` | 当前 logical revision、版本标识和行数。 |
 | `scripts/edit_snapshot.py` | 仓库本地 `.venv` 使用的编辑入口。 |
 | `scripts/sample_physical_dynamics.py` | 从声明分布可重放地抽样 physical drift/volatility nodes，并将 realized nodes 冻结到 config。 |
+| `scripts/package_bsm_greeks_task.py` | 从现有 frozen `1.7` parent，或从 `1.6` baseline 临时构造 private P/Q parent，构建并验证 accepted/released package。 |
 | `src/synthetic_derivatives/authoring/generator_common.py` | 两个 generator 共享的 pinned QuantLib、calendar/day-count、decimal canonicalization 与 deterministic RNG。 |
 | `src/synthetic_derivatives/authoring/underlying_daily_generator.py` | Underlying master/dependence、P path 与 pricing metadata；唯一消费 $\Lambda/D/R$ 的 generator。 |
 | `src/synthetic_derivatives/authoring/option_daily_generator.py` | Option chain spec、frozen contracts 与 daily quotes；只接收 realized spot，不提供 underlying dependence API。 |
@@ -314,6 +324,7 @@ discounting 或 underlying simulation。完整 filter 与 quote model 均写入 
 | `tests/unit/test_underlying_simulator.py` | $\Lambda/D/R$、联合 shock、持久化、append invariance 与 derivative boundary 测试。 |
 | `tests/unit/test_option_chain_builder.py` | chain config、完整网格、listing strike、不可变性及 append/sync tests。 |
 | `tests/integration/test_solver_database_replay.py` | 22→8 public child、parent immutability、replay checksum、nested leakage 与只读边界。 |
+| `tests/packaging/` | D4 package 的数据库、runtime、trajectory、verifier、leakage、release-view 与 replay 端到端合同。 |
 
 ## DuckDB schemas（当前实现）
 
@@ -330,7 +341,7 @@ discounting 或 underlying simulation。完整 filter 与 quote model 均写入 
 | `market.underlying_daily` | `(snapshot_id, date, underlying_id)` | Framework 要求的 underlying daily panel。 |
 | `market.option_daily` | `(snapshot_id, date, option_id)` | Framework 要求的 option daily quotes。 |
 | `market.pricing_metadata` | `(snapshot_id, valuation_timestamp, underlying_id)` | 每个 valuation slice 的 P/Q dynamics、curves、engine、seed、RNG 和 canonicalization。 |
-| `market.option_pricing_audit` | `(snapshot_id, valuation_date, option_id)` | Private Q pricing inputs、raw/canonical prices、QuantLib IV result/status 与 solver contract。 |
+| `market.option_pricing_audit` | `(snapshot_id, valuation_date, option_id)` | 仅 legacy `1.5.0` 写入的 private IV migration audit；current `1.6+` materialization 不写该表，task truth 从 solver-visible canonical quotes 重算。 |
 
 daily/metadata 表包含 framework 指定的全部字段。内部表额外保存 run id，用于 lineage
 和审计；幂等写入直接依赖业务主键。
@@ -442,7 +453,7 @@ transition 的 $Z_t$；range、volume 与 option activity 仍使用各自的稳�
 ### Option quotes
 
 `1.3.0+` 先由 `OptionChainBuilder` 生成 frozen contract grid；`1.4.0+` 在 materialization
-前应用 liquidity filter。当前 public config `1.5.0` 每个 valuation date 对已挂牌合约使用：
+前应用 liquidity filter。Checked-in historical public config `1.5.0` 每个 valuation date 对已挂牌合约使用：
 
 - `QuantLib.BlackScholesMertonProcess`
 - flat continuous risk-free/dividend curves
@@ -457,6 +468,8 @@ QuantLib NPV 先按 `ROUND_HALF_EVEN` 量化到 8 位小数，作为
 随后调用 `QuantLib.VanillaOption.impliedVolatility` 对同一个 canonical mid 反解；输入 Q
 volatility、raw NPV、derived IV 或 `NO_FINITE_IV` 状态写入 private
 `market.option_pricing_audit`。Pricing volatility 不被当成下游 IV 答案。
+Current `1.6.0+` 仍用同一声明的 Q-pricing law 生成 canonical quotes，但不再执行或持久化
+authoring IV inversion；IV/Greeks truth 由 task/verifier 从 solver-visible price 重算。
 
 ## 增量写入语义（当前实现）
 
@@ -488,16 +501,20 @@ validate DRAFT/config
   修改边界、spread 或 noise namespace 必须使用新的 `snapshot_id`。
 - config `1.5.0` 的 sampled physical nodes、sampling provenance、Q identity/mapping 与 IV
   solver contract 都属于 snapshot identity；修改任一项必须使用新的 `snapshot_id`。
+- config `1.6.0` 移除 authoring IV answer materialization；不能在同一 snapshot identity 下
+  回填 legacy audit rows。
+- config `1.7.0` 的共同 Q/numeraire/rate-path context、P/Q dependence identities 与
+  measure mapping 都属于 snapshot identity；任何变化都必须产生新 snapshot。
 
 ## 命令
 
 所有命令都必须使用仓库内 `.venv`。
 
-### 创建或幂等同步 smoke snapshot
+### 创建或幂等同步 scratch smoke snapshot
 
 ```bash
 .venv/bin/python scripts/edit_snapshot.py \
-  --database snapshots/public/quantlib_bsm_smoke_v1.duckdb \
+  --database /tmp/quantlib-bsm-smoke-v1.duckdb \
   --config configs/generators/quantlib_bsm_smoke_v1.json \
   create-smoke
 ```
@@ -508,7 +525,7 @@ validate DRAFT/config
 
 ```bash
 .venv/bin/python scripts/edit_snapshot.py \
-  --database snapshots/public/quantlib_bsm_smoke_v1.duckdb \
+  --database /tmp/quantlib-bsm-smoke-v1.duckdb \
   --config configs/generators/quantlib_bsm_smoke_v1.json \
   append-dates --days 1
 ```
@@ -519,7 +536,7 @@ validate DRAFT/config
 
 ```bash
 .venv/bin/python scripts/edit_snapshot.py \
-  --database snapshots/public/quantlib_bsm_smoke_v1.duckdb \
+  --database /tmp/quantlib-bsm-smoke-v1.duckdb \
   --config path/to/additive-config.json \
   sync-config
 ```
@@ -538,7 +555,7 @@ validate DRAFT/config
 
 `DRAFT` 可以增量编辑；`FROZEN` 会拒绝任何后续写入。若要扩展已发布 snapshot，复制配置并使用新的 `snapshot_id` 创建新数据库。
 
-### 重放 22 品种 public metals profile
+### 重放 22 品种 legacy audit profile
 
 ```bash
 .venv/bin/python scripts/edit_snapshot.py \
@@ -556,6 +573,35 @@ Candidate grid 是 6 expiries × 11 moneyness × call/put，filter 实际保留 
 不同而使用不同 effective volatility；所有 strike 仍来自同一个 coherent deterministic-
 time-varying-diffusion BSM marginal model。
 
+上述 `1.5.0` profile 是迁移审计基线，不应作为新 task 的答案来源。当前 writable
+`1.6.0` baseline 使用同样的市场规模，但 `market.option_pricing_audit` 行数为 0：
+
+```bash
+.venv/bin/python scripts/edit_snapshot.py \
+  --database /tmp/metals-liquid-tdgbm-q-v4.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json \
+  create-smoke
+```
+
+### 构建并验证 accepted D4 golden package
+
+构建入口会从 `1.6.0` baseline 在临时目录生成独立的 frozen `1.7.0` P/Q parent；parent
+不会写入 task package，且完成后由临时目录回收：
+
+```bash
+.venv/bin/python scripts/package_bsm_greeks_task.py \
+  --base-parent-config configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json \
+  --config configs/task_packages/bsm_market_implied_greeks_v1.json \
+  --output-root /tmp/bsm-task-packages \
+  --build-status ACCEPTED
+```
+
+当前 checked-in golden task 是
+`bsm-mig-v1-1f1fc1880b42253725b118eb`：8 个 underlyings、2 个 live expiries、每 expiry
+5 个 strikes、call/put 成对，共 160 行；agent database 仅含 3 个允许关系。它仍处于
+`ACCEPTED`。Phase F 已提供 seed-parameterized batch runner 和 verified nine-field dataset
+exporter，但尚未执行完整 100-task run 或 `RELEASED` promotion。
+
 ## Smoke-test 验收（当前实现）
 
 ```bash
@@ -572,14 +618,20 @@ make test
 - solver-visible views 覆盖 framework 字段；
 - frozen snapshot 拒绝增量写入；
 - config `1.2.0` 的 $\Lambda/D/R$ 可重放，相关 underlying 路径满足 append invariance；
-- 固定 spot 与 pricing inputs 时，underlying correlation 不影响 option quote。
+- 固定 spot 与 pricing inputs 时，underlying correlation 不影响 option quote；
 - config `1.3.0` 展开 3 expiries × 7 strikes × paired call/put，listing strike 跨日固定；
 - chain one-shot/append/`sync-config` invariant，修改 chain spec 或 listed contract 被拒绝；
 - config `1.4.0` candidate grid 只 materialize 期限/moneyness filter 内的合约；
 - quote noise 可重放、bid/ask 独立且不改变 BSM mid；
 - physical node sampling 固定 seed replay，start date 保持精确 initial condition；
-- integrated Q variance reduction、canonical-mid QuantLib IV audit 与 solver visibility boundary；
-- 22 品种 public profile 的 1,232 contracts、60,368 quotes 与等量 private audits 完整生成。
+- legacy `1.5.0` integrated-Q-variance/canonical-mid IV audit 与 solver visibility boundary；
+- current `1.6.0` authoring 不写 IV answers，`1.7.0` parent 完整冻结共同 Q、P/Q
+  dependence identities 与 mapping；
+- legacy 22 品种 profile 的 1,232 contracts、60,368 quotes 与等量 private audits，以及
+  current baseline 的零 authoring-IV rows；
+- accepted D4 package 的 3-relation/160-row public DB、80-step bisection + analytic Greeks、
+  independent QuantLib verifier、runtime limits、leakage scans、release-view byte identity 与
+  two-replay determinism。
 
 ## 版本与参考
 

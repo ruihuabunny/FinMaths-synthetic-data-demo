@@ -1,8 +1,14 @@
 # F2A Arbitrage-Finding Agent Task 计划
 
+> 实现状态（2026-08-10）：本文件是 future/design-only 计划，不是当前可运行 task。
+> 七维 runtime、`F2A` enum 和显式 legacy-six-axis migration 已在结构层完成，但仓库尚无
+> F2A subset/mutation/oracle/package implementation，也没有 materialized F2A artifacts。
+> 当前 accepted BSM Greeks task 固定为 `F0`，并使用独立 config `1.7.0` P/Q parent；本计划
+> 指向的 checked-in config `1.5.0` snapshot 保持不可变，仅作为未来 F2A 设计的候选母快照。
+
 ## 1. 目标
 
-F2A 直接复用现有无套利 frozen DuckDB：
+若实施，F2A 将直接复用现有无套利 frozen DuckDB：
 
 ```text
 snapshots/public/quantlib_bsm_smoke_v1.duckdb
@@ -177,12 +183,13 @@ canonical 值。无套利答案为
 
 ## 7. 实施顺序
 
-1. 在 task coordinates、schema 和 registry 中加入 string enum `F2A`；现有六维任务默认 `F0`。
-2. 新增聚焦模块 `src/synthetic_derivatives/mutation/f2a.py`，只负责 subset、两个单点 operator、
+1. [已完成结构层] task coordinates、schema 和 registry 已加入 string enum `F2A`；旧六维
+   task 只能通过唯一显式 adapter 迁移到 `F0`，runtime 不在普通调用点静默补默认值。
+2. [待实现业务层] 新增聚焦模块 `src/synthetic_derivatives/mutation/f2a.py`，只负责 subset、两个单点 operator、
    child export 和 private lineage。
-3. 新增独立 verifier，从 child public tables 重算第 5 节的 bool 与 canonical type array。
-4. 先 materialize 一个小 smoke set，正负样本平衡，option-price/spot operator 均有覆盖。
-5. Smoke 通过后再扩充样本量；仍保持每个 positive 只有一个 logical mutation。
+3. [待实现] 新增独立 verifier，从 child public tables 重算第 5 节的 bool 与 canonical type array。
+4. [待实现] 先 materialize 一个小 smoke set，正负样本平衡，option-price/spot operator 均有覆盖。
+5. [待实现] Smoke 通过后再扩充样本量；仍保持每个 positive 只有一个 logical mutation。
 
 ## 8. 最小验收测试
 

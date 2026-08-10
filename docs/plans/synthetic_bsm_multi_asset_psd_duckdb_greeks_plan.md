@@ -5,28 +5,30 @@
 - F2A audit branches: `f2a-arbitrage-task` → `f2a-2nd-revised` → `f2a-arbitrage-revised`
 - Design source: `docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md`
 - Audit date: 2026-08-10
-- Status: 通用 authoring 基线已迁移；本文同时记录剩余实现计划
+- Status: Phase 0–7 与单条 golden packaging Phase A–E 已完成；task 已 `ACCEPTED`；Phase F batch runner/dataset exporter 已实现，完整 batch run 与 `RELEASED` promotion 尚未执行
 
-> 第 2 节保留迁移前审计结果，便于解释差异来源；已落地与待办的准确边界以
+> 第 2 节保留迁移前审计结果，便于解释差异来源；本文其他章节已按实际落地结果回填。
+> 逐项证据与唯一未完成的 commit checkpoint 以
 > `docs/plans/synthetic_bsm_multi_asset_psd_duckdb_greeks_codex_checklist.md` 为准。
 
 ## 1. Executive decision
 
-可以做，而且 `synthetic-BSM-agent-task` 已经完成了大约三分之二的数据基础设施。本次已避免把 F2A 整条分支合回来，并先迁入严格受限的通用 authoring 基线；后续在目标分支上完成 BSM Greeks vertical slice：
+该 vertical slice 已在 `synthetic-BSM-agent-task` 完成。本次没有把 F2A 整条分支合回，
+而是只迁入通用 authoring hardening，并落地以下结果：
 
 1. 保留现有 22-underlying、65-business-day、static option-chain parent；
 2. 已把 F2A 中通用的 config `1.6.0`、minimum price increment、IV/task boundary 与隐私投影迁入目标分支；
-3. 在现有 `P`-measure PSD factor dependence 之外增加一个有独立 identity 的 `Q`-measure dependence spec；
-4. 从 frozen parent 确定性抽 8 个 underlying，生成 public-only child DuckDB；
-5. 第一条主任务做 **market-implied BSM Greeks**：从 solver-visible bid/ask midpoint 进行固定 80 步 BS inversion，再计算 Delta/Gamma/Vega/Theta/Rho；
+3. 在现有 `P`-measure PSD factor dependence 之外增加了有独立 identity 的 `Q`-measure dependence spec；
+4. 从临时 materialized、frozen 的 `1.7.0` parent 确定性抽 8 个 underlying，生成 public-only task DuckDB；
+5. 主任务 **market-implied BSM Greeks** 从 solver-visible bid/ask midpoint 进行固定 80 步 BS inversion，再计算 Delta/Gamma/Vega/Theta/Rho；
 6. trusted verifier 用 pinned QuantLib 独立复算，canonicalize 后 exact equality，不使用 tolerance；
-7. 每条 task 按 `(database, prompt, pytest, reference agent trajectory)` 打包，并附上 solver allowlist contract。
+7. golden task 已按 database、prompt、hidden pytest、reference trajectory 与 runtime capability contract 完整打包。
 
 这条路线延续我们已经确定的原则：**market-implied Greeks 使用 BS inversion，不对 `d1`、`d2` 或 BSM pricing terms 做 regression。**
 
-## 2. 目标分支当前状态
+## 2. 迁移前目标分支状态（历史审计）
 
-| 能力 | `synthetic-BSM-agent-task` 当前状态 | 本轮动作 |
+| 能力 | 迁移前状态 | 已完成动作 |
 |---|---|---|
 | Multi-asset underlying universe | 已有 22 个 underlying | 保留 |
 | Static option chain | 已有 4 expiries × 7 strikes × call/put；1,232 个固定合约 | 保留，task child 再取子集 |
@@ -80,7 +82,7 @@
 flowchart TD
     A["Versioned generator config"] --> B["Frozen 22-asset parent DuckDB"]
     B --> C["Deterministic 8-asset public child"]
-    C --> D["Solver: SQL → IV inversion → Greeks"]
+    C --> D["Solver: trusted adapters → IV inversion → Greeks"]
     C --> E["Trusted verifier: QuantLib oracle"]
     D --> F["Canonical submission"]
     E --> F
@@ -131,10 +133,10 @@ D=\operatorname{diag}(1-\lVert\lambda_i\rVert^2),
 
 - Generator config: `1.7.0`；`1.6.0` 先承接 F2A 的 IV/task separation 与 tick semantics，`1.7.0` 再增加 Q dependence mapping。
 - DuckDB authoring schema: `2.5.0`。
-- Public task DB schema: `bsm-greeks-public-duckdb-v1.0.0`。
+- Public task DB schema: `bsm-greeks-task-duckdb-v1.0.0`。
 - Task family: `bsm_market_implied_greeks_v1`。
 - Method: `bsm-mid-iv-bisection80-analytic-greeks-v1`。
-- Output contract: `bsm-market-implied-greeks-output-v1`。
+- Submission contract: `bsm-market-implied-greeks-submission-v1.0.0`。
 
 ## 6. Greeks task design
 
@@ -199,7 +201,7 @@ valuation_date, underlying_id, expiry, strike, call_put, option_id
 
 ### 7.1 Public relations
 
-建议 child 只创建：
+实际 task child 只创建以下 3 个关系：
 
 ```text
 metadata.public_task
@@ -207,16 +209,18 @@ solver_visible.greeks_task_inputs
 solver_visible.greeks_task_contract
 ```
 
-`greeks_task_inputs` 至少包含：
+`greeks_task_inputs` 实际包含：
 
 ```text
-row_id, snapshot_id, valuation_date, underlying_id, option_id,
+row_id, task_id, snapshot_id, valuation_date, underlying_id, option_id,
 call_put, spot, strike, expiry, time_to_expiry_actual365,
 bid, ask, contract_multiplier, currency,
-risk_free_rate, dividend_yield, calendar, day_count
+risk_free_rate, dividend_yield, calendar, day_count,
+exercise_style, settlement_type
 ```
 
-`greeks_task_contract` 是一行 canonical JSON，包含 IV method、Greek units、dtype、output precision、row order 与 failure behavior。
+`greeks_task_contract` 是一行 `(task_id, method_id, contract_json)`；canonical JSON 包含 IV
+method、Greek units、dtype、output precision、row order 与 failure behavior。
 
 ### 7.2 Private objects
 
@@ -323,7 +327,7 @@ Solver 与 verifier 共享 JSON method contract，但不共享数值实现：
 
 ## 10. Implementation phases
 
-### Phase 0 — Branch and identity fence
+### Phase 0 — Branch and identity fence（已完成）
 
 1. 确认工作分支严格为 `synthetic-BSM-agent-task`；
 2. 记录当前 head SHA；
@@ -331,7 +335,7 @@ Solver 与 verifier 共享 JSON method contract，但不共享数值实现：
 4. 每个经济/数值 contract 改动使用新 config、snapshot、variant 与 output IDs；
 5. 先运行目标分支现有 tests，保存 baseline。
 
-### Phase 1 — Port generic F2A hardening
+### Phase 1 — Port generic F2A hardening（已完成）
 
 按 §9.2 移植 config `1.6.0`、tick semantics、IV/task separation、privacy projection、solver allowlist 与 tests。此阶段不新增 Greeks，也不改 correlation 数学。
 
@@ -343,7 +347,7 @@ Acceptance:
 - solver-visible metadata 不泄漏 node heights/seed/private answers；
 - existing option-chain and replay tests 仍通过。
 
-### Phase 2 — Add P/Q dependence contracts
+### Phase 2 — Add P/Q dependence contracts（已完成）
 
 1. 将单个 `UnderlyingSimulationConfig` 泛化为 versioned P/Q specs；
 2. 从 declared `Λ` deterministic derive `D,R`，不接受 config 直接注入独立 `R`；
@@ -361,9 +365,12 @@ Acceptance:
 - 同一固定 spot/curve/vol input 下切换合法 correlation，marginal BSM price/Greeks 不变；
 - 改 `Λ`、driver order 或 mapping 必须创建新 snapshot identity。
 
-### Phase 3 — Freeze a clean parent
+### Phase 3 — Freeze a clean parent（已完成）
 
-基于现有 22-underlying / 65-day / 4×7×2 profile 创建新 config `1.7.0` 与新 snapshot identity。建议 underlying 与 option minimum tick 都先用 `0.01 USD`，并明确 persisted rounded close 是下一步 Markov restart state。
+基于现有 22-underlying / 65-day / 4×7×2 `1.6.0` profile，在 package build 的临时目录
+派生 `1.7.0` config 与新 snapshot identity。Underlying 与 option minimum tick 都固定为
+`0.01 USD`，persisted rounded close 是下一步 Markov restart state。该 private parent 只作为
+构建输入，不进入 checked-in package。
 
 Acceptance:
 
@@ -376,7 +383,7 @@ Acceptance:
 - replay logical checksum identical；
 - snapshot status `FROZEN`。
 
-### Phase 4 — Generic public-child materializer
+### Phase 4 — Generic public-child materializer（已完成）
 
 新增通用 sampler、logical checksum、subset manifest 与 public-only child writer。不要从 F2A 携带 mutation、arbitrage scan 或 physical-node fitting contracts。
 
@@ -388,7 +395,7 @@ Acceptance:
 - task row order 与完整 paired grid 固定；
 - parent byte/logical content 不变。
 
-### Phase 5 — Solver implementation
+### Phase 5 — Solver implementation（已完成）
 
 新增标准库 BSM/IV/Greeks solver，读取两个 public relations，生成 canonical `submission.json`。
 
@@ -401,7 +408,7 @@ Acceptance:
 - call/put rows 与 canonical ordering 完整；
 - rerun output byte-identical。
 
-### Phase 6 — Independent QuantLib verifier
+### Phase 6 — Independent QuantLib verifier（已完成）
 
 1. hidden fixture 读取 public child；
 2. QuantLib analytic engine 在同一 root schedule 下复算 IV 与 Greeks；
@@ -416,7 +423,7 @@ Acceptance:
 - 改 vega/rho scaling、theta convention、option type、day count 或 row order 均 fail；
 - verifier 没有 tolerance 字段或 approximate comparison。
 
-### Phase 7 — Task registry and package
+### Phase 7 — Task registry and package（已完成）
 
 1. runtime `TaskCoordinates/Registry/Curriculum` 真正支持 string-valued `F`；
 2. 注册两条 Greeks variants；
@@ -424,56 +431,81 @@ Acceptance:
 4. reference trajectory 保存在 authoring/training side，不进入 solver-visible child；
 5. task package manifest 固定 environment allowlist、method IDs 与 file identities。
 
-## 11. Proposed file changes
+## 11. Actual repository changes
 
 ```text
-configs/generators/quantlib_bsm_metals_greeks_parent_v1.json
+configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json
 configs/variants/bsm_analytic_greeks_v1.json
+configs/variants/bsm_iv_scalar_v1.json
 configs/variants/bsm_market_implied_greeks_v1.json
-configs/task_space/derivatives_v3.json
-configs/curricula/bsm_greeks_v1.json
+configs/task_packages/bsm_market_implied_greeks_v1.json
+configs/task_space/derivatives_v2.json
+configs/curricula/adaptive_v2.json
+configs/mutations/deterministic_v2.json
 
 schemas/difficulty-v2.schema.json
 schemas/task-v2.schema.json
+schemas/mutation-v2.schema.json
+schemas/curriculum-v2.schema.json
+schemas/agent-task-package-v1.schema.json
+schemas/agent-task-runtime-contract-v1.schema.json
+schemas/agent-task-trajectory-v1.schema.json
 schemas/bsm-greeks-submission-v1.schema.json
-schemas/bsm-greeks-trajectory-v1.schema.json
-schemas/bsm-greeks-public-manifest-v1.schema.json
+schemas/bsm-greeks-oracle-config-v1.schema.json
 
-src/synthetic_derivatives/authoring/task_subset.py
-src/synthetic_derivatives/solver/bsm_greeks.py
-src/synthetic_derivatives/verifier/bsm_greeks.py
-src/synthetic_derivatives/verifier/bsm_greeks_oracle.py
+src/synthetic_derivatives/export/{contracts.py,solver_database.py}
+src/synthetic_derivatives/packaging/{contracts.py,database.py,leakage.py,package.py,parent.py,
+  prompt_renderer.py,reference_solver.py,runtime.py,trajectory.py,views.py}
+src/synthetic_derivatives/solver/{bsm.py,bsm_implied_volatility.py,bsm_market_greeks.py}
+src/synthetic_derivatives/tasks/{bsm_greeks.py,bsm_implied_volatility.py,bsm_market_greeks.py}
+src/synthetic_derivatives/verifier/{bsm_greeks.py,bsm_implied_volatility.py,bsm_market_greeks.py}
+src/synthetic_derivatives/training/bsm_market_greeks.py
 
-scripts/materialize_bsm_greeks_tasks.py
+scripts/package_bsm_greeks_task.py
+scripts/run_bsm_greeks_batch.py
 
-tests/unit/test_joint_dependence.py
-tests/unit/test_bsm_greeks_inversion.py
-tests/unit/test_bsm_greeks_formulas.py
-tests/integration/test_bsm_greeks_child_db.py
-tests/integration/test_bsm_greeks_reference_solver.py
-tests/verifier_robustness/test_bsm_greeks_rejections.py
-tests/sandbox/test_bsm_greeks_solver_allowlist.py
+tests/unit/test_{bsm_solver,bsm_implied_volatility,bsm_greeks_contract,solver_database_export}.py
+tests/integration/test_{solver_database_replay,bsm_iv_verifier,bsm_greeks_verifier}.py
+tests/packaging/test_bsm_greeks_{database_and_replay,dataset_export,negative_submissions,
+  package_contract,prompt_runtime_drift,release_views}.py
 ```
 
-已有 authoring core files 只做 focused versioned edits，不另起重复 generator。
+Authoring core 采用 focused versioned edits；`1.7.0` parent config 由 packaging builder 从
+checked-in `1.6.0` baseline 确定性派生，不额外提交 private parent DB。
 
 ## 12. Task package definition of done
 
-每条最终 task 至少包含：
+当前 source package 包含：
 
 ```text
+manifest.json
 public/
   task.duckdb
-  task_manifest.json
   prompt.md
+  runtime_contract.json
   submission.schema.json
-
-private/
-  verifier_manifest.json
-  test_submission.py
-  reference_trajectory.json
-  canonical_answer.json
+verifier/
+  conftest.py
+  test_contract.py
+  test_data_identity.py
+  test_semantics.py
+  oracle_config.json
+reference/
+  trajectory.jsonl
+  final_submission.json
+  artifacts/{solver.py,input_digest.json,self_check.json}
+authoring_private/
+  artifact_manifest.json
+  parent_identity.json
+  sample_manifest.json
+  oracle_answer.json
+  build_report.json
+  leakage_report.json
+views/{authoring,train_dev,evaluation}/
+  manifest.json
 ```
+
+每个 view 目录只保存 allowlisted source-artifact copies，且逐文件 byte identity 已验证。
 
 最终验收：
 
@@ -487,9 +519,9 @@ private/
 8. P/Q dependence 与 marginal BSM semantics 通过数学 gates；
 9. 旧 parent 与所有 F2A snapshots 保持不变。
 
-## 13. Recommended execution order
+## 13. Execution history and remaining promotion
 
-建议拆成 5 个 reviewable commits/PR checkpoints：
+实施顺序遵循了以下 5 个 review checkpoints：
 
 1. `port generic v1.6 authoring hardening from F2A`；
 2. `add measure-qualified P/Q PSD dependence v1.7`；
@@ -497,4 +529,7 @@ private/
 4. `add market-IV Greeks solver and independent QuantLib verifier`；
 5. `package task, trajectory, allowlist and robustness tests`。
 
-不要先搬 F2A solver/verifier 大文件再删除无关部分。先固定本任务 contract，再从 F2A 抽最小 primitives，冲突和语义污染会少很多。
+代码与 golden package 已完成，但当前 worktree 没有按这五项形成新的 commit split；checklist
+中的 commit checkpoint 因此保持未勾选。下一步不是修改已验收 task，而是先用 Phase F
+runner 做有限批次重放/数据集验收，再由新的明确审批将合格工件从 `ACCEPTED` promote 为
+`RELEASED`。

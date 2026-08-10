@@ -156,7 +156,7 @@ def oracle_config() -> dict[str, Any]:
 
 
 def validate_package_config(raw: Mapping[str, Any]) -> None:
-    """Reject drift in the small authoring-side golden-package selector."""
+    """Reject drift outside the private deterministic package selector seed."""
 
     expected = {
         "package_config_version",
@@ -201,14 +201,21 @@ def validate_package_config(raw: Mapping[str, Any]) -> None:
     if any(raw[field] != value for field, value in fixed.items()):
         raise ValueError("package config changes a frozen identity")
     selection = raw["private_selection"]
-    if not isinstance(selection, Mapping) or selection != {
-        "sampling_seed": 17,
+    fixed_selection = {
         "underlying_count": 8,
         "live_expiry_count": 2,
         "strike_count_per_expiry": 5,
         "strike_selection": "absolute_log_forward_moneyness_then_strike",
         "retain_call_put_pairs": True,
-    }:
+    }
+    if (
+        not isinstance(selection, Mapping)
+        or set(selection) != {"sampling_seed", *fixed_selection}
+        or isinstance(selection["sampling_seed"], bool)
+        or not isinstance(selection["sampling_seed"], int)
+        or selection["sampling_seed"] < 0
+        or any(selection[field] != value for field, value in fixed_selection.items())
+    ):
         raise ValueError("package config changes the golden selector")
 
 

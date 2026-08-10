@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 from pathlib import Path
+
+import pytest
 
 from synthetic_derivatives.packaging.contracts import (
     BSM_MARKET_GREEKS_METHOD_ID,
@@ -61,6 +64,12 @@ def test_package_config_and_method_contract_freeze_the_mathematical_object(
         ).read_text(encoding="utf-8")
     )
     validate_package_config(config)
+    batch_config = deepcopy(config)
+    batch_config["private_selection"]["sampling_seed"] = 18
+    validate_package_config(batch_config)
+    batch_config["private_selection"]["sampling_seed"] = -1
+    with pytest.raises(ValueError, match="golden selector"):
+        validate_package_config(batch_config)
     contract = market_greeks_method_contract()
 
     assert config["variant_id"] == BSM_MARKET_GREEKS_VARIANT_ID
