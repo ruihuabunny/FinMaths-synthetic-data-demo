@@ -50,12 +50,13 @@ from synthetic_derivatives.verifier.f2a_oracle import (
 )
 from synthetic_derivatives.verifier.f2a_stage1 import UnderlyingFit
 from synthetic_derivatives.verifier.f2a_stage2 import (
+    BSMInversionContract,
+    LinkedDiffusionValidationContract,
     OptionObservation,
-    PricingCounterfactualContract,
-    counterfactual_row,
-    counterfactual_rows_by_id,
-    fit_option_series,
+    evaluate_option_series,
+    evaluate_stage2_row,
     stable_row_id,
+    stage2_rows_by_id,
 )
 from synthetic_derivatives.verifier.f2a_v5 import build_canonical_answer
 
@@ -128,11 +129,12 @@ def _load_private_generator_fits(
         connection.close()
 
 
-def _slice_counterfactual_rows(
+def _slice_linked_rows(
     market: PublicMarketSlice,
     private_fit: UnderlyingFit,
     physical_contract,
-    pricing_contract: PricingCounterfactualContract,
+    inversion_contract: BSMInversionContract,
+    validation_contract: LinkedDiffusionValidationContract,
 ) -> dict[str, Any]:
     result = {}
     for quote in market.quotes:
@@ -155,11 +157,12 @@ def _slice_counterfactual_rows(
             settlement_style=quote.settlement_type,
             exercise_style=quote.exercise_style,
         )
-        result[observation.row_id] = counterfactual_row(
+        result[observation.row_id] = evaluate_stage2_row(
             observation,
             physical_contract,
             private_fit,
-            pricing_contract,
+            inversion_contract,
+            validation_contract,
         )
     return result
 
@@ -169,7 +172,8 @@ def find_specs_for_private_signal_signatures(
     requested_signatures: Sequence[str],
     private_generator_fit: UnderlyingFit,
     physical_contract,
-    pricing_contract: PricingCounterfactualContract,
+    inversion_contract: BSMInversionContract,
+    validation_contract: LinkedDiffusionValidationContract,
     signal_contract,
     absolute_tick_grid: Sequence[int] = DEFAULT_TICK_GRID,
 ) -> dict[str, MutationSpec]:
@@ -183,11 +187,12 @@ def find_specs_for_private_signal_signatures(
         raise ValueError("private targets must be unique nonzero XUT signatures")
     if not requested:
         return {}
-    clean_rows = _slice_counterfactual_rows(
+    clean_rows = _slice_linked_rows(
         clean_slice,
         private_generator_fit,
         physical_contract,
-        pricing_contract,
+        inversion_contract,
+        validation_contract,
     )
     clean_result = scan_model_signal_slice(
         clean_slice,
@@ -262,11 +267,12 @@ def find_specs_for_private_signal_signatures(
             mutated = apply_mutation(clean_slice, spec).market_slice
         except ValueError:
             continue
-        rows = _slice_counterfactual_rows(
+        rows = _slice_linked_rows(
             mutated,
             private_generator_fit,
             physical_contract,
-            pricing_contract,
+            inversion_contract,
+            validation_contract,
         )
         result = scan_model_signal_slice(
             mutated,
@@ -287,7 +293,8 @@ def find_spec_for_private_signal_signature(
     requested_signature: str,
     private_generator_fit: UnderlyingFit,
     physical_contract,
-    pricing_contract: PricingCounterfactualContract,
+    inversion_contract: BSMInversionContract,
+    validation_contract: LinkedDiffusionValidationContract,
     signal_contract,
     absolute_tick_grid: Sequence[int] = DEFAULT_TICK_GRID,
 ) -> MutationSpec:
@@ -298,7 +305,8 @@ def find_spec_for_private_signal_signature(
         requested_signatures=(requested_signature,),
         private_generator_fit=private_generator_fit,
         physical_contract=physical_contract,
-        pricing_contract=pricing_contract,
+        inversion_contract=inversion_contract,
+        validation_contract=validation_contract,
         signal_contract=signal_contract,
         absolute_tick_grid=absolute_tick_grid,
     )
@@ -505,7 +513,7 @@ def _finalize_public_identity(
     return refresh_public_manifest(database)
 
 
-def _fit_audit(
+def _estimator_audit(
     canonical_answer: Mapping[str, Any],
     *,
     residual_threshold: float,
@@ -513,14 +521,14 @@ def _fit_audit(
     require_quote_noise_gate: bool,
 ) -> dict[str, Any]:
     underlying_fits = tuple(canonical_answer["underlying_fits"])
-    option_fits = tuple(canonical_answer["option_fits"])
+    series_results = tuple(canonical_answer["option_series_results"])
     statuses = {
         item["underlying_id"]: item["solver_status"] for item in underlying_fits
     }
     residuals = [
         abs(float(value))
-        for fit in option_fits
-        for value in fit["standardized_residuals_by_row_id"].values()
+        for series in series_results
+        for value in series["standardized_residuals_by_row_id"].values()
     ]
     max_rse = max(
         float(value)
@@ -528,9 +536,36 @@ def _fit_audit(
         for value in fit["diffusion_rse_by_node"]
     )
     stage1_passed = all(status == "CONVERGED" for status in statuses.values())
-    stage2_passed = bool(option_fits) and all(
-        fit["fit_status"] == "CONVERGED" for fit in option_fits
-    )
+    invalid_iv_row_count = 0
+    iv_handling_passed = bool(series_results)
+    all_iv_rows_converged = True
+    for series in series_results:
+        statuses_by_row = series["market_iv_status_by_row_id"]
+        row_ids = set(series["valuation_row_ids"])
+        converged_ids = {
+            row_id
+            for row_id, status in statuses_by_row.items()
+            if status == "converged"
+        }
+        invalid_ids = {
+            row_id
+            for row_id, status in statuses_by_row.items()
+            if status == "invalid_bracket"
+        }
+        invalid_iv_row_count += len(invalid_ids)
+        all_iv_rows_converged = all_iv_rows_converged and not invalid_ids
+        market_map_keys = (
+            set(series["market_implied_volatility_by_row_id"]),
+            set(series["market_d1_by_row_id"]),
+            set(series["market_d2_by_row_id"]),
+        )
+        iv_handling_passed = iv_handling_passed and (
+            set(statuses_by_row) == row_ids
+            and converged_ids | invalid_ids == row_ids
+            and all(keys == converged_ids for keys in market_map_keys)
+            and series["series_status"] == "COMPLETE"
+        )
+    stage2_passed = iv_handling_passed
     outlier_count = sum(value >= residual_threshold for value in residuals)
     outlier_fraction = outlier_count / len(residuals) if residuals else None
     quote_noise_passed = (
@@ -539,7 +574,7 @@ def _fit_audit(
     )
     return {
         "underlying_count": len(underlying_fits),
-        "option_series_count": len(option_fits),
+        "option_series_count": len(series_results),
         "stage1_status_by_underlying": statuses,
         "maximum_diffusion_node_rse": max_rse,
         "maximum_absolute_standardized_residual": max(residuals) if residuals else None,
@@ -549,10 +584,14 @@ def _fit_audit(
         "residual_outlier_fraction": outlier_fraction,
         "clean_max_outlier_fraction": clean_max_outlier_fraction,
         "stage1_gate_passed": stage1_passed,
+        "market_iv_eligibility_rule": "converged_rows_only",
+        "market_iv_invalid_bracket_row_count": invalid_iv_row_count,
+        "market_iv_all_rows_converged": all_iv_rows_converged,
+        "market_iv_handling_gate_passed": iv_handling_passed,
         "stage2_gate_passed": stage2_passed,
         "clean_quote_noise_gate_passed": quote_noise_passed,
         "quote_noise_gate_required": require_quote_noise_gate,
-        "publication_fit_gate_passed": stage1_passed
+        "publication_estimator_gate_passed": stage1_passed
         and stage2_passed
         and (quote_noise_passed or not require_quote_noise_gate),
     }
@@ -591,15 +630,21 @@ def _private_truth_scan(
     database: Path,
     private_fits: Mapping[str, UnderlyingFit],
 ) -> DatabaseSignalResult:
-    physical_contracts, pricing_contract, signal_contract = load_public_contracts(database)
+    (
+        physical_contracts,
+        inversion_contract,
+        validation_contract,
+        signal_contract,
+    ) = load_public_contracts(database)
     observations = load_option_observations(database)
-    option_fits = fit_option_series(
+    series_results = evaluate_option_series(
         observations,
         physical_contracts,
         private_fits,
-        pricing_contract,
+        inversion_contract,
+        validation_contract,
     )
-    rows = counterfactual_rows_by_id(option_fits)
+    rows = stage2_rows_by_id(series_results)
     manifest = load_public_manifest(database)
     slices = tuple(iter_market_slices(database, tuple(manifest["selected_underlyings"])))
     return scan_model_signals(slices, rows, private_fits, signal_contract)
@@ -834,22 +879,29 @@ def materialize_agent_task(
             sampling_seed=sampling_seed,
         )
         private_fits = _load_private_generator_fits(parent_db, selected)
-        physical_contracts, pricing_contract, signal_contract = load_public_contracts(working)
+        (
+            physical_contracts,
+            inversion_contract,
+            validation_contract,
+            signal_contract,
+        ) = load_public_contracts(working)
         slices = tuple(iter_market_slices(working, selected))
         clean_canonical = build_canonical_answer(working)
         _assert_reference_solver(working, clean_canonical)
         clean_private_truth = _private_truth_scan(working, private_fits)
         clean_execution = _execution_audit(working)
-        clean_fit_audit = _fit_audit(
+        clean_estimator_audit = _estimator_audit(
             clean_canonical,
-            residual_threshold=pricing_contract.residual_threshold,
-            clean_max_outlier_fraction=pricing_contract.clean_max_outlier_fraction,
+            residual_threshold=validation_contract.residual_threshold,
+            clean_max_outlier_fraction=(
+                validation_contract.clean_max_outlier_fraction
+            ),
             require_quote_noise_gate=True,
         )
-        if publication_mode == "release" and not clean_fit_audit[
-            "publication_fit_gate_passed"
+        if publication_mode == "release" and not clean_estimator_audit[
+            "publication_estimator_gate_passed"
         ]:
-            raise ValueError("clean Stage-1/2 publication fit gate failed")
+            raise ValueError("clean Stage-1/2 publication estimator gate failed")
         ranked_slices = sorted(
             slices,
             key=lambda item: (
@@ -875,7 +927,8 @@ def materialize_agent_task(
                 requested_signatures=targets,
                 private_generator_fit=private_fits[market.underlying_id],
                 physical_contract=physical_contracts[market.underlying_id],
-                pricing_contract=pricing_contract,
+                inversion_contract=inversion_contract,
+                validation_contract=validation_contract,
                 signal_contract=signal_contract,
             )
             local_spec_cache[key] = specs
@@ -923,10 +976,12 @@ def materialize_agent_task(
                 raise ValueError(
                     "final private full scan no longer realizes a requested signature"
                 )
-        child_fit_audit = _fit_audit(
+        child_estimator_audit = _estimator_audit(
             canonical,
-            residual_threshold=pricing_contract.residual_threshold,
-            clean_max_outlier_fraction=pricing_contract.clean_max_outlier_fraction,
+            residual_threshold=validation_contract.residual_threshold,
+            clean_max_outlier_fraction=(
+                validation_contract.clean_max_outlier_fraction
+            ),
             require_quote_noise_gate=False,
         )
         localisation_audit = _mutation_localisation_audit(canonical, lineage)
@@ -942,8 +997,8 @@ def materialize_agent_task(
             maximum_statistic_critical_value=critical_value,
         )
         if publication_mode == "release":
-            if not child_fit_audit["publication_fit_gate_passed"]:
-                raise ValueError("child Stage-1/2 publication fit gate failed")
+            if not child_estimator_audit["publication_estimator_gate_passed"]:
+                raise ValueError("child Stage-1/2 publication estimator gate failed")
             if not localisation_audit["localisation_gate_passed"]:
                 raise ValueError("mutation-localisation publication gate failed")
             if not uncertainty_audit["active_signal_ambiguity_gate_passed"]:
@@ -964,21 +1019,28 @@ def materialize_agent_task(
         public_staging.mkdir()
         private_staging.mkdir()
         shutil.copy2(working, public_staging / "market_subset.duckdb")
-        schema_source = Path(__file__).resolve().parents[3] / "schemas/submission-v5.schema.json"
+        schema_source = (
+            Path(__file__).resolve().parents[3]
+            / "schemas/submission-v5.1.schema.json"
+        )
         shutil.copy2(schema_source, public_staging / "answer_schema.json")
         _atomic_json(public_staging / "public_manifest.json", manifest)
         (public_staging / "task.md").write_text(
             "# F2A v5 full trajectory\n\n"
             "Fit the public three-node P-measure path estimator for all eight underlyings; "
-            "construct linked-diffusion BSM d1/d2 counterfactuals; report deterministic "
+            "invert each visible option midpoint with the frozen 80-step BSM method; "
+            "construct the separate linked-diffusion BSM validation counterfactual; report deterministic "
             "residual localisation; then scan every public slice for post-cost model-based "
-            "X/U/T signals. These signals are not executable-arbitrage certificates.\n",
+            "X/U/T signals from linked price residuals, excluding rows whose market-IV status "
+            "is invalid_bracket. Market-IV repricing is diagnostic only; "
+            "these signals are not executable-arbitrage certificates.\n",
             encoding="utf-8",
         )
         _atomic_json(private_staging / "canonical_answer.json", canonical)
         lineage_document = {
             "task_id": manifest["task_id"],
             "variant_id": MODEL_SIGNAL_VARIANT_ID,
+            "output_contract_id": manifest["output_contract_id"],
             "parent_snapshot_id": qualification.snapshot_id,
             "child_snapshot_id": manifest["child_snapshot_id"],
             "selected_underlyings": list(selected),
@@ -1000,11 +1062,14 @@ def materialize_agent_task(
                 "execution_audit": clean_execution,
             },
         )
-        _atomic_json(private_staging / "clean_fit_audit.json", clean_fit_audit)
         _atomic_json(
-            private_staging / "child_fit_audit.json",
+            private_staging / "clean_estimator_audit.json",
+            clean_estimator_audit,
+        )
+        _atomic_json(
+            private_staging / "child_estimator_audit.json",
             {
-                **child_fit_audit,
+                **child_estimator_audit,
                 "mutation_localisation": localisation_audit,
                 "signal_uncertainty": uncertainty_audit,
             },
@@ -1023,6 +1088,7 @@ def materialize_agent_task(
             {
                 "task_id": manifest["task_id"],
                 "variant_id": MODEL_SIGNAL_VARIANT_ID,
+                "output_contract_id": manifest["output_contract_id"],
                 "parent_snapshot_id": qualification.snapshot_id,
                 "child_snapshot_id": manifest["child_snapshot_id"],
                 "selected_underlyings": list(selected),

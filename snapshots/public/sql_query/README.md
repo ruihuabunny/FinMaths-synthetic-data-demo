@@ -4,6 +4,9 @@
 查询。每个 `.sql` 文件只包含一条 query，并在文件开头使用 `parameters` CTE 集中声明
 可编辑参数。所有结果都显式指定 `ORDER BY`，避免依赖 DuckDB 未定义的天然行顺序。
 
+本目录只服务 legacy public v3。它不是 active development DB 的 fallback，也不能查询 v4 F2A
+parent 或 v5.1 task-specific public child；后者使用不同 identity、relation allowlist 与 output contract。
+
 ## Query catalog
 
 | 文件 | 默认结果 | 数据边界 | 用途 |
@@ -93,6 +96,10 @@ DuckDB 物理布局不属于生成的逻辑市场数据，因此不参与一致�
 authoring/verifier 边界，不能拼入 prompt、
 tool output 或 Solver 可访问的数据文件。默认日期的 56 条 Gold options 均有 finite IV；
 改变日期/underlying 后必须保留 `iv_status`，不能给 `NO_FINITE_IV` 行补造答案。
+
+当前 F2A v5.1 不复用这份 answer query 或其旧 QuantLib solver settings。它从 public child 的
+bid/ask midpoint 运行固定 `[1e-6,5.0]`、80-step binary64 bisection，并对无有限 bracket 的 row
+输出 `invalid_bracket`；相应合同由 `solver_visible.f2a_contracts` 提供。
 
 使用其他 snapshot、日期或标的时，只修改目标 SQL 顶部的 `parameters` CTE，不要删除
 稳定 `ORDER BY`。Solver 任务仍须由 task contract 固定查询范围、列和排序；这些文件是

@@ -50,6 +50,16 @@
   counterfactuals, and a post-cost model-signal catalogue. Its scored X/U/T
   label is recomputed from the public child and is not an executable-arbitrage
   certificate. The frozen v4 oracle remains a separate execution audit.
+- Active v5 authoring uses schema `5.1.0`, output contract
+  `model-reconstruction-xut-full-trajectory-v2`, and
+  `schemas/submission-v5.1.schema.json`. Every solver-visible option midpoint
+  requires row-wise `bsm-bisection-float64-80-v1` inversion. Market IV and its
+  `d1/d2` are quote-specific derived outputs; linked `d1/d2`, residuals,
+  localisation, and X/U/T signals remain driven by exact integrated Stage-1
+  diffusion. Rows with `invalid_bracket` must not emit non-finite IV and are
+  excluded from v5 model-signal candidates without failing authoring. The v4
+  executable audit remains an IV-independent full public-quote scan. Market-IV
+  repricing must never replace the linked counterfactual.
 - V5 production authoring requires the distinct tick-aligned parent identity
   `DERIVATIVES-METALS-F2A-MODEL-SIGNAL-TICK-ALIGNED-TDGBM-Q-v1`; an unqualified
   legacy v3 database is never a fallback. Public packages expose node locations

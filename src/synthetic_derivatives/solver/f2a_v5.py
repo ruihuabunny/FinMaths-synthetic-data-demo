@@ -22,12 +22,13 @@ from synthetic_derivatives.solver.f2a_v5_stage1 import (
     fit_underlying_path,
 )
 from synthetic_derivatives.solver.f2a_v5_stage2 import (
+    BSMInversionContract,
+    LinkedDiffusionValidationContract,
     OptionObservation,
-    PricingCounterfactualContract,
-    counterfactual_rows_by_id,
-    fit_option_series,
+    evaluate_option_series,
     localize_mutations,
     stable_row_id,
+    stage2_rows_by_id,
 )
 from synthetic_derivatives.solver.f2a_v5_types import (
     ExpiryInputs,
@@ -36,8 +37,8 @@ from synthetic_derivatives.solver.f2a_v5_types import (
 )
 
 
-OUTPUT_CONTRACT_ID = "model-reconstruction-xut-full-trajectory-v1"
-PUBLIC_SCHEMA_VERSION = "f2a-public-duckdb-v5.0.0"
+OUTPUT_CONTRACT_ID = "model-reconstruction-xut-full-trajectory-v2"
+PUBLIC_SCHEMA_VERSION = "f2a-public-duckdb-v5.1.0"
 SAMPLING_CONTRACT_ID = "underlying-cluster-sha256-rank-v1"
 
 
@@ -109,7 +110,12 @@ def _manifest(connection: duckdb.DuckDBPyConnection) -> dict[str, Any]:
 
 def _contracts(
     connection: duckdb.DuckDBPyConnection,
-) -> tuple[dict[str, PhysicalFittingContract], PricingCounterfactualContract, ModelSignalContract]:
+) -> tuple[
+    dict[str, PhysicalFittingContract],
+    BSMInversionContract,
+    LinkedDiffusionValidationContract,
+    ModelSignalContract,
+]:
     raw = {
         row[0]: json.loads(row[1])
         for row in connection.execute(
@@ -141,7 +147,10 @@ def _contracts(
     }
     return (
         physical,
-        PricingCounterfactualContract.from_mapping(raw["pricing_counterfactual_contract"]),
+        BSMInversionContract.from_mapping(raw["bsm_inversion_contract"]),
+        LinkedDiffusionValidationContract.from_mapping(
+            raw["linked_diffusion_validation_contract"]
+        ),
         ModelSignalContract.from_mapping(raw["model_signal_contract"]),
     )
 
@@ -319,7 +328,12 @@ def solve_f2a_database(database: str | Path) -> dict[str, Any]:
     connection = duckdb.connect(str(Path(database)), read_only=True)
     try:
         manifest = _manifest(connection)
-        physical_contracts, pricing_contract, signal_contract = _contracts(connection)
+        (
+            physical_contracts,
+            inversion_contract,
+            validation_contract,
+            signal_contract,
+        ) = _contracts(connection)
         histories = _histories(connection)
         fits = {
             underlying_id: fit_underlying_path(
@@ -330,16 +344,17 @@ def solve_f2a_database(database: str | Path) -> dict[str, Any]:
             )
             for underlying_id in sorted(histories)
         }
-        option_fits = fit_option_series(
+        option_series_results = evaluate_option_series(
             _observations(connection),
             physical_contracts,
             fits,
-            pricing_contract,
+            inversion_contract,
+            validation_contract,
         )
-        diagnoses = localize_mutations(option_fits, pricing_contract)
+        diagnoses = localize_mutations(option_series_results, validation_contract)
         model_signals = scan_model_signals(
             _market_slices(connection, manifest),
-            counterfactual_rows_by_id(option_fits),
+            stage2_rows_by_id(option_series_results),
             fits,
             signal_contract,
         )
@@ -352,7 +367,9 @@ def solve_f2a_database(database: str | Path) -> dict[str, Any]:
         "variant_id": MODEL_SIGNAL_VARIANT_ID,
         "output_contract_id": OUTPUT_CONTRACT_ID,
         "underlying_fits": [fits[key].to_dict() for key in sorted(fits)],
-        "option_fits": [item.to_dict() for item in option_fits],
+        "option_series_results": [
+            item.to_dict() for item in option_series_results
+        ],
         "mutation_diagnosis": [item.to_dict() for item in diagnoses],
         "model_signals": model_signals.to_dict(),
         "execution_audit": {

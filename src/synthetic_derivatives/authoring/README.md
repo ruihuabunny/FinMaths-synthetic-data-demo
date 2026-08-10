@@ -18,6 +18,8 @@ snapshot。Solver 不应直接导入本包，也不能访问其中的 private ge
 | F2A production parent contract | `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2 / r1 / FROZEN` | 生产运行须显式提供 DB/manifest；Git 不跟踪该大文件，缺失时失败。只允许 read-only selection，不能 append、sync 或原地 mutation。 |
 | F2A child authoring | v4 reference runtime 已实现 | `f2a_child_materializer.py` 完成纯 mutation 应用、独立 authoring X/U/T rescan、candidate evidence、冻结前 trusted-oracle 对照与原子 JSON fixture child。 |
 | F2A contracts | v1 legacy；v2/v3 historical blocked；v4 executable | V4 启用 stock-flip calendar family，完整链 42 candidates；tracked CI fixture 已完成全部八种真实 tick signature audit。 |
+| F2A v5.1 parent contract | `DERIVATIVES-METALS-F2A-MODEL-SIGNAL-TICK-ALIGNED-TDGBM-Q-v1 / r1 / FROZEN` | 生产/pilot 必须显式提供 distinct 126-day、三节点 parent；不能使用 v4 parent 或 legacy v3 fallback。 |
+| F2A v5.1 task authoring | Pilot runtime 已实现 | `f2a_v5.py` 物化 8-underlying public/private packages，运行 Stage-1、逐 row IV inversion、linked validation、localisation、model-signal 与独立 v4 audit；release 仍受 2,000+ cohort gate 阻挡。 |
 
 默认 active development database 是
 `snapshots/generated/quantlib_bsm_metals_option_chain_smoke_v1_20260807.duckdb`。若它缺失，应报告，
@@ -35,6 +37,9 @@ materialization。
 | [`pipeline.py`](pipeline.py) | 编排两个 generator、DuckDB transaction、incremental MERGE、snapshot compatibility、quality gates、revision 和 manifest。 |
 | [`schema.py`](schema.py) | DuckDB DDL、additive migration、solver-visible views、table column order 和 business-key MERGE。 |
 | [`cli.py`](cli.py) | `create-smoke`、`append-dates`、`sync-config`、`sync-range`、`summary` 和 `freeze` 命令入口。 |
+| [`f2a_child_materializer.py`](f2a_child_materializer.py) | V4 frozen-parent selection、tick reachability、copy-on-write child、candidate evidence 与 freeze。 |
+| [`f2a_v5.py`](f2a_v5.py) | V5.1 8-underlying sampling、public/private subset authoring、mutation selection、estimator/signal/execution audits 与 publication-mode gate。 |
+| [`f2a_calibration.py`](f2a_calibration.py) | Private task-seed FP/FN、Wilson bounds、8×8 confusion conservation、bootstrap maximum statistic 与 release-report validation。 |
 | [`__init__.py`](__init__.py) | 对外只导出 `AuthoringPipeline`。 |
 
 原来的单体 `generator.py` 已拆除。Product-specific generator 只共享基础设施，不互相
@@ -88,6 +93,24 @@ Mutation 层只产生 immutable spec/identity/lineage inputs，不打开 DuckDB�
 上面的 selection：它随后只从最终 public child 和 public variant 使用独立实现重算 ORM truth。
 Authoring-side selector 与 verifier-owned oracle 不共享实现。
 
+V5.1 使用另一条 full-trajectory 流程，不复用 v4 的 56-row single-slice child shape：
+
+```text
+qualify exact 126-day / 22-underlying / three-node v5 parent read-only
+  -> deterministically sample 8 unique underlyings
+  -> export task-specific public DuckDB (node locations, never node values)
+  -> run independent reference Solver and trusted V0/V1/V2/V3 verifier
+  -> evaluate row-wise market IV and linked Stage-1 diffusion counterfactual
+  -> apply at most one requested mutation group per selected slice
+  -> rescan public model signals and independent v4 executable audit
+  -> write public package plus separate private lineage/audits
+```
+
+Market-IV `invalid_bracket` rows 保留明确 status、没有 IV/market `d1/d2`，并从 model-signal candidates
+排除；它们不会仅因 inversion failure 让 series 或 pilot authoring 失败。Release mode 还要求七种
+nonzero requested signatures 和一份独立、gate-passing 的 2,000+ task-seed cohort report；当前 parent
+的 `011` 在冻结 tick grid 下不可达，所以当前配置仍是 pilot。
+
 ## Snapshot identity 与生命周期
 
 | 用途 | Config | Snapshot | 生命周期 |
@@ -96,6 +119,8 @@ Authoring-side selector 与 verifier-owned oracle 不共享实现。
 | New ordinary authoring | `quantlib_bsm_metals_option_chain_smoke_v2.json` | `DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v4` | 在新文件中从 DRAFT 开始，可按普通 pipeline sync/freeze。 |
 | F2A clean parent | `quantlib_bsm_metals_f2a_parent_v2.json` | `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2 / r1` | `FROZEN`，immutable mutation source。 |
 | F2A child | 由 parent、public variant、mutation spec 与 private authoring contract 联合确定 | 每个 child 一个不泄露 label 的新 identity | V4 reference runtime：DRAFT in-memory projection 经独立 verifier exact-match 后原子写为 FROZEN；CI 产物写临时目录。 |
+| F2A v5.1 parent | `quantlib_bsm_metals_f2a_v5_parent_v1.json` | `DERIVATIVES-METALS-F2A-MODEL-SIGNAL-TICK-ALIGNED-TDGBM-Q-v1 / r1` | 126-day distinct frozen source；path 由运行方显式提供。 |
+| F2A v5.1 task package | `f2a_dataset_v5.json` + variant schema `5.1.0` | `DERIVATIVES-F2A-V5-CHILD-*` / output `model-reconstruction-xut-full-trajectory-v2` | Public/private artifacts 分离；默认 `PILOT_REQUIRES_COHORT_CALIBRATION`。 |
 
 改变经济参数、minimum price increment、随机 law、quote law、generator version 或 numerical
 convention 都必须使用新 generator/snapshot identity。F2A child 的 point mutation 也绝不能写回 parent；
@@ -206,10 +231,14 @@ F2A 不增加新的顶层 config 分类。各 source of truth 保持分离：
 | [`bsm_arbitrage_finding_f2a_v1.json`](../../../configs/variants/bsm_arbitrage_finding_f2a_v1.json) / [`v2`](../../../configs/variants/bsm_arbitrage_finding_f2a_v2.json) / [`v3`](../../../configs/variants/bsm_arbitrage_finding_f2a_v3.json) / [`v4`](../../../configs/variants/bsm_arbitrage_finding_f2a_v4.json) | V1 是 legacy，v2/v3 是 blocked history，v4 是 executable calendar-enabled public contract。 |
 | [`f2a_complete_v3.json`](../../../configs/mutations/f2a_complete_v3.json) / [`v4`](../../../configs/mutations/f2a_complete_v4.json) | V3 是 historical grammar；v4 的纯 runtime 实现 single quote、equal call+put group 与 spot，并公开 logical/physical counts。 |
 | [`f2a_dataset_v3.json`](../../../authoring/configs/f2a_dataset_v3.json) / [`v4`](../../../authoring/configs/f2a_dataset_v4.json) | V3 保留 blocked audit target；v4 记录真实 reachability-proved 单-parent audit scope 与 `publication_task_count=8`。 |
+| [`quantlib_bsm_metals_f2a_v5_parent_v1.json`](../../../configs/generators/quantlib_bsm_metals_f2a_v5_parent_v1.json) | V5 full-trajectory 的 distinct 126-day、三节点、cent-tick parent DGP；不得用 v4/v3 替代。 |
+| [`bsm_model_reconstruction_xut_signal_f2a_v5.json`](../../../configs/variants/bsm_model_reconstruction_xut_signal_f2a_v5.json) | Active schema `5.1.0`；分开冻结 physical fitting、80-step BSM inversion、linked validation、model signal 与 independent v4 audit。 |
+| [`f2a_dataset_v5.json`](../../../authoring/configs/f2a_dataset_v5.json) | 8-underlying pilot sampling、六个当前可达 signatures、private FP/FN cohort gates 和 `submission-v5.1` artifact paths。 |
 
 旧 files 不迁移，blocked v2/v3 也不能直接发布。V4 已用新 variant/catalogue identity 落地 evaluator、
 finite-date admissibility proof tests、真实 reachability 和 independent verifier；不得把这些能力回写或
-重标到历史 catalogue。
+重标到历史 catalogue。V5.1 与 v4 共存：其 X/U/T 是 linked-counterfactual model signal，不能改写
+v4 的 executable-arbitrage truth，也不能把 v4 oracle result当作 v5 scored answer。
 
 当前 authoring schema 为 `2.4.0`，支持从 `2.0.0/2.1.0/2.2.0/2.3.0` additive migration。
 所有 generator configs 还必须显式声明可由 DuckDB `DECIMAL(24,8)` 表示的正数
@@ -233,8 +262,8 @@ Solver 只应读取：
 注意：当前 `solver_visible.pricing_metadata` 仍是 smoke 阶段的过渡合同，public/private
 metadata split 尚未完成。
 
-F2A 不能直接复制 parent 中的同名 views，因为 parent pricing metadata 仍含 P dynamics、seed/RNG
-和 authoring canonicalization。计划中的 child 只允许以下最小投影：
+F2A v4 不能直接复制 parent 中的同名 views，因为 parent pricing metadata 仍含 P dynamics、seed/RNG
+和 authoring canonicalization。V4 child 只允许以下最小投影：
 
 ```text
 solver_visible.underlying_daily(
@@ -256,7 +285,24 @@ solver_visible.pricing_metadata(
 precision、authoring canonicalization、metadata/audit tables、before/after、reference answer 和 private
 lineage 都不得进入 child。Parent view 将来新增字段也不能通过 `SELECT *` 自动进入 child。
 
-## F2A child authoring 合同（计划中）
+V5.1 使用不同的 task-specific public schema：
+
+```text
+solver_visible.underlying_daily
+solver_visible.f2a_option_quotes
+solver_visible.option_contracts
+solver_visible.pricing_inputs
+solver_visible.physical_node_locations
+solver_visible.f2a_contracts
+```
+
+`physical_node_locations` 公开 drift/diffusion offsets 与 frozen role/index，不公开 node values；
+`f2a_contracts` 分开保存 physical fitting、BSM inversion、linked validation 和 model-signal contracts。
+Public manifest 使用 `f2a-public-duckdb-v5.1.0`，output contract 为
+`model-reconstruction-xut-full-trajectory-v2`。任何 seed、clean quote、node value、mutation lineage、
+private truth 或 FP/FN flag 都必须留在 private package。
+
+## F2A v4 child authoring 合同（已实现）
 
 ### Parent selection 与 logical mutations
 
@@ -265,7 +311,8 @@ lineage 都不得进入 child。Parent view 将来新增字段也不能通过 `S
 `4 expiries x 7 strikes x call/put = 56` 行 live chain；缺任一 expiry、strike 或 call/put mate 就
 deterministic skip，不补 quote、不 fallback、不重新定价 parent。
 
-V3 允许三个 mutation operators，加一个 clean control：
+V3 historical grammar 首次声明、V4 executable runtime 实现三个 mutation operators，加一个 clean
+control：
 
 - `mutate_option_price_point_v2`：只改变一个 `(valuation_date, option_id)` 的 logical quote point。
   Materializer 保留 parent half-spread，用 integer `delta_ticks` 唯一派生新的 `mid/bid/ask`；strike、
@@ -415,6 +462,29 @@ F2A parent 使用
 `sync-range` 或任何 mutation/edit 命令。若 parent 文件缺失，应失败并报告，不能改连 active v3 或
 public v3 后继续声称执行 F2A authoring。
 
+V5.1 parent 必须从 distinct config 物化到新文件；下面是 pilot 路径：
+
+```bash
+.venv/bin/python scripts/edit_snapshot.py \
+  --database /tmp/f2a-v5-parent.duckdb \
+  --config configs/generators/quantlib_bsm_metals_f2a_v5_parent_v1.json \
+  create-smoke
+.venv/bin/python scripts/edit_snapshot.py \
+  --database /tmp/f2a-v5-parent.duckdb \
+  --config configs/generators/quantlib_bsm_metals_f2a_v5_parent_v1.json \
+  freeze
+.venv/bin/python scripts/materialize_f2a_agent_tasks.py \
+  --parent-db /tmp/f2a-v5-parent.duckdb \
+  --sampling-seed 20260808 --mutation-seed 20260808 \
+  --target-signatures 001,010,100,101,110,111 \
+  --publication-mode pilot \
+  --output-dir /tmp/f2a-v5-tasks
+```
+
+`--qualify-only` 可在写 task package 前运行 parent qualification。默认 pilot 不请求当前 frozen grid
+不可达的 `011`；release mode 强制请求全部七种 nonzero signatures 并要求 private cohort report，
+所以不能仅把 `--publication-mode` 改成 `release` 来绕过 gate。
+
 ## 测试
 
 ```bash
@@ -437,6 +507,12 @@ public v3 后继续声称执行 F2A authoring。
 - [`test_f2a_repo_contracts.py`](../../../tests/unit/test_f2a_repo_contracts.py)：
   验证 F2A v1/v2/v3 historical contracts；v4 coverage 另见 `test_f2a_repo_v4.py`、
   `test_f2a_calendar_v4.py` 与 integration `test_f2a_v4_runtime.py`。
+- [`test_f2a_v5_stage1.py`](../../../tests/unit/test_f2a_v5_stage1.py)、
+  [`test_f2a_v5_stage2_inversion.py`](../../../tests/unit/test_f2a_v5_stage2_inversion.py) 与
+  [`test_f2a_v5_stage2_signal.py`](../../../tests/unit/test_f2a_v5_stage2_signal.py)：三节点 estimator、
+  fixed bisection、linked validation、derived `d1/d2`、invalid-row exclusion 与 model-signal economics。
+- [`test_f2a_v5_contracts.py`](../../../tests/unit/test_f2a_v5_contracts.py)：active v5.1 terminology、
+  schema/config identities、public leakage、semantic exactness 与 cohort release gates。
 
 修改 generator 时至少应保证：
 
@@ -452,7 +528,7 @@ F2A v4 runtime tests 已覆盖：
 1. 精确选择 F2A v2 parent path/DB/manifest identity；缺失时失败且不 fallback；
 2. parent 始终 read-only，child 用新 identity 从 DRAFT 经过 gates 后 freeze，并可由完整输入重放；
 3. single option operator 只改变一个 quote point；grouped call+put 原子改变两个 physical quote
-   points并逐 leg 唯一派生 `mid/bid/ask`；spot operator 只改变 child `spot_close`；
+   points 并逐 leg 唯一派生 `mid/bid/ask`；spot operator 只改变 child `spot_close`；
 4. public child 严格匹配 allowlist，parent 新增字段不会自动进入，private lineage/label 不泄漏；
 5. 每条 option/underlying trade 按 public execution contract 正确收费，guard 不改变 exact predicate；
 6. stable tick search 对 `000` 与 audit 已证明 reachable 的 signatures exact-match realized bitmask，
@@ -461,6 +537,12 @@ F2A v4 runtime tests 已覆盖：
    boundaries 与 tail slopes，拒绝 raw maturity ordering、有限 spot-grid sampling 和 frictionless
    BSM replication；
 8. authoring selector 与 verifier 不共享实现，篡改 private lineage 不改变 public-child truth。
+
+F2A v5.1 tests 与本地 pilot 另行覆盖：8-underlying stable sampling、126-day/three-node parent
+qualification、public node-location/private node-value split、Stage-1 covariance、逐 row 80-step IV
+inversion、linked Stage-2 residual、`option_series_results` schema、V0/V1/V2/V3 exact comparison，以及
+单 task-seed FP/FN 诊断。它们尚未提供 gate-passing 的 2,000+ cohort，也不构成 production sandbox
+验收。
 
 ## 扩展规则
 
@@ -476,4 +558,6 @@ F2A v4 runtime tests 已覆盖：
 - F2A numeric/domain gates 不得 clip、reprice 或修复待检测的 BSM bounds、parity、strike/calendar
   invariants；若合同要求新的 candidate formula 或 calendar rule，先更新 candidate/variant identity。
 - 多点 mutation、`maximal_spread`、多个 pricing-model sources 或超出 frozen two-expiry catalogue 的
-  global search 不属于 F2A v1；不能通过扩大 authoring selector 的职责偷偷接入。
+  global search 不属于当前 v4 executable contract；不能通过扩大 authoring selector 的职责偷偷接入。
+- V5.1 market IV 是 required derived output，但不是 shared diffusion estimator；不得用 row-wise
+  market-IV repricing 替换 linked counterfactual、localisation residual 或 X/U/T model signal。

@@ -39,18 +39,18 @@
       "enum": ["000", "001", "010", "011", "100", "101", "110", "111"]
     },
     "semantic_output_v5": {
-      "description": "Additive typed definition for the independent submission-v5 contract; v4 Outcome remains frozen.",
+      "description": "Additive typed definition for the independent v5.1 model-relative signal contract; it is not executable-arbitrage truth and the v4 Outcome remains frozen.",
       "type": "object",
       "additionalProperties": false,
       "required": [
         "underlying_fits",
-        "option_fits",
+        "option_series_results",
         "mutation_diagnosis",
         "model_signals"
       ],
       "properties": {
         "underlying_fits": {"type": "array", "items": {"type": "object"}},
-        "option_fits": {"type": "array", "items": {"type": "object"}},
+        "option_series_results": {"type": "array", "items": {"type": "object"}},
         "mutation_diagnosis": {"type": "array", "items": {"type": "object"}},
         "model_signals": {"type": "object"}
       }

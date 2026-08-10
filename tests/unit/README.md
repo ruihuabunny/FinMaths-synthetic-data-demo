@@ -31,6 +31,10 @@
 | [`test_f2a_calendar_v4.py`](test_f2a_calendar_v4.py) | 42-candidate calendar enumeration、`beta/Delta_0/Delta_1`、unsimplified/piecewise ledgers、boundary/ray/open-set certificate、fee/cost accounting 与 raw-order/model-mismatch/F<1/multiplier/nonfinite negative controls。 |
 | [`test_f2a_repo_v4.py`](test_f2a_repo_v4.py) | V4 executable identities、non-null calendar config、runtime files、tracked complete-chain fixture/manifest、reachability artifact 与 jsonschema/referencing dependency lock。 |
 | [`../integration/test_f2a_v4_runtime.py`](../integration/test_f2a_v4_runtime.py) | 真实 quote mutation 的 `000..111` tick windows、exact `001`/mixed signatures、atomic child、candidate-specific lineage rejection、independent Solver/verifier smoke。 |
+| [`test_f2a_v5_stage1.py`](test_f2a_v5_stage1.py) | 三节点 P-measure estimator 的 hat basis、精确 drift/variance interval integrals、weekend/node crossing、Schur covariance、RSE 与 horizon support。 |
+| [`test_f2a_v5_stage2_inversion.py`](test_f2a_v5_stage2_inversion.py) | Call/put 80-step BSM inversion、discounted bounds、`invalid_bracket`、market/linked `d1/d2` 派生、half-even checkpoint 及 Solver/verifier exact wrapper equality。 |
+| [`test_f2a_v5_stage2_signal.py`](test_f2a_v5_stage2_signal.py) | Linked-price gradient、full covariance uncertainty、post-cost X/U/T activation，以及 market-IV repricing 不得替代 linked counterfactual。 |
+| [`test_f2a_v5_contracts.py`](test_f2a_v5_contracts.py) | V5.1 config/schema/output identity、invalid-IV row exclusion、public node-value leakage、task-seed cohort gate、semantic-layer perturbation 和 Solver/verifier independence。 |
 | [`test_task_space.py`](test_task_space.py) | 六维 task coordinates、registry compatibility 和 documented axes。 |
 | [`test_mutation.py`](test_mutation.py) | Deterministic single-axis mutation、snapshot lineage、incompatible child rejection 和 method identity。 |
 | [`test_curriculum.py`](test_curriculum.py) | 20/60/20 stage mass、mastery-adaptive sampling，以及 diagnostics 不改变 binary reward。 |
@@ -82,6 +86,11 @@ Canonical IV method/answer 属于 task variant 与 trusted verifier。测试 aut
 公开 pricing inputs、quote law、absence of answer leakage 和 legacy table row count，不得把 hidden
 pricing volatility 重新包装成 expected IV。
 
+V5.1 是独立 task contract：每条 visible midpoint 使用 bracket `[1e-6,5.0]` 和恰好 80 次 binary64
+bisection。`invalid_bracket` row 不得返回 IV 或 market `d1/d2`，并从 model-signal candidate 中排除；
+它本身不让 series/authoring 失败。Linked counterfactual 仍由 Stage-1 diffusion 的 exact integrated
+variance 构造，market-IV repricing 只验证 inverse result，不能成为零 residual 的 counterfactual。
+
 ## Pytest fixtures 与临时数据
 
 共享 fixtures 定义在 [`tests/conftest.py`](../conftest.py)：
@@ -106,6 +115,9 @@ DuckDB。
 - F2A v1/v2/v3 repo tests 只保护 historical identities；v4 tests 使用 tracked complete-chain fixture 和
   真实 public quote/spot mutation，禁止用抽象 affine trigger 或 finite spot grid 代替 reachability/
   pathwise certificate。当前 artifact 是单-parent `audit` scope，不得描述成正式 training split。
+- V5.1 tests 使用 `schemas/submission-v5.1.schema.json` 与 top-level `option_series_results`；旧
+  `submission-v5.schema.json` 只做 historical pilot replay。单 task-seed FP/FN diagnostic 不能冒充
+  2,000+ independent-seed cohort release report。
 
 ## 完成检查
 

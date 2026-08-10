@@ -22,18 +22,8 @@ class CandidateCertificate:
 
 
 @dataclass(frozen=True)
-class FittedCounterfactualQuote:
-    """Typed v5 model input; it is not an executable market quote."""
-
-    row_id: str
-    fitted_price: float
-    parameter_standard_error: float
-    price_gradient: tuple[float, ...]
-
-
-@dataclass(frozen=True)
 class ModelSignalEdge:
-    """Typed post-cost fitted edge kept separate from v4 certificates."""
+    """Typed post-cost linked-model edge kept separate from v4 certificates."""
 
     candidate_id: str
     family: str

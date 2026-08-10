@@ -5,7 +5,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "task_id", "variant_id", "parent_snapshot_id", "child_snapshot_id",
+    "task_id", "variant_id", "output_contract_id", "parent_snapshot_id", "child_snapshot_id",
     "selected_underlyings", "sampling_seed", "mutation_seed",
     "requested_signatures", "mutation_groups", "private_truth_scan",
     "public_signal_scan", "execution_audit", "fp_fn_task_audit"
@@ -13,6 +13,7 @@
   "properties": {
     "task_id": {"type": "string"},
     "variant_id": {"const": "bsm_model_reconstruction_xut_signal_f2a_v5"},
+    "output_contract_id": {"const": "model-reconstruction-xut-full-trajectory-v2"},
     "parent_snapshot_id": {"type": "string"},
     "child_snapshot_id": {"type": "string"},
     "selected_underlyings": {

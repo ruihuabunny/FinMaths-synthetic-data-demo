@@ -3,52 +3,42 @@
 本文件是 Solver image、import audit 和 runtime capability gate 的权威 allowlist 合同。
 Task variant 可以进一步收紧权限，但不得扩大这里的允许范围。
 
-当前状态：allowlist 设计已冻结；`requirements.lock` 和 runtime enforcement 尚未按本文件全部实现。
-在 dependency lock、trusted DuckDB adapter、import/API audit 和 sandbox tests 全部落位前，不得把
-Solver environment 标记为 production-ready。
+当前状态：v4/v5.1 reference Solver 已在仓库源码中实现并通过独立 verifier tests，但它运行在含
+QuantLib 的 repository development environment，且会直接打开 public DuckDB。这里的 production
+allowlist image、trusted query adapter、import/API audit 和 sandbox tests 尚未落地，因此不能把
+“reference Solver 可运行”写成“Solver environment production-ready”。
 
 ## 当前仓库状态
 
 | 部件 | 当前状态 | 含义 |
 |:---|:---:|:---|
 | 本 README | 目标合同 | 描述最终允许的 distributions、imports、tools 与 APIs。 |
-| [`requirements.lock`](requirements.lock) | 部分实现 | 目前只锁定 `duckdb==1.5.5`，尚未包含下列 NumPy/Pandas 及其依赖。 |
+| [`requirements.lock`](requirements.lock) | 最小 lock 已存在 | 当前只锁定 `duckdb==1.5.5`；reference F2A 数值代码使用标准库，没有 NumPy/Pandas runtime dependency。 |
+| Reference Solver | 已实现，非隔离运行 | [`src/synthetic_derivatives/solver/`](../../src/synthetic_derivatives/solver/) 可求解 v4 ORM 与 v5.1 full trajectory；直接文件访问只服务开发/测试。 |
 | Trusted DuckDB adapter | 未实现 | 现在没有可供不受信 Solver 使用的 `query_public_child_v1`。 |
 | Import/API audit | 未实现 | README 中的 allow/deny 规则尚未由 runtime gate 强制执行。 |
 | Sandbox acceptance tests | 未实现 | 不能仅凭依赖文件推断网络、filesystem 或 extension 已隔离。 |
 
-因此本目录当前不能单独构建可运行的 F2A Solver。仓库根目录的 `.venv` 是 authoring/test
-环境，包含 QuantLib，不能复用为 Solver image，也不能作为权限隔离通过的证据。
+因此本目录当前不能单独构建 production F2A Solver image。仓库根目录的 `.venv` 是
+authoring/test 环境，包含 QuantLib，不能复用为 Solver image，也不能作为权限隔离通过的证据。
 
-## F2A target distributions
+## 当前 dependency boundary
 
-Python 固定为 `3.12.x`。F2A Solver image 计划只安装以下第三方 distributions，包括显式锁定的
-Pandas 必需依赖：
+Python 固定为 `3.12.x`。当前 solver lock 只允许一个第三方 distribution：
 
 ```text
 duckdb==1.5.5
-numpy==2.5.1
-pandas==3.0.4
-python-dateutil==2.9.0.post0
-six==1.17.0
 ```
 
-不安装 optional Pandas I/O、plotting、SQL、Excel、Parquet 或 acceleration dependencies。
-尤其不安装 PyArrow、SciPy、Numba、NumExpr、SQLAlchemy、fsspec 或 filesystem/cloud clients。
-
-版本依据：
-
-- [DuckDB Python result conversion](https://duckdb.org/docs/current/clients/python/conversion)
-- [NumPy releases](https://numpy.org/news/)
-- [Pandas installation dependencies](https://pandas.pydata.org/pandas-docs/stable/getting_started/install.html)
+NumPy、Pandas、SciPy、PyArrow、Numba、NumExpr、SQLAlchemy、fsspec 和 filesystem/cloud clients
+均未锁定，也不应被 reference implementation 的未来重构悄悄引入。若某个新 variant 确实需要
+NumPy/Pandas，必须先版本化权限合同、完整锁定依赖并补 enforcement tests。
 
 ## Direct-import allowlist
 
-Solver-authored 计算代码只能直接 import：
+Production Solver-authored 计算代码的目标 allowlist 是：
 
 ```text
-numpy
-pandas
 math
 decimal
 datetime
@@ -63,8 +53,8 @@ raw `DuckDBPyConnection`、创建新 connection、注册 UDF 或直接调用 Duc
 Import audit 检查的是 Solver 源码中的 direct imports；允许包的内部传递 imports 不计作 Solver
 主动扩权。
 
-这里的列表是源码 capability contract，不代表当前 lock 已经安装对应 distribution。
-在 NumPy/Pandas 被锁定并通过 import/API audit 之前，依赖它们的 Solver 代码仍不可发布。
+仓库中的 reference orchestrator 还使用 `pathlib`、`hashlib` 并直接 import `duckdb` 来读取本地
+fixture/artifact；这些能力只属于受信开发 harness，不自动进入 production Solver allowlist。
 
 ## Data and tool allowlist
 
@@ -75,7 +65,7 @@ query_public_child_v1
 submit_trajectory_v1
 ```
 
-Query adapter 只暴露当前 task 的 frozen public child，并且只允许读取：
+Query adapter 必须按 variant 暴露当前 task 的 frozen public child。V4 只允许：
 
 ```text
 solver_visible.underlying_daily
@@ -83,27 +73,32 @@ solver_visible.option_daily
 solver_visible.pricing_metadata
 ```
 
-每题应对每个所需 view 至多做一次批量查询，随后把结果转换为 Pandas DataFrame 或 NumPy arrays，
-在内存中完成稳定排序、分组、期限匹配和 candidate enumeration。禁止按 candidate 或 option leg
-重复往返 DuckDB。
+V5.1 只允许：
+
+```text
+solver_visible.underlying_daily
+solver_visible.f2a_option_quotes
+solver_visible.option_contracts
+solver_visible.pricing_inputs
+solver_visible.physical_node_locations
+solver_visible.f2a_contracts
+```
+
+V5.1 的 node-location table 只含公开 offsets，不含 drift/diffusion node values；contracts 分为
+physical fitting、BSM inversion、linked validation 与 model-signal rows。两个 variant 的表名和列
+allowlist 不能合并为 `SELECT *` fallback。
+
+每题应对每个所需 relation 至多做一次批量查询，随后在内存中完成稳定排序、分组、期限匹配和
+candidate enumeration。禁止按 candidate 或 option leg 重复往返 DuckDB。
 
 ## Allowed numerical and tabular operations
 
-NumPy 允许：
+当前 reference algorithms 使用标准库 `float`/`Decimal`、list/tuple/dict、显式排序与稳定循环，
+以及 `math.exp/log/sqrt/erf` 等基础原语。V5.1 BSM inversion 固定为 binary64 80-step bisection，
+不得换成预制 root finder；linked variance 必须按 piecewise-linear squared diffusion 精确积分。
 
-- `float64` arrays、显式 shape/dtype 转换和有限性检查；
-- stable sorting/indexing、boolean masks、concatenation 和 deterministic reductions；
-- 基础算术及 `exp`、`log`、`sqrt` 等通用数值原语。
-
-Pandas 允许：
-
-- `DataFrame`、`Series`；
-- `merge`、`concat`、`groupby`、`sort_values` 和显式 column selection；
-- 向 NumPy `float64` arrays 的确定性转换。
-
-F2A 的 canonical operation order、row/pair order 和 dtype 仍由 variant contract 决定。允许
-NumPy/Pandas 不授权替换冻结算法：不得用 `isclose`、`allclose` 或 tolerance 改写 candidate-specific
-predicate：
+F2A 的 canonical operation order、row/pair order 和 dtype 仍由 variant contract 决定。任何通用
+数值工具都不授权替换冻结算法：不得用 tolerance 改写 candidate-specific predicate：
 
 ```text
 (s_j > 0 and g_j >= 0 P-a.s.)
@@ -113,16 +108,15 @@ or (s_j == 0 and g_j >= 0 P-a.s. and P(g_j > 0) > 0)
 Parity 的恒零 future payoff 使用 open boundary `s_j > 0`；support-certified nonconstant nonnegative
 payoff 使用 closed boundary `s_j >= 0`。Calendar 必须另外通过完整 pathwise certificate。不得使用
 未声明的并行 reduction、随机顺序或不同 linear-algebra method。Legacy variant v1/catalogue v2 的
-统一 strict-positive 字符串只用于重放；blocked variant v2/catalogue v3 不可作为可运行 Solver task，
-calendar 启用还需要新的 immutable identity。
+统一 strict-positive 字符串只用于重放；blocked variant v2/v3 不可运行；calendar-enabled executable
+identity 是 v4。V5.1 的 X/U/T 是 linked-counterfactual model signal，不得套用 v4
+executable-arbitrage predicate 作为其评分语义。
 
 ## Denied APIs and capabilities
 
 即使 package 本身在 allowlist 中，以下能力仍禁止：
 
-- NumPy/Pandas 文件、pickle、memory-map、SQL 和网络 I/O，包括 `numpy.load/save/loadtxt/fromfile/memmap`
-  与 `pandas.read_*`、`DataFrame.to_csv/to_parquet/to_pickle/to_sql/to_excel/to_json`；
-- `numpy.random`、未声明的 `numpy.linalg`、`numpy.isclose/allclose`；
+- 未列出的 tabular/numerical packages，以及文件、pickle、memory-map、SQL 和网络 I/O helpers；
 - `eval`、`exec`、动态 import、subprocess、socket、网络、动态安装和任意 filesystem traversal；
 - 任何预制 option pricing、IV、Greek、volatility smile/surface 或 arbitrage-scanning API。
 
@@ -149,13 +143,14 @@ DuckDB 自身的安全设置属于 defense in depth，不能替代只读 mount�
 
 实现完成至少需要以下 tests：
 
-- dependency lock 中只有上述 distributions 及其冻结 transitive dependencies；
+- dependency lock 中只有声明的 distribution 及其冻结 transitive dependencies；
 - 允许的 direct imports 成功，任一未列 import 失败；
 - banned finance packages、NumPy/Pandas I/O 和 raw DuckDB connection 均不可用；
 - DuckDB external access、extension loading、write/attach/copy 和 configuration re-enable 均失败；
-- 每题 query count 不超过 contract，DataFrame/arrays 不含 private columns；
+- 每题 query count 不超过 contract，返回 rows 不含 private columns；
 - fixed public child 在 SQL-to-memory 路径上可 deterministic replay；
-- NumPy/Pandas 实现和 trusted verifier 产生相同 canonical F2A ORM answer。
+- V4 Solver 与 trusted verifier 产生相同 canonical ORM answer；v5.1 Solver 与 verifier 的
+  V0/V1/V2/V3 semantic layers exact-match。
 
 ## 变更规则
 

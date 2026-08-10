@@ -11,6 +11,10 @@
 为准；generator source of truth 是
 [`quantlib_bsm_metals_f2a_parent_v2.json`](../../../../../configs/generators/quantlib_bsm_metals_f2a_parent_v2.json)。
 
+作用域仅限 executable F2A v4。Full-trajectory v5.1 必须使用 distinct
+`DERIVATIVES-METALS-F2A-MODEL-SIGNAL-TICK-ALIGNED-TDGBM-Q-v1` 126-day parent；本 v2 parent 不能
+作为 v5.1 qualification fallback，其 65-day/七节点路径也不满足 v5.1 三节点合同。
+
 > 重要：这个文件既是数据字典，也包含 Authoring-only 字段说明。生产 Solver/LLM 不应获得整个
 > parent、整个仓库或本文的 Authoring-only 部分。LLM task bundle 应只包含物化后的最小 public
 > child、public task/variant contract、submission/trajectory schemas，以及本文第 12 节抽取出的任务指引。
@@ -160,7 +164,7 @@ Option contracts 的四个 expiries 为：
 | `2026-09-02` through `2026-10-01` | 924 | 42 | 3 |
 | `2026-10-02` through `2026-10-30` | 616 | 28 | 2 |
 
-第一版 F2A authoring 要求完整 56-row chain，因此实际 eligible universe 是
+V4 F2A authoring 要求完整 56-row chain，因此实际 eligible universe 是
 `22 dates × 22 underlyings = 484` 个 `(valuation_date, underlying_id)` slices，日期范围为
 `2026-08-03` through `2026-09-01`。后续 slices 必须 skip，不能补 quote 或缩小任务合同。
 
@@ -235,7 +239,7 @@ market.option_pricing_audit (empty)
 
 对当前文件的 orphan/mismatch audit 均返回 0，包括 contract→underlying、contract→chain、
 daily→master、option daily→spot/pricing context，以及 option daily denormalized contract terms。
-这不是允许省略 future child gates；child 仍必须重新检查自己的公开投影。
+这不允许省略当前 child gates；child 仍必须重新检查自己的公开投影。
 
 ### 4.2 Option daily 的 denormalized contract terms
 
@@ -628,14 +632,14 @@ Primary key: `(snapshot_id, valuation_timestamp, underlying_id)`。当前 1,430 
 `pricing_dynamics` 是模型/curve context，不是 hidden theoretical price 或 IV answer。F2A 判断必须使用
 public variant 的 executable candidate formulas；不能只比较 quote 与 BSM repricing result。
 
-Blocked successor variant v2 将 Solver-visible future law 另行冻结为：`P ~ Q`（candidate horizon 上
+Executable variant v4 将 Solver-visible future law 另行冻结为：`P ~ Q`（candidate horizon 上
 null sets 等价），每段 exact deterministic time-inhomogeneous GBM transition 对 `(0,+infinity)` 有
 positive conditional density；volatility nodes 的 origin 是 `2026-08-03T16:00:00Z`，offset 是 calendar
 days，value 单位是 annualized `1/sqrt(year)`，piecewise-linear interpolation/flat extrapolation。每个
 valuation/expiry date 均取 `16:00:00Z`；`T1` 同 timestamp 的 option settlement、第一段 liquidation、
 state-contingent rebalance、第二段建仓与 cash deposit 顺序是 normative。`dividend_curve` 是
 deterministic continuous nonnegative proportional cash-distribution yield；borrow/carry quote 不能代替它。
-这些是 successor public contract，不追溯改写 frozen parent 或 legacy variant。
+这些是 v4 public contract，不追溯改写 frozen parent 或 legacy/blocked variants。
 
 ### 8.4 Precision JSON
 
@@ -791,11 +795,11 @@ child.ask = child.mid + ask_offset
 - 不复制 `settlement_price`；不新增 `task_price`；
 - 不用 BSM bounds/parity/monotonicity/convexity clip 或 reprice child。
 
-### 10.3 Equal call+put grouped mutation（future child contract）
+### 10.3 Equal call+put grouped mutation（v4 已实现）
 
 `mutate_call_put_pair_equal_shift_v1` 原子选择同 valuation、underlying、expiry、strike 与 multiplier 的
-call/put pair，对两行 quote 施加相同 `delta_ticks`。本节只说明 future child copy-on-write contract；
-不会修改本 frozen parent 的任何 row。
+call/put pair，对两行 quote 施加相同 `delta_ticks`。V4 materializer 已按该 copy-on-write 合同执行，
+但仍不会修改本 frozen parent 的任何 row。
 
 ```text
 logical_mutation_groups       = 1
@@ -874,11 +878,13 @@ Active family 至少有一个 canonical candidate 的完整向量通过；inacti
 压成一个 `active_guard/inactive_guard` USD 标量。
 不存在可行窗口时 deterministic skip；不能随机 retry、扩大 grid、修改 parent 或为了 label 临时换 fee。
 
-Legacy variant v1/catalogue v2/dataset v1 保持 replay；v2 保留为首次 blocked review。Complete grammar
-使用 variant v3/catalogue v4、mutation/dataset/lineage v3，但仍明确 `runtime_enabled = false`、
-`calendar_family = null`。Calendar evaluator、interim admissibility proof tests 与 baseline signature
-reachability audit 未完成，且 runtime 不存在，因此仍然**禁止物化 child**；将来启用必须分配更新的
-完整 executable identity。
+Legacy variant v1/catalogue v2/dataset v1 保持 replay；v2/v3 保留为 blocked review records。当前
+child materialization 必须路由到 executable variant v4/catalogue v5、mutation/dataset/lineage v4；
+`runtime_enabled=true`，calendar family 为
+`transaction-cost-aware-two-expiry-call-stock-flip-v1`。Tracked complete-chain fixture 的真实 full-oracle
+audit 已实现 `000..111` 全部 signatures，其中 `001` 的 grouped-pair 正向 tick window 为
+`[132,290]`。这不授权在缺少 production parent 时 fallback 到 fixture，也不扩大 v4 的有限 catalogue
+作用域。
 
 ### 10.6 Child gates 与 artifacts
 
@@ -1003,8 +1009,8 @@ FROM market.option_daily;
 
 ### 12.1 使用边界
 
-在 F2A runtime 完成前，只能让 LLM 做 parent data exploration/SQL 熟悉任务，不能声称已经运行 F2A
-child→submission→verifier。正式 F2A Solver 必须只获得：
+F2A v4 reference runtime 已完成 child→submission→verifier，并可用 tracked fixture 重放；production
+Solver image、trusted DuckDB adapter 与 sandbox enforcement 尚未完成。正式 F2A Solver 只能获得：
 
 - 一个 frozen public child（不是 parent）；
 - public task manifest；
@@ -1018,9 +1024,8 @@ signature、selector traces、stored labels、hidden tests 或 verifier implemen
 
 ### 12.2 可抽取的 canonical LLM task instructions
 
-下面内容可以作为未来 task prompt 的数据库使用部分。构建 task 时必须用实际 child/variant IDs
-替换占位符，并根据 versioned variant 明确 calendar 是否 enabled；不能直接把整个本文档放入
-Solver bundle。
+下面内容是当前 v4 task prompt 的可抽取数据库使用部分。构建 task 时必须用实际 child/variant IDs
+替换占位符，并绑定 executable v4 contract；不能直接把整个本文档放入 Solver bundle。
 
 ```text
 You are analyzing one frozen F2A public child snapshot in read-only mode.
@@ -1093,24 +1098,24 @@ Output
 
 ### Authoring/materializer
 
-- [ ] 精确打开本 parent path，验证 DB metadata 与 manifest 为 v2/r1/FROZEN；无 fallback。
-- [ ] Parent connection 始终 read-only，parent file 在运行前后不被写入。
-- [ ] 只选择 484 个 complete slices 中的稳定目标。
-- [ ] Child 使用字段 allowlist，不使用 `SELECT *`。
-- [ ] Option mutation 只产生一个 logical quote target；spot mutation 只产生一个 spot target。
-- [ ] 所有 public prices 保持 cent ticks 与 quote domain；不 reprice/clip arbitrage relations。
-- [ ] Signature search 稳定、cost-aware、exact bitmask match；不可达时 skip。
-- [ ] Child 新 identity/revision、DRAFT→gates→FROZEN；private lineage 单独写入 ignored path。
-- [ ] Public manifest/child IDs 不泄露 operator、target、signature 或 label。
+- [x] 精确打开本 parent path，验证 DB metadata 与 manifest 为 v2/r1/FROZEN；无 fallback。
+- [x] Parent connection 始终 read-only，parent file 在运行前后不被写入。
+- [x] 只选择 484 个 complete slices 中的稳定目标。
+- [x] Child 使用字段 allowlist，不使用 `SELECT *`。
+- [x] Option mutation 只产生一个 logical quote target；spot mutation 只产生一个 spot target。
+- [x] 所有 public prices 保持 cent ticks 与 quote domain；不 reprice/clip arbitrage relations。
+- [x] Signature search 稳定、cost-aware、exact bitmask match；不可达时 skip。
+- [x] Child 新 identity/revision、DRAFT→gates→FROZEN；private lineage 与 public artifact 分离。
+- [x] Public manifest/child IDs 不泄露 operator、target、signature 或 label。
 
 ### Oracle/verifier
 
-- [ ] Verifier 不读 parent/private lineage/authoring selector，也不导入 Solver implementation。
-- [ ] Cross-sectional/cross-asset formulas 逐腿计入 executable sides 和 option fees。
-- [ ] Underlying trades 逐次计入 5 bps cost；不使用 frictionless BSM replication shortcut。
-- [ ] Calendar 启用前已 version two-expiry segment/cell/tail certificate；否则拒绝 calendar type。
-- [ ] Clean control 与七种 target signatures 都从 final public child 独立复算。
-- [ ] Exact bool/type equality、canonical order、no duplicates、no maximal spread。
+- [x] Verifier 不读 parent/private lineage/authoring selector，也不导入 Solver implementation。
+- [x] Cross-sectional/cross-asset formulas 逐腿计入 executable sides 和 option fees。
+- [x] Underlying trades 逐次计入 5 bps cost；不使用 frictionless BSM replication shortcut。
+- [x] Calendar 已 version two-expiry segment/cell/tail certificate，并由 executable v4 启用。
+- [x] Clean control 与七种 target signatures 都从 final public child 独立复算。
+- [x] Exact bool/type equality、canonical order、no duplicates、no maximal spread。
 
 ### LLM environment
 
@@ -1120,6 +1125,9 @@ Output
 - [ ] Import/runtime capability audit 拒绝预制 option pricing/IV/Greek/surface/arbitrage APIs。
 - [ ] Prompt 使用第 12.2 节的抽取版本，并绑定实际 versioned contract IDs。
 
+前三节中只有 production LLM environment 仍未完成；仓库内 reference Solver 直接读取受控的本地
+fixture/child，只用于数学与接口重放，不能作为上述四项 sandbox gate 的替代证据。
+
 ## 14. 相关文档与查询
 
 - [Generated snapshots 总览](../../../README.md)
@@ -1128,3 +1136,4 @@ Output
 - [DuckDB agent task plan](../../../../../src/synthetic_derivatives/task_space/duckdb_agent_task_plan.md)
 - [F2A detailed task plan](../../../../../src/synthetic_derivatives/mutation/f2a_arbitrage_finding_agent_task_plan.md)
 - [Solver environment allowlist](../../../../../environments/solver/README.md)
+- [F2A v5.1 inversion/linked-validation 完成记录](../../../../../f2a_v5_bsm_inversion_linked_diffusion_validation_rework_plan.md)

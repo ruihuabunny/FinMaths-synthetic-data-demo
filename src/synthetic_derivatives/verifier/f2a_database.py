@@ -28,8 +28,9 @@ from synthetic_derivatives.verifier.f2a_stage1 import (
     fit_underlying_path,
 )
 from synthetic_derivatives.verifier.f2a_stage2 import (
+    BSMInversionContract,
+    LinkedDiffusionValidationContract,
     OptionObservation,
-    PricingCounterfactualContract,
     stable_row_id,
 )
 
@@ -40,8 +41,8 @@ V5_PARENT_BUSINESS_DATE_COUNT = 126
 V5_PARENT_SNAPSHOT_ID = (
     "DERIVATIVES-METALS-F2A-MODEL-SIGNAL-TICK-ALIGNED-TDGBM-Q-v1"
 )
-V5_PUBLIC_SCHEMA_VERSION = "f2a-public-duckdb-v5.0.0"
-V5_OUTPUT_CONTRACT_ID = "model-reconstruction-xut-full-trajectory-v1"
+V5_PUBLIC_SCHEMA_VERSION = "f2a-public-duckdb-v5.1.0"
+V5_OUTPUT_CONTRACT_ID = "model-reconstruction-xut-full-trajectory-v2"
 
 
 def _canonical_value(value: Any) -> Any:
@@ -685,14 +686,37 @@ def extract_subset_db(
             "input_dtype": "binary64",
             "output_precision": 10,
         }
-        pricing_contract = {
+        inversion_contract = {
+            "measure": "USD-MONEY-MARKET-Q-v1",
+            "numeraire_id": "USD-MONEY-MARKET-ACCOUNT-v1",
+            "currency": "USD",
+            "valuation_time_utc": "16:00:00",
+            "pricing_family": "BSM",
+            "formula_id": "bsm-integrated-variance-european-v1",
+            "method_id": "bsm-bisection-float64-80-v1",
+            "input_price_rule": "bid_ask_midpoint",
+            "volatility_bracket": [0.000001, 5.0],
+            "iterations": 80,
+            "input_dtype": "binary64",
+            "midpoint_rule": "mid_equals_low_plus_high_over_two",
+            "update_rule": "price_mid_lt_observed_updates_low_else_high",
+            "early_stop": False,
+            "fallback_method": None,
+            "final_root_rule": "low_80_plus_high_80_over_two",
+            "invalid_bracket_behavior": "invalid_bracket",
+            "discounted_price_bounds_rule": "european_continuous_carry_bsm_v1",
+            "canonicalization_rule": "all_internal_binary64_then_half_even",
+            "output_precision": 10,
+        }
+        validation_contract = {
             "measure": "USD-MONEY-MARKET-Q-v1",
             "numeraire_id": "USD-MONEY-MARKET-ACCOUNT-v1",
             "currency": "USD",
             "valuation_time_utc": "16:00:00",
             "measure_change": "girsanov_drift_only",
-            "candidate_model_family": "BSM",
+            "pricing_family": "BSM",
             "formula_id": "bsm-integrated-variance-european-v1",
+            "validation_contract_id": "bsm-linked-stage1-diffusion-v1",
             "option_series_grouping_key": [
                 "underlying_id", "option_id", "call_put", "strike", "expiry",
                 "settlement_type", "contract_multiplier",
@@ -716,7 +740,6 @@ def extract_subset_db(
             "residual_threshold": 4.0,
             "grouping_rule": "standardized-residual-contract-date-grouping-v1",
             "price_uncertainty_method": "delta-method-full-diffusion-covariance-v1",
-            "optional_iv_diagnostic": False,
             "input_dtype": "binary64",
             "output_precision": 10,
         }
@@ -725,7 +748,8 @@ def extract_subset_db(
             "candidate_enumeration_version": "bsm-f2a-model-signal-candidate-catalogue-v1",
             "directional_candidate_rule": "both_directions_have_stable_ids",
             "observed_quote_execution_rule": "midpoint_plus_exact_half_spread_hurdle",
-            "fitted_counterfactual_rule": "linked_stage1_bsm",
+            "market_iv_eligibility_rule": "converged_rows_only",
+            "linked_counterfactual_rule": "linked_stage1_bsm",
             "option_fee": 0.50,
             "option_fee_units": "USD_per_contract_per_side",
             "underlying_transaction_cost": 0.0005,
@@ -746,7 +770,11 @@ def extract_subset_db(
             "INSERT INTO solver_visible.f2a_contracts VALUES (?, ?)",
             [
                 ("physical_fitting_contract", json.dumps(physical_contract, sort_keys=True)),
-                ("pricing_counterfactual_contract", json.dumps(pricing_contract, sort_keys=True)),
+                ("bsm_inversion_contract", json.dumps(inversion_contract, sort_keys=True)),
+                (
+                    "linked_diffusion_validation_contract",
+                    json.dumps(validation_contract, sort_keys=True),
+                ),
                 ("model_signal_contract", json.dumps(signal_contract, sort_keys=True)),
             ],
         )
@@ -859,7 +887,8 @@ def load_public_contracts(
     database: str | Path,
 ) -> tuple[
     dict[str, PhysicalFittingContract],
-    PricingCounterfactualContract,
+    BSMInversionContract,
+    LinkedDiffusionValidationContract,
     ModelSignalContract,
 ]:
     connection = duckdb.connect(str(database), read_only=True)
@@ -894,11 +923,14 @@ def load_public_contracts(
             )
             for underlying_id, offsets in grouped.items()
         }
-        pricing = PricingCounterfactualContract.from_mapping(
-            raw_contracts["pricing_counterfactual_contract"]
+        inversion = BSMInversionContract.from_mapping(
+            raw_contracts["bsm_inversion_contract"]
+        )
+        validation = LinkedDiffusionValidationContract.from_mapping(
+            raw_contracts["linked_diffusion_validation_contract"]
         )
         signals = ModelSignalContract.from_mapping(raw_contracts["model_signal_contract"])
-        return physical, pricing, signals
+        return physical, inversion, validation, signals
     finally:
         connection.close()
 

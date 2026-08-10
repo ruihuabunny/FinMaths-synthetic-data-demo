@@ -1,7 +1,8 @@
 {
-  "schema_version": "5.0.0",
+  "schema_version": "5.1.0",
   "dataset_config_id": "f2a-dataset-v5",
   "variant_id": "bsm_model_reconstruction_xut_signal_f2a_v5",
+  "output_contract_id": "model-reconstruction-xut-full-trajectory-v2",
   "runtime_enabled": true,
   "sample_size": 8,
   "default_physical_node_count": 3,
@@ -51,7 +52,7 @@
   "artifacts": {
     "public_root": "artifacts/f2a_agent_tasks",
     "private_root": "artifacts/f2a_agent_tasks_private",
-    "submission_schema": "schemas/submission-v5.schema.json",
+    "submission_schema": "schemas/submission-v5.1.schema.json",
     "private_lineage_schema": "schemas/f2a-lineage-v5.schema.json"
   }
 }

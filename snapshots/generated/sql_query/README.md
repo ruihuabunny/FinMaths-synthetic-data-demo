@@ -19,6 +19,11 @@ snapshots/generated/f2a/parents/DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2/p
 materialize，包含 60,368 条 option quotes 与 `0` 条 IV audit rows。只能以 read-only connection
 检查；任何 mutation 都必须从它复制到新的 child identity，不能修改 parent 文件。
 
+这些 SQL 只适用于 v4 executable parent。F2A v5.1 使用 distinct
+`DERIVATIVES-METALS-F2A-MODEL-SIGNAL-TICK-ALIGNED-TDGBM-Q-v1` 126-day parent，并把 task-specific
+public data 物化为 `f2a_option_quotes`、`pricing_inputs`、`physical_node_locations` 等 relations；不能只
+替换本目录 SQL 的 `snapshot_id` 来查询 v5.1。
+
 ## Query catalog
 
 | 文件 | 默认结果 | 边界 | 用途 |
@@ -89,5 +94,7 @@ result column names 和 row count；不得执行 SQL 文本拼接、写操作或
   Solver allowlist，也不是 config 1.6 materialized output。
 - `underlying_dependence.sql` 的 measure 为 `P`，driver count 为 22；option contracts 不进入 correlation matrix。
 - 所有 query 的第一层筛选都包含明确 snapshot identity，结果顺序只由声明的 `ORDER BY` 决定。
+- V5.1 public child 的 80-step market-IV inversion contract 来自 `solver_visible.f2a_contracts`，不来自
+  本目录的 legacy `option_iv_task_inputs.sql`；两者的数据库 shape 与任务作用域不同。
 
 目录级生命周期和 visibility 说明见 [generated snapshot README](../README.md)。

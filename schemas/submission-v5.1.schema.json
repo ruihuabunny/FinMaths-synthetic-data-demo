@@ -1,0 +1,312 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "submission-v5.1.schema.json",
+  "title": "F2A v5.1 BS-inversion and linked-validation submission",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "snapshot_id",
+    "snapshot_revision",
+    "variant_id",
+    "output_contract_id",
+    "underlying_fits",
+    "option_series_results",
+    "mutation_diagnosis",
+    "model_signals",
+    "execution_audit",
+    "verifier_digest"
+  ],
+  "properties": {
+    "task_id": {"type": "string", "minLength": 1},
+    "snapshot_id": {"type": "string", "minLength": 1},
+    "snapshot_revision": {"const": 1},
+    "variant_id": {"const": "bsm_model_reconstruction_xut_signal_f2a_v5"},
+    "output_contract_id": {"const": "model-reconstruction-xut-full-trajectory-v2"},
+    "underlying_fits": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {"$ref": "#/$defs/underlying_fit"}
+    },
+    "option_series_results": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/option_series_result"}
+    },
+    "mutation_diagnosis": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/mutation_diagnosis"}
+    },
+    "model_signals": {"$ref": "#/$defs/model_signals"},
+    "execution_audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "scope"],
+      "properties": {
+        "required": {"const": false},
+        "scope": {"const": "independent-v4-catalogue-audit-not-scored-by-v5"}
+      }
+    },
+    "verifier_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "$defs": {
+    "finite_number": {"type": "number"},
+    "number_array": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/finite_number"}
+    },
+    "number_matrix": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/number_array"}
+    },
+    "number_map": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/finite_number"}
+    },
+    "market_iv_status_map": {
+      "type": "object",
+      "additionalProperties": {"enum": ["converged", "invalid_bracket"]}
+    },
+    "underlying_fit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "underlying_id",
+        "node_dates_or_offsets",
+        "fitted_drift_node_values",
+        "fitted_diffusion_node_values",
+        "observed_hessian",
+        "diffusion_information_matrix",
+        "diffusion_covariance_matrix",
+        "diffusion_rse_by_node",
+        "information_effective_sample_size_by_node",
+        "objective_value",
+        "usable_return_count",
+        "hessian_condition_number",
+        "drift_active_bound_node_indices",
+        "solver_status",
+        "solver_evaluations"
+      ],
+      "properties": {
+        "underlying_id": {"type": "string", "minLength": 1},
+        "node_dates_or_offsets": {"$ref": "#/$defs/number_array"},
+        "fitted_drift_node_values": {"$ref": "#/$defs/number_array"},
+        "fitted_diffusion_node_values": {"$ref": "#/$defs/number_array"},
+        "observed_hessian": {"$ref": "#/$defs/number_matrix"},
+        "diffusion_information_matrix": {"$ref": "#/$defs/number_matrix"},
+        "diffusion_covariance_matrix": {"$ref": "#/$defs/number_matrix"},
+        "diffusion_rse_by_node": {"$ref": "#/$defs/number_array"},
+        "information_effective_sample_size_by_node": {"$ref": "#/$defs/number_array"},
+        "objective_value": {"$ref": "#/$defs/finite_number"},
+        "usable_return_count": {"type": "integer", "minimum": 1},
+        "hessian_condition_number": {"$ref": "#/$defs/finite_number"},
+        "drift_active_bound_node_indices": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "solver_status": {
+          "enum": ["CONVERGED", "MAX_EVALUATIONS", "BOUND_SOLUTION", "ILL_CONDITIONED"]
+        },
+        "solver_evaluations": {"type": "integer", "minimum": 1}
+      }
+    },
+    "option_series_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "option_contract_id",
+        "underlying_id",
+        "valuation_row_ids",
+        "option_type",
+        "strike",
+        "expiry",
+        "pricing_family",
+        "bsm_inversion_method_id",
+        "bsm_inversion_iteration_count",
+        "linked_diffusion_validation_id",
+        "linked_diffusion_underlying_id",
+        "observed_prices_by_row_id",
+        "market_implied_volatility_by_row_id",
+        "market_iv_status_by_row_id",
+        "market_d1_by_row_id",
+        "market_d2_by_row_id",
+        "linked_integrated_variance_by_row_id",
+        "linked_effective_volatility_by_row_id",
+        "linked_d1_by_row_id",
+        "linked_d2_by_row_id",
+        "linked_counterfactual_prices_by_row_id",
+        "linked_counterfactual_price_se_by_row_id",
+        "price_residuals_by_row_id",
+        "standardized_residuals_by_row_id",
+        "validation_residual_sse",
+        "series_status"
+      ],
+      "properties": {
+        "option_contract_id": {"type": "string", "minLength": 1},
+        "underlying_id": {"type": "string", "minLength": 1},
+        "valuation_row_ids": {
+          "type": "array",
+          "minItems": 5,
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "option_type": {"enum": ["call", "put"]},
+        "strike": {"type": "number", "exclusiveMinimum": 0},
+        "expiry": {"type": "string", "format": "date"},
+        "pricing_family": {"const": "BSM"},
+        "bsm_inversion_method_id": {"const": "bsm-bisection-float64-80-v1"},
+        "bsm_inversion_iteration_count": {"const": 80},
+        "linked_diffusion_validation_id": {"const": "bsm-linked-stage1-diffusion-v1"},
+        "linked_diffusion_underlying_id": {"type": "string", "minLength": 1},
+        "observed_prices_by_row_id": {"$ref": "#/$defs/number_map"},
+        "market_implied_volatility_by_row_id": {"$ref": "#/$defs/number_map"},
+        "market_iv_status_by_row_id": {"$ref": "#/$defs/market_iv_status_map"},
+        "market_d1_by_row_id": {"$ref": "#/$defs/number_map"},
+        "market_d2_by_row_id": {"$ref": "#/$defs/number_map"},
+        "linked_integrated_variance_by_row_id": {"$ref": "#/$defs/number_map"},
+        "linked_effective_volatility_by_row_id": {"$ref": "#/$defs/number_map"},
+        "linked_d1_by_row_id": {"$ref": "#/$defs/number_map"},
+        "linked_d2_by_row_id": {"$ref": "#/$defs/number_map"},
+        "linked_counterfactual_prices_by_row_id": {"$ref": "#/$defs/number_map"},
+        "linked_counterfactual_price_se_by_row_id": {"$ref": "#/$defs/number_map"},
+        "price_residuals_by_row_id": {"$ref": "#/$defs/number_map"},
+        "standardized_residuals_by_row_id": {"$ref": "#/$defs/number_map"},
+        "validation_residual_sse": {"$ref": "#/$defs/finite_number"},
+        "series_status": {"const": "COMPLETE"}
+      }
+    },
+    "mutation_diagnosis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mutation_group_id",
+        "affected_row_ids",
+        "affected_dates",
+        "observed_quotes",
+        "linked_clean_counterfactual_quotes",
+        "residuals",
+        "localisation_score",
+        "proposed_mutation_family",
+        "inferred_direction",
+        "estimated_mutation_magnitude"
+      ],
+      "properties": {
+        "mutation_group_id": {"type": "string", "minLength": 1},
+        "affected_row_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "affected_dates": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "format": "date"}
+        },
+        "observed_quotes": {"$ref": "#/$defs/number_map"},
+        "linked_clean_counterfactual_quotes": {"$ref": "#/$defs/number_map"},
+        "residuals": {"$ref": "#/$defs/number_map"},
+        "localisation_score": {"$ref": "#/$defs/finite_number"},
+        "proposed_mutation_family": {"type": "string", "minLength": 1},
+        "inferred_direction": {"enum": ["up", "down", "mixed"]},
+        "estimated_mutation_magnitude": {"$ref": "#/$defs/finite_number"}
+      }
+    },
+    "signal_leg": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["row_id", "option_id", "position", "option_type", "strike", "expiry"],
+      "properties": {
+        "row_id": {"type": "string"},
+        "option_id": {"type": "string"},
+        "position": {"type": "number"},
+        "option_type": {"enum": ["call", "put"]},
+        "strike": {"type": "number", "exclusiveMinimum": 0},
+        "expiry": {"type": "string", "format": "date"}
+      }
+    },
+    "active_signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family", "candidate_id", "row_ids", "legs", "direction",
+        "observed_executable_value", "linked_counterfactual_value",
+        "gross_model_edge", "option_spread_cost", "option_fees",
+        "underlying_costs", "funding_and_dividend", "net_signal_edge",
+        "parameter_standard_error", "standardized_margin", "canonical_active"
+      ],
+      "properties": {
+        "family": {"enum": ["X", "U", "T"]},
+        "candidate_id": {"type": "string", "minLength": 1},
+        "row_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "legs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/signal_leg"}},
+        "direction": {"enum": ["positive", "negative"]},
+        "observed_executable_value": {"type": "number"},
+        "linked_counterfactual_value": {"type": "number"},
+        "gross_model_edge": {"type": "number"},
+        "option_spread_cost": {"type": "number", "minimum": 0},
+        "option_fees": {"type": "number", "minimum": 0},
+        "underlying_costs": {"type": "number", "minimum": 0},
+        "funding_and_dividend": {"type": "number", "minimum": 0},
+        "net_signal_edge": {"type": "number", "exclusiveMinimum": 0},
+        "parameter_standard_error": {"type": "number", "minimum": 0},
+        "standardized_margin": {"type": "number"},
+        "canonical_active": {"const": true}
+      }
+    },
+    "signal_slice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["underlying_id", "valuation_date", "signature", "active_signals"],
+      "properties": {
+        "underlying_id": {"type": "string"},
+        "valuation_date": {"type": "string", "format": "date"},
+        "signature": {"enum": ["001", "010", "011", "100", "101", "110", "111"]},
+        "active_signals": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/active_signal"}
+        }
+      }
+    },
+    "model_signals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slices", "full_scan_summary"],
+      "properties": {
+        "slices": {"type": "array", "items": {"$ref": "#/$defs/signal_slice"}},
+        "full_scan_summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scanned_slice_count", "active_slice_count", "scanned_candidate_count",
+            "active_candidate_count", "family_active_slice_counts",
+            "complete_full_database_scan"
+          ],
+          "properties": {
+            "scanned_slice_count": {"type": "integer", "minimum": 1},
+            "active_slice_count": {"type": "integer", "minimum": 0},
+            "scanned_candidate_count": {"type": "integer", "minimum": 0},
+            "active_candidate_count": {"type": "integer", "minimum": 0},
+            "family_active_slice_counts": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["X", "U", "T"],
+              "properties": {
+                "X": {"type": "integer", "minimum": 0},
+                "U": {"type": "integer", "minimum": 0},
+                "T": {"type": "integer", "minimum": 0}
+              }
+            },
+            "complete_full_database_scan": {"const": true}
+          }
+        }
+      }
+    }
+  }
+}

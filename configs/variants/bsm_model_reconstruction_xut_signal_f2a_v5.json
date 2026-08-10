@@ -1,5 +1,5 @@
 {
-  "schema_version": "5.0.0",
+  "schema_version": "5.1.0",
   "variant_id": "bsm_model_reconstruction_xut_signal_f2a_v5",
   "task_family_id": "bsm_model_reconstruction_xut_signal_f2a_v5",
   "status": "EXECUTABLE",
@@ -52,14 +52,37 @@
     "input_dtype": "binary64",
     "output_precision": 10
   },
-  "pricing_counterfactual_contract": {
+  "bsm_inversion_contract": {
+    "measure": "USD-MONEY-MARKET-Q-v1",
+    "numeraire_id": "USD-MONEY-MARKET-ACCOUNT-v1",
+    "currency": "USD",
+    "valuation_time_utc": "16:00:00",
+    "pricing_family": "BSM",
+    "formula_id": "bsm-integrated-variance-european-v1",
+    "method_id": "bsm-bisection-float64-80-v1",
+    "input_price_rule": "bid_ask_midpoint",
+    "volatility_bracket": [0.000001, 5.0],
+    "iterations": 80,
+    "input_dtype": "binary64",
+    "midpoint_rule": "mid_equals_low_plus_high_over_two",
+    "update_rule": "price_mid_lt_observed_updates_low_else_high",
+    "early_stop": false,
+    "fallback_method": null,
+    "final_root_rule": "low_80_plus_high_80_over_two",
+    "invalid_bracket_behavior": "invalid_bracket",
+    "discounted_price_bounds_rule": "european_continuous_carry_bsm_v1",
+    "canonicalization_rule": "all_internal_binary64_then_half_even",
+    "output_precision": 10
+  },
+  "linked_diffusion_validation_contract": {
     "measure": "USD-MONEY-MARKET-Q-v1",
     "numeraire_id": "USD-MONEY-MARKET-ACCOUNT-v1",
     "currency": "USD",
     "valuation_time_utc": "16:00:00",
     "measure_change": "girsanov_drift_only",
-    "candidate_model_family": "BSM",
+    "pricing_family": "BSM",
     "formula_id": "bsm-integrated-variance-european-v1",
+    "validation_contract_id": "bsm-linked-stage1-diffusion-v1",
     "eligible_series_selection_rule": "at_least_5_live_observations_v1",
     "minimum_series_observations": 5,
     "quote_observation_rule": "bid_ask_midpoint",
@@ -76,7 +99,6 @@
     "residual_threshold": 4.0,
     "grouping_rule": "standardized-residual-contract-date-grouping-v1",
     "price_uncertainty_method": "delta-method-full-diffusion-covariance-v1",
-    "optional_iv_diagnostic": false,
     "output_precision": 10
   },
   "model_signal_contract": {
@@ -84,7 +106,8 @@
     "candidate_enumeration_version": "bsm-f2a-model-signal-candidate-catalogue-v1",
     "directional_candidate_rule": "both_directions_have_stable_ids",
     "observed_quote_execution_rule": "midpoint_plus_exact_half_spread_hurdle",
-    "fitted_counterfactual_rule": "linked_stage1_bsm",
+    "market_iv_eligibility_rule": "converged_rows_only",
+    "linked_counterfactual_rule": "linked_stage1_bsm",
     "option_fee": 0.5,
     "option_fee_units": "USD_per_contract_per_side",
     "underlying_transaction_cost": 0.0005,
@@ -108,8 +131,8 @@
     "role": "independent_non_scored_executable_audit"
   },
   "output_contract": {
-    "output_contract_id": "model-reconstruction-xut-full-trajectory-v1",
-    "submission_schema": "schemas/submission-v5.schema.json",
+    "output_contract_id": "model-reconstruction-xut-full-trajectory-v2",
+    "submission_schema": "schemas/submission-v5.1.schema.json",
     "comparison": "exact_after_canonicalization",
     "accepts_legacy_orm_only": false,
     "accepts_maximal_spread": false

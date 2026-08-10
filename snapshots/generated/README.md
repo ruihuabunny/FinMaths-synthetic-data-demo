@@ -61,6 +61,37 @@ Parent 的完整 table/field dictionary、业务键关联图、JSON 字段、eli
 allowlist、mutation gates 与可抽取的 LLM task instructions 见
 [`F2A parent DuckDB 数据字典`](f2a/parents/DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2/README.md)。
 
+## F2A v5.1 full-trajectory parent contract
+
+V5.1 使用另一份 tick-aligned parent；它不替代 v4 executable parent，也不能从 active/public v3
+fallback：
+
+| 字段 | 当前合同 |
+|:---|:---|
+| Generator config | `configs/generators/quantlib_bsm_metals_f2a_v5_parent_v1.json` |
+| `snapshot_id` | `DERIVATIVES-METALS-F2A-MODEL-SIGNAL-TICK-ALIGNED-TDGBM-Q-v1` |
+| Required status / revision | `FROZEN` / `1` |
+| Generator / config schema | `0.8.0` / `1.6.0` |
+| Business dates | 126，`2026-08-03` through `2027-01-25` |
+| Shared physical nodes | 每 underlying 3 个 drift/diffusion locations；values 保持 private |
+| Minimum price increments | Underlying `0.01 USD`; option `0.01 USD` |
+| Materialized logical size | 22 underlyings、1,232 contracts、2,772 underlying/metadata rows、79,156 option rows、0 IV-audit rows |
+
+该大文件与 v5.1 public/private task packages 都是 ignored local artifacts；clean clone 只保证 config、
+runtime、schemas 和 tests 存在。生产或 pilot authoring 必须显式给出已经 materialize/freeze 的 parent
+path，并可先运行：
+
+```bash
+.venv/bin/python scripts/materialize_f2a_agent_tasks.py \
+  --parent-db /path/to/f2a-v5-parent.duckdb \
+  --qualify-only
+```
+
+Qualification 会核对 distinct identity、126-day/22-underlying/三节点 shape 和 estimator gate；失败时
+应报告，不能改用本页前两节的 v3 或 v4 数据库。当前 v5.1 output contract 是
+`model-reconstruction-xut-full-trajectory-v2`，submission schema 是
+`schemas/submission-v5.1.schema.json`。
+
 ## Active v3 logical size
 
 当前 manifest 声明：
@@ -158,8 +189,12 @@ finally:
 - 检查 identity 时同时读取数据库内 `metadata.snapshots` 和旁边的 manifest；文件名不是逻辑 identity。
 - 这份 legacy `DRAFT` 在当前 pipeline 下只读；新 authoring 使用 v4 config/snapshot identity。
 - F2A v2 parent 是 `FROZEN` revision `1`，IV audit count 为 `0`；不得原地写入或 mutation。
+- F2A v5.1 parent 必须使用 distinct model-signal identity、126 dates 与三节点 shape；它同样只读，
+  且不能 fallback 到 v4 parent。
 - 每个 materialized child 必须位于 `f2a/children/<child_snapshot_id>/`，使用新 identity/revision
   和 private lineage。
+- V5.1 task materializer 写 task-specific public/private packages；这些是 pilot artifacts，不等于
+  gate-passing cohort 或已发布 training dataset。
 - SQL 查询结果是 inspection output，不是 canonical hidden answer；authoring-only query 不能进入 Solver bundle。
 - Generated DuckDB、manifest、WAL、private lineage 和 derived datasets 不提交 Git；只提交本目录文档和 SQL 模板。
 

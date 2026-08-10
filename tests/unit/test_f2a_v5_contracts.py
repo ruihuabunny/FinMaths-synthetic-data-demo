@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import copy
 import json
 import math
@@ -16,12 +17,75 @@ from synthetic_derivatives.authoring.f2a_calibration import (
     calibration_report_checksum,
     validate_release_calibration_report,
 )
+from synthetic_derivatives.authoring.f2a_v5 import _estimator_audit
 from synthetic_derivatives.authoring.schema import (
     assert_no_private_metadata_leakage,
     public_dynamics_projection,
 )
 from synthetic_derivatives.verifier.f2a_database import sample_underlyings
 from synthetic_derivatives.verifier.f2a_v5 import compare_semantic_layers
+
+
+def test_active_v5_stage2_uses_inversion_and_linked_validation_terminology(
+    repository_root: Path,
+) -> None:
+    active_paths = (
+        repository_root / "README.md",
+        repository_root / "AGENTS.md",
+        repository_root / "f2a_v5_unified_full_trajectory_bootstrap_authoring_spec (1).md",
+        repository_root
+        / "f2a_node_based_dynamics_bsm_inversion_linked_validation_rework_handoff.md",
+        repository_root
+        / "f2a_v5_full_trajectory_inversion_linked_validation_handoff.md",
+        repository_root
+        / "configs/variants/bsm_model_reconstruction_xut_signal_f2a_v5.json",
+        repository_root / "schemas/submission-v5.1.schema.json",
+        repository_root / "src/synthetic_derivatives/solver/f2a_v5_stage2.py",
+        repository_root / "src/synthetic_derivatives/verifier/f2a_stage2.py",
+    )
+    forbidden = (
+        "pricing-term regression",
+        "pricing term regression",
+        "d1_coefficient",
+        "d2_coefficient",
+        "fit_option_series",
+        "PricingCounterfactualContract",
+        "optional_iv_diagnostics",
+        "fitted_counterfactual_price",
+    )
+    for path in active_paths:
+        text = path.read_text(encoding="utf-8")
+        assert all(token not in text for token in forbidden), (path, forbidden)
+
+    old_handoff = (
+        repository_root
+        / "f2a_node_based_dynamics_bsm_d1d2_regression_rework_handoff.md"
+    )
+    assert not old_handoff.exists()
+    assert active_paths[3].is_file()
+    assert active_paths[4].is_file()
+    assert (repository_root / "schemas/submission-v5.schema.json").is_file()
+
+    for path in active_paths[-2:]:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        function_names = {
+            node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+        }
+        class_fields = {
+            node.target.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+        }
+        assert "evaluate_option_series" in function_names
+        assert "fit_option_series" not in function_names
+        assert not {"d1_coefficient", "d2_coefficient"} & class_fields
+        optimizer_calls = {
+            node.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+        assert not {"minimize", "least_squares", "curve_fit"} & optimizer_calls
 
 
 def test_v5_sampler_is_stable_unique_and_seeded() -> None:
@@ -34,6 +98,46 @@ def test_v5_sampler_is_stable_unique_and_seeded() -> None:
     assert set(first) <= set(universe)
     with pytest.raises(ValueError, match="sample_size = 8"):
         sample_underlyings(universe, sample_size=7, seed=1)
+
+
+def test_invalid_market_iv_rows_are_excluded_without_failing_authoring() -> None:
+    canonical = {
+        "underlying_fits": [
+            {
+                "underlying_id": "U",
+                "solver_status": "CONVERGED",
+                "diffusion_rse_by_node": [0.1, 0.1, 0.1],
+            }
+        ],
+        "option_series_results": [
+            {
+                "valuation_row_ids": ["valid", "excluded"],
+                "market_iv_status_by_row_id": {
+                    "valid": "converged",
+                    "excluded": "invalid_bracket",
+                },
+                "market_implied_volatility_by_row_id": {"valid": 0.2},
+                "market_d1_by_row_id": {"valid": 0.1},
+                "market_d2_by_row_id": {"valid": -0.1},
+                "standardized_residuals_by_row_id": {
+                    "valid": 0.25,
+                    "excluded": 0.5,
+                },
+                "series_status": "COMPLETE",
+            }
+        ],
+    }
+    audit = _estimator_audit(
+        canonical,
+        residual_threshold=4.0,
+        clean_max_outlier_fraction=0.01,
+        require_quote_noise_gate=False,
+    )
+    assert audit["market_iv_invalid_bracket_row_count"] == 1
+    assert audit["market_iv_all_rows_converged"] is False
+    assert audit["market_iv_handling_gate_passed"] is True
+    assert audit["stage2_gate_passed"] is True
+    assert audit["publication_estimator_gate_passed"] is True
 
 
 def test_public_dynamics_projection_removes_all_node_values() -> None:
@@ -174,7 +278,7 @@ def test_v5_configs_schemas_and_solver_are_independent(repository_root: Path) ->
         ).read_text()
     )
     submission = json.loads(
-        (repository_root / "schemas/submission-v5.schema.json").read_text()
+        (repository_root / "schemas/submission-v5.1.schema.json").read_text()
     )
     lineage = json.loads(
         (repository_root / "schemas/f2a-lineage-v5.schema.json").read_text()
@@ -182,6 +286,35 @@ def test_v5_configs_schemas_and_solver_are_independent(repository_root: Path) ->
     Draft202012Validator.check_schema(submission)
     Draft202012Validator.check_schema(lineage)
     assert variant["variant_id"] == dataset["variant_id"]
+    assert variant["schema_version"] == dataset["schema_version"] == "5.1.0"
+    assert (
+        variant["output_contract"]["output_contract_id"]
+        == dataset["output_contract_id"]
+        == "model-reconstruction-xut-full-trajectory-v2"
+    )
+    assert (
+        variant["output_contract"]["submission_schema"]
+        == dataset["artifacts"]["submission_schema"]
+        == "schemas/submission-v5.1.schema.json"
+    )
+    assert set(variant) >= {
+        "bsm_inversion_contract",
+        "linked_diffusion_validation_contract",
+    }
+    assert "pricing_counterfactual_contract" not in variant
+    inversion = variant["bsm_inversion_contract"]
+    assert inversion["method_id"] == "bsm-bisection-float64-80-v1"
+    assert inversion["volatility_bracket"] == [1e-6, 5.0]
+    assert inversion["iterations"] == 80
+    assert inversion["early_stop"] is False
+    assert inversion["fallback_method"] is None
+    assert inversion["invalid_bracket_behavior"] == "invalid_bracket"
+    assert variant["model_signal_contract"]["linked_counterfactual_rule"] == (
+        "linked_stage1_bsm"
+    )
+    assert variant["model_signal_contract"]["market_iv_eligibility_rule"] == (
+        "converged_rows_only"
+    )
     assert dataset["source"]["preferred_parent_snapshot_id"] == parent["snapshot_id"]
     assert dataset["pilot_parent_reachability"]["reachable_signatures"] == [
         "001", "010", "100", "101", "110", "111"
@@ -206,6 +339,14 @@ def test_v5_configs_schemas_and_solver_are_independent(repository_root: Path) ->
     )
     assert "synthetic_derivatives.verifier" not in solver_sources
     assert "synthetic_derivatives.authoring" not in solver_sources
+    stage2_source = (
+        repository_root / "src/synthetic_derivatives/solver/f2a_v5_stage2.py"
+    ).read_text()
+    assert "fit_option_series" not in stage2_source
+    assert "d1_coefficient" not in stage2_source
+    assert "d2_coefficient" not in stage2_source
+    assert "scipy" not in stage2_source
+    assert "minimize(" not in stage2_source
 
 
 def test_v5_semantic_layers_reject_exact_nested_perturbations_and_nonfinite_values() -> None:
@@ -214,10 +355,20 @@ def test_v5_semantic_layers_reject_exact_nested_perturbations_and_nonfinite_valu
         "snapshot_id": "child",
         "snapshot_revision": 1,
         "variant_id": "bsm_model_reconstruction_xut_signal_f2a_v5",
-        "output_contract_id": "model-reconstruction-xut-full-trajectory-v1",
+        "output_contract_id": "model-reconstruction-xut-full-trajectory-v2",
         "verifier_digest": "0" * 64,
         "underlying_fits": [{"fitted_diffusion_node_values": [0.2, 0.21, 0.22]}],
-        "option_fits": [{"fitted_counterfactual_prices_by_row_id": {"row": 1.25}}],
+        "option_series_results": [
+            {
+                "bsm_inversion_method_id": "bsm-bisection-float64-80-v1",
+                "bsm_inversion_iteration_count": 80,
+                "market_implied_volatility_by_row_id": {"row": 0.2},
+                "market_iv_status_by_row_id": {"row": "converged"},
+                "market_d1_by_row_id": {"row": 0.1},
+                "linked_d1_by_row_id": {"row": 0.11},
+                "linked_counterfactual_prices_by_row_id": {"row": 1.25},
+            }
+        ],
         "mutation_diagnosis": [{"affected_row_ids": ["row"]}],
         "model_signals": {
             "slices": [{"signature": "100", "active_signals": [{"candidate_id": "X|1"}]}]
@@ -233,7 +384,51 @@ def test_v5_semantic_layers_reject_exact_nested_perturbations_and_nonfinite_valu
     for layer, path, replacement in (
         ("V0", ("verifier_digest",), "1" * 64),
         ("V1", ("underlying_fits", 0, "fitted_diffusion_node_values", 1), 0.2100000001),
-        ("V2", ("option_fits", 0, "fitted_counterfactual_prices_by_row_id", "row"), 1.26),
+        (
+            "V2",
+            ("option_series_results", 0, "bsm_inversion_method_id"),
+            "wrong-method",
+        ),
+        (
+            "V2",
+            ("option_series_results", 0, "bsm_inversion_iteration_count"),
+            79,
+        ),
+        (
+            "V2",
+            (
+                "option_series_results",
+                0,
+                "linked_counterfactual_prices_by_row_id",
+                "row",
+            ),
+            1.26,
+        ),
+        (
+            "V2",
+            (
+                "option_series_results",
+                0,
+                "market_implied_volatility_by_row_id",
+                "row",
+            ),
+            0.21,
+        ),
+        (
+            "V2",
+            ("option_series_results", 0, "market_iv_status_by_row_id", "row"),
+            "invalid_bracket",
+        ),
+        (
+            "V2",
+            ("option_series_results", 0, "market_d1_by_row_id", "row"),
+            0.1000000001,
+        ),
+        (
+            "V2",
+            ("option_series_results", 0, "linked_d1_by_row_id", "row"),
+            0.1100000001,
+        ),
         ("V2", ("mutation_diagnosis", 0, "affected_row_ids", 0), "other-row"),
         ("V3", ("model_signals", "slices", 0, "active_signals", 0, "candidate_id"), "X|2"),
         ("V_exec_audit", ("execution_audit", "required"), True),
@@ -251,3 +446,9 @@ def test_v5_semantic_layers_reject_exact_nested_perturbations_and_nonfinite_valu
     nonfinite["model_signals"]["nonfinite"] = math.nan
     with pytest.raises(ValueError, match="non-finite"):
         compare_semantic_layers(expected, nonfinite)
+    nonfinite_iv = copy.deepcopy(expected)
+    nonfinite_iv["option_series_results"][0][
+        "market_implied_volatility_by_row_id"
+    ]["row"] = math.inf
+    with pytest.raises(ValueError, match="non-finite"):
+        compare_semantic_layers(expected, nonfinite_iv)

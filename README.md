@@ -18,8 +18,9 @@
 | Single-asset $\mathbb Q$ pricing | 已实现 | 共同 measure/numeraire/rate-path identity；QuantLib 生成 canonical mid，authoring 不反解或持久化 IV 答案。 |
 | Static option chain | 已实现 | 固定 listing strike、到期日/价内外筛选、可重放 bid/ask spread noise。 |
 | Task space / mutation / curriculum | 最小版本已实现 | 六维 compatibility registry、确定性 lineage 与 adaptive sampling weights。 |
-| F2A arbitrage-finding | v4 可执行；v5 pilot 可运行 | V4 保留 transaction-cost-aware executable catalogue；v5 独立实现 8-underlying 三节点 fitting、linked BSM counterfactual、localisation、post-cost model-signal scan 与 FP/FN authoring audit；release 仍受 cohort gate 阻挡。 |
-| Solver / trusted verifier / dataset export | F2A v4/v5 范围已实现 | V5 reference Solver 只读 public DuckDB，并与 V0/V1/V2/V3 trusted verifier exact-match；正式 release 仍须通过独立 task-seed cohort calibration。 |
+| F2A arbitrage-finding | v4 可执行；v5.1 pilot 可运行 | V4 保留 transaction-cost-aware executable catalogue；v5.1 独立实现 8-underlying 三节点 Stage-1 estimator、逐 row market-IV inversion、linked BSM validation、localisation、post-cost model-signal scan 与 FP/FN authoring audit；release 仍受 cohort gate 阻挡。 |
+| F2A reference Solver / trusted verifier / task package | v4/v5.1 已实现 | V5.1 reference Solver 只读 public DuckDB，并与 V0/V1/V2/V3 trusted verifier exact-match；public/private task package 可物化，正式 release 仍须通过独立 task-seed cohort calibration。 |
+| Ordinary BSM task runtime / training export | 未实现 | Price/IV/Greek 的设计与示例存在，但尚无通用 task-instance、Solver/verifier 闭环或 JSONL/Parquet exporter。 |
 | 多资产 $\mathbb Q$ dependence 与 joint payoff | 未实现 | Basket/index/spread 不能由当前 single-asset baseline 推断或定价。 |
 
 当前的 volatility mapping 是一个明确的 baseline 假设：Girsanov change of measure 只改变
@@ -88,23 +89,28 @@ legacy v3 `DRAFT`，在当前 pipeline 下只读；`make smoke` 使用独立 v4 
   [框架设计文档](docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md)。
 - 想运行或扩展 F2A v4：先读
   [F2A 当前状态、数学合同与实施顺序](src/synthetic_derivatives/mutation/f2a_arbitrage_finding_agent_task_plan.md)。
+- 想核对 F2A v5.1 的 BS inversion、linked validation 与当前 pilot 边界：读
+  [v5.1 返修完成记录](f2a_v5_bsm_inversion_linked_diffusion_validation_rework_plan.md)。
 - 想查看可执行查询：读 [public SQL 说明](snapshots/public/sql_query/README.md)；只有任务显式选择
   F2A parent 时才使用 [generated SQL 说明](snapshots/generated/sql_query/README.md)。
 
 ## 设计流程
 
 ```text
-已实现：Authoring
-  -> 生成并冻结 market snapshot（correlated profile 同时冻结 underlying dependence spec）
-  -> 注册六维 task variant 与 compatibility decision
-  -> Mutation Engine 生成带 lineage 的 candidate pool
-  -> Curriculum Scheduler 按 mastery 选择训练分布
+已实现的通用 baseline：
+  Authoring -> frozen market snapshot
+            -> 六维 v1 compatibility registry
+            -> deterministic mutation lineage
+            -> mastery-based curriculum weights
 
-规划中：
-  -> Solver 手工计算 IV / Greeks / smile
-  -> Trusted verifier 独立复算并执行 exact equality
-  -> 记录 ORM outcome 与 agent trajectory
-  -> 导出 LLM training dataset
+已实现的专用 F2A runtime：
+  v4 parent/fixture -> copy-on-write child -> executable X/U/T Solver + verifier
+  v5.1 126-day parent -> 8-underlying public/private package
+                      -> Stage 1 + market-IV inversion + linked validation
+                      -> model-signal Solver + V0/V1/V2/V3 verifier
+
+尚未实现的通用闭环：
+  ordinary price/IV/Greek task instances -> Solver -> verifier -> training export
 ```
 
 Authoring、Solver 和 Trusted verifier 是三个不同的权限边界：
@@ -452,10 +458,12 @@ task convention + IV solver          valuation/calibration runs
 | Private authoring | P/Q generation model、canonical engine、latent parameters/state、seed/RNG、未舍入理论价格 | `generation_model_id`、`generation_engine_id` |
 | Task/run output | 用于解释同一市场报价的 model/engine、校准参数、理论价格、残差、收敛信息 | `valuation_model_id`、`valuation_engine_id` |
 
-当前 `solver_visible.pricing_metadata` 仍暴露 `physical_dynamics`、`pricing_dynamics`、
+Legacy ordinary snapshot 的 `solver_visible.pricing_metadata` 仍暴露 `physical_dynamics`、`pricing_dynamics`、
 `pricing_model`、`pricing_engine`、`generator_version`、`seed` 和 `rng`。这是 smoke v1 的
 过渡结构；在产生训练快照前应完成上述 public/private split，避免 Solver 直接读到 DGP
-和随机性 provenance。以上是下一阶段合同，尚未改变现有 DuckDB schema 或 generator。
+和随机性 provenance。V4 child 已使用固定窄投影；v5.1 又将公开数据拆成 option quotes、pricing
+inputs、node locations 与 versioned contracts，并只公开 node offsets、不公开 node values。这个专用
+投影不追溯改变 legacy ordinary DuckDB schema。
 
 ### Underlying correlation 与 derivative no-arbitrage 边界
 
@@ -621,10 +629,18 @@ verifier 和 audit-only dataset artifact；它不声称完成 ordinary task runt
 training export。完整数学、交易和 ORM 合同见
 [F2A Arbitrage-Finding Agent Task 计划](src/synthetic_derivatives/mutation/f2a_arbitrage_finding_agent_task_plan.md)。
 
-Full-trajectory v5 使用独立 identity
-`bsm_model_reconstruction_xut_signal_f2a_v5`。它的 X/U/T 是 public child 上 fitted
-counterfactual 的 **model-based signal**，不能表述成 executable-arbitrage proof；v4 oracle
-只作为分开的 execution audit。先用新 tick-aligned parent config 物化并冻结 parent，再运行：
+Full-trajectory v5.1 使用 variant identity
+`bsm_model_reconstruction_xut_signal_f2a_v5`、schema `5.1.0` 与 output contract
+`model-reconstruction-xut-full-trajectory-v2`。每条 solver-visible midpoint 先按固定 80-step
+binary64 bisection 得到 market IV；该 IV 是 valuation-to-expiry total variance 的 annualized RMS
+表示，不是 piecewise-linear instantaneous diffusion node，也不用于构造 clean counterfactual。
+
+Stage-1 三节点 diffusion 通过 exact squared-diffusion integration 产生独立的 linked BSM
+validation price。X/U/T 只比较 public executable quote 与这个 linked counterfactual，因此是
+**model-based signal**，不能表述成 executable-arbitrage proof；v4 oracle 只作为分开的 execution
+audit。Market 与 linked `d1/d2` 都是各自 volatility object 与公开 pricing inputs 的派生量，
+不是自由 coefficients。先用新 tick-aligned parent config 物化并冻结 parent，再运行完整 task
+materializer：
 
 该 F2A parent 把 `0.01 USD` published close 作为下一步 restart state。Stage 1 对每个日历
 interval 的 drift 与 squared diffusion 使用精确 hat-basis 积分，但 Gaussian objective 是明确
@@ -648,10 +664,19 @@ Gaussian density。
   --output-dir /tmp/f2a-v5-tasks
 ```
 
-Public bundle 只含 bid/ask、路径、curves、node locations 和冻结 estimator contracts；node
+若 visible midpoint 不在冻结 `[1e-6, 5.0]` finite-IV bracket 内，该 row 记录
+`invalid_bracket`，不返回 IV/market `d1/d2`，并从 v5 model-signal candidates 中排除；series 仍可为
+`COMPLETE`，pilot authoring 也不会仅因此失败。独立 v4 executable audit 不依赖 IV，仍全量扫描
+public quotes。
+
+Public bundle 只含 bid/ask、路径、curves、node locations，以及分开的 physical、BS inversion、
+linked validation 与 model-signal contracts；node
 values、seeds、clean quotes、mutation lineage、private truth 与 FP/FN audit 只进入 private
-authoring bundle。单样本命令生成 pilot；没有通过 2,000+ independent task-seed confidence
-bounds 的 cohort 不得宣称 release-ready。
+authoring bundle。Market IV 必须由 Solver 从 visible midpoint 恢复，不由 authoring 预写答案。
+新 submission 使用 `schemas/submission-v5.1.schema.json` 与 top-level
+`option_series_results`；`schemas/submission-v5.schema.json` 仅保留给历史 pilot replay。单样本命令
+生成 pilot；没有通过 2,000+ independent task-seed confidence bounds 的 cohort 不得宣称
+release-ready。
 
 正式发布必须显式切换模式并提供 private calibration report；CLI 会重新核对 task/family
 Wilson bounds、exact-signature 下界、8×8 confusion conservation 与 bootstrap maximum statistic：
@@ -666,12 +691,17 @@ Wilson bounds、exact-signature 下界、8×8 confusion conservation 与 bootstr
   --output-dir /tmp/f2a-v5-release
 ```
 
-当前 successor 使用 126 business dates、3 个 shared nodes。确定性重跑得到 22 个 underlyings、
-1,232 个 contracts、79,156 条 parent option quotes；seed `20260808` 的 8-underlying child 含
-1,008 个 slices。Clean Stage-1/2 均收敛，最大 diffusion-node RSE 为 `0.2120479128`，但 public
-fitted signal 在全部 1,008 个 clean slices 上均为 active：X/U 各命中 1,008 slices，T 命中
-520 slices；private generator truth 与 clean v4 execution audit 均为 `000`，所以该 cohort 仍未
-通过 task-level FP gate。
+当前 successor 使用 126 business dates、3 个 shared nodes。2026-08-10 的确定性本地 pilot
+materialization 得到 22 个 underlyings、1,232 个 contracts、79,156 条 parent option quotes；seed
+`20260808` 的 8-underlying public child 有 1,008 个 underlying/date slices、448 个 option series 和
+28,784 条 visible quote rows。Clean/child 分别有 761/760 条 `invalid_bracket` rows；其余 market-IV
+rows 收敛，invalid rows 按合同排除而不伪造答案。Stage-1 全部收敛，最大 diffusion-node RSE 为
+`0.2120479128`。
+
+该单 task-seed 的 clean public linked signal 在全部 1,008 个 slices 上 active：X/U 各命中 1,008
+slices，T 命中 520 slices；private generator truth 与 clean v4 execution audit 均为 `000`。因此这是
+一个明确失败 task-level FP 诊断的 pilot，不是已经执行的 2,000+ cohort，更不能写成 gate-passing
+release evidence。
 
 在 frozen `f2a-complete-mutation-v4` tick grid 上对 22×126 parent universe 做 exact local rescan 后，
 pilot 可达 `001/010/100/101/110/111`，`011` 不可达。默认 pilot 只请求六个可达 signatures；
@@ -689,6 +719,8 @@ release-ready。Private requested signature 不能覆盖 public canonical answer
 | Blocked complete grammar | Variant v3/catalogue v4、mutation engine v3、dataset v3、lineage/submission v3 新增 single quote、equal call+put grouped mutation 与 spot 三类 grammar，并修正 `g_j` certificate、lineage ends、distribution、borrow 与 split contract；仍为 `runtime_enabled = false`、`calendar_family = null`。 |
 | Executable successor | Variant v4/catalogue v5、mutation engine v4、dataset/lineage/submission v4 与 output v5 已启用；`calendar_family=transaction-cost-aware-two-expiry-call-stock-flip-v1`。 |
 | Runtime evidence | 完整链稳定枚举 42 个 calendar candidates；真实 quote/spot mutation audit 实现全部八种 signatures，`001` 的 grouped-pair 正向 tick 窗口为 `[132,290]`。 |
+| Full-trajectory pilot | Variant `bsm_model_reconstruction_xut_signal_f2a_v5` 保留大版本 identity，但 active schema/output 为 `5.1.0` / `model-reconstruction-xut-full-trajectory-v2`；使用独立 126-day v5 parent、`submission-v5.1` 和 converged-row-only market-IV eligibility。 |
+| V5.1 release status | `PILOT_REQUIRES_COHORT_CALIBRATION`；默认只请求当前 parent 可达的六个 nonzero signatures，`011` 在冻结 tick grid 下不可达，且尚无 gate-passing 2,000+ task-seed cohort report。 |
 
 V2/v3 的 frozen/blocked contracts 仍不代表运行授权；新工作必须显式路由到 v4。V4 child 先由
 authoring 全量扫描，再由独立 trusted oracle 从 public child 重算，只有 exact ORM 一致后才冻结。
@@ -739,18 +771,19 @@ operator、target、成本与 integer-tick thresholds；最终 type array 必须
 
 ### 版本兼容
 
-当前六维 task-space/schema/config 是 v1 public contract，不原地增加 string F 字段。F2A 计划
-使用并行 v2：
+当前六维 task-space/schema/config 是 v1 runtime contract，不原地增加 string F 字段。F2A 已提交
+并行 v2 JSON/schema contract；专用 v4/v5 runtime 按 variant dispatch，通用 `TaskSpaceRegistry` 仍只解析
+六维 v1：
 
 ```text
 v1: (L, P, M, A, D, R)              # 现有 manifests 和 identity 保持不变
 v2: (L, P, M, A, D, R, F)           # F 是 string enum，F2A task 使用 F="F2A"
 ```
 
-V2 ordinary rules 显式使用 `F0`，F2A 使用 dedicated compatibility rule。Task-space registry、
-mutation identity 和 curriculum selectors 必须一起增加 v2 dispatch；F enum 转移使用
-`direction=any`，不对 `F0/F2A/...` 做数值比较。旧 v1 task 不在加载时隐式改写为
-七字段，以避免改变 serialization 与 deterministic child ID。
+V2 ordinary rules 显式使用 `F0`，F2A 使用 dedicated compatibility rule；F enum 转移使用
+`direction=any`，不对 `F0/F2A/...` 做数值比较。旧 v1 task 不在加载时隐式改写为七字段，以避免
+改变 serialization 与 deterministic child ID。若后续增加通用 v2 Python registry/curriculum dispatch，
+必须与现有专用 F2A runtime 保持 identity 一致。
 
 F2A contract migration 同样采用并行 identity：
 
@@ -759,6 +792,7 @@ legacy replay: variant v1 / catalogue v2 / mutation v1 / dataset v1 / lineage v1
 blocked review: variant v2 / catalogue v3 / mutation v2 / dataset v2 / lineage v2
 complete grammar review: variant v3 / catalogue v4 / mutation v3 / dataset v3 / lineage v3
 executable runtime: variant v4 / catalogue v5 / mutation v4 / dataset v4 / lineage v4
+full-trajectory pilot: variant v5 / schema 5.1 / output v2 / dataset+lineage v5
 ```
 
 ### 配置和实现归属
@@ -766,7 +800,7 @@ executable runtime: variant v4 / catalogue v5 / mutation v4 / dataset v4 / linea
 F2A 不增加 `configs/arbitrage/` 或 `src/synthetic_derivatives/arbitrage/` 这类新顶层分区，
 而是按现有 repo 责任边界归属：
 
-| 现有边界 | F2A 计划中的责任 |
+| 现有边界 | 当前 F2A 责任 |
 |:---|:---|
 | `authoring/configs/` | Private parent selectors、requested type-signature balance、active/inactive guards、execution-profile feasibility policy、split 与 smoke/pilot 规模。 |
 | `configs/generators/` | Tick-aligned clean parent DGP、minimum increments、rounding 和新 generator/snapshot identity。 |
@@ -779,7 +813,7 @@ F2A 不增加 `configs/arbitrage/` 或 `src/synthetic_derivatives/arbitrage/` �
 | `mutation/` | 纯 immutable spec、identity 与 lineage records；不持有 DB write 或 oracle 权限。 |
 | `solver/` | 从 public child/variant 手工枚举 cross-sectional、cross-asset 和已启用的 calendar candidates，并生成 trajectory/submission。 |
 | `verifier/` | 独立重算 candidate cashflow/certificate 与 canonical type bitmask，完成 submission projection 和 exact equality。 |
-| `training/` | Verified records、snapshot-grouped split 和 JSONL/Parquet export。 |
+| `training/` | 当前只有 package 占位；正式 verified-record、snapshot-grouped split 和 JSONL/Parquet export 尚未实现。 |
 | `scripts/` | 统一非交互 materialization/verification/manifest 编排入口；不存业务数学。 |
 
 上述路径边界已经落地。V4 使用有限日期 semi-static admissibility、可执行 stock-flip calendar
@@ -840,6 +874,9 @@ datasets/manifests/splits/f2a_v2.json  # blocked v2 only
 datasets/manifests/splits/f2a_v3.json  # blocked v3 audit-only; 尚未物化
 datasets/manifests/splits/f2a_v4.json  # executable reachability-proved audit scope
 datasets/generated/f2a/<dataset_id>.jsonl
+
+artifacts/f2a_agent_tasks/<task_id>/            # v5.1 public package，默认 ignored
+artifacts/f2a_agent_tasks_private/<task_id>/    # v5.1 private authoring evidence，默认 ignored
 ```
 
 当前只有一个 frozen F2A parent；若 grouping key 是 `parent_snapshot_id`，所有 tasks 必须进入同一
@@ -849,7 +886,8 @@ datasets/generated/f2a/<dataset_id>.jsonl
 `snapshots/generated/` 与 `snapshots/private/` 已被 `.gitignore` 排除。Public task manifest 只引用
 child snapshot id/revision、registry/rule 和 public contract IDs，不复制 DuckDB、parent、before/after、
 oracle 或 reference answer。Private lineage 实例不放入应提交的 `datasets/manifests/`；
-`datasets/generated/` 只保存最终可重建的训练 JSONL/Parquet。
+`datasets/generated/` 是未来训练 exporter 的目标目录；当前仓库没有通用 JSONL/Parquet exporter。
+V5.1 materializer 当前写 public/private task packages，不应把它们描述成已发布训练集。
 
 当前 clean parent 是
 `DERIVATIVES-METALS-F2A-TICK-ALIGNED-TDGBM-Q-v2`，位于上述 `parents/` 结构，状态为
@@ -861,18 +899,16 @@ oracle 或 reference answer。Private lineage 实例不放入应提交的 `datas
 task/child IDs 不编码 operator、target、requested/realized signature 或 mutation status。Solver bundle
 只挂载 public child、public task/variant contract 与 trajectory/submission schemas。
 
-### 计划中的验收分层
+### 当前验收分层
 
-- `tests/unit/`：v1/v2 schema/registry/curriculum、pure mutation spec、tick materialization、option fee、
-  underlying 单边 `5 bps`、三类 candidate mathematics、calendar cell/tail certificate、signature
-  selector 与 canonical type order。
-- `tests/integration/`：parent read-only、child new identity/freeze/replay、task manifest 仅引用 child
-  snapshot，private lineage 不影响 public-child truth。
-- `tests/public/`：public child/variant/schema 与 child -> submission -> verifier smoke；只覆盖
-  deterministic audit 已证明 reachable 的 scope，只有七种 positives 全部证明后才要求全覆盖。
-- `tests/verifier_robustness/`：错 bool、缺失/错序 `arbitrage_type`、多交 `maximal_spread`、错单位、
-  contract ID 或 snapshot revision 必须被拒绝。
-- Production hidden cases 仍只存在 Solver 无法读取的 verifier 环境，不提交到公开仓库。
+- `tests/unit/`：已覆盖 v4 cashflow/certificate/reachability，以及 v5.1 Stage-1、80-step IV inversion、
+  linked validation、model-signal、schema identity、semantic perturbation 与 cohort-gate arithmetic。
+- `tests/integration/`：已覆盖 v4 fixture/child -> Solver -> verifier runtime 和 authoring boundary；当前
+  没有 tracked v5.1 full-parent integration fixture，v5.1 大型 pilot 仍是 ignored local run。
+- `tests/public/`：覆盖 ordinary checked-in snapshot、SQL 与 generator contract；它不等于 v5.1 public
+  package 的生产 sandbox 验收。
+- `tests/verifier_robustness/` 目录尚未落地；相应 v4/v5 rejection cases 目前分布在 unit/integration
+  tests。Production hidden cases 仍必须位于 Solver 无法读取的独立环境。
 
 ## 仓库结构
 
@@ -912,11 +948,11 @@ task/child IDs 不编码 operator、target、requested/realized signature 或 mu
 ├── src/
 │   └── synthetic_derivatives/
 │       ├── authoring/             # 市场快照生成与冻结实现
-│       ├── task_space/            # 六维 v1 runtime；七维 v2 runtime 待实现
+│       ├── task_space/            # 六维 v1 generic runtime；七维 v2 目前由专用 F2A 路径消费
 │       ├── mutation/              # 确定性 child task 与 lineage
 │       ├── curriculum/            # 不改 task/reward 的 adaptive sampling
-│       ├── solver/                # 受限环境中的公式、求根、Greeks 与拟合实现
-│       ├── training/              # Trajectory 清洗、split 和 LLM 数据导出实现
+│       ├── solver/                # F2A v4/v5.1 reference Solver；ordinary task Solver 尚未实现
+│       ├── training/              # Package 占位；通用清洗、split 和训练导出尚未实现
 │       └── verifier/              # 独立 package oracle 与 hard verifier 实现
 └── tests/
     ├── fixtures/                  # 小型冻结测试输入和公开期望结构
@@ -971,21 +1007,25 @@ IV、Greeks、smile、surface、VaR 和 ES 是从统一快照派生的任务结�
 项目的 Python 源码根目录。权限边界模块与训练编排模块分开：
 
 - `authoring/`：允许使用 QuantLib，负责生成、质量门控、冻结与 revision。
-- `task_space/`：当前 runtime 只判断六维 v1 坐标；并行七维 v2 config/schema 已落位，runtime dispatch 待实现。
+- `task_space/`：generic runtime 只判断六维 v1 坐标；并行七维 v2 config/schema 已落位，v4/v5
+  使用专用 variant dispatch，通用 v2 registry dispatch 待实现。
 - `mutation/`：从不可变母题生成确定性 child task 和 lineage，不读取模型表现。
 - `curriculum/`：根据 stage 与 `pass@1` diagnostics 计算采样权重，不修改 frozen task 或二值 hard reward。
-- `solver/`：只使用合同允许的基础原语，自行实现指定计算方法。
-- `verifier/`：不得导入 Solver 的定价实现；使用独立 package oracle 复算并做 canonical exact equality。
-- `training/`：把通过校验的任务、trajectory、证据和 outcome 转换为 LLM 训练记录，并按 snapshot 分组切分数据，避免泄漏。
+- `solver/`：当前实现 v4 executable catalogue 与 v5.1 Stage-1/IV/linked-validation/model-signal 的
+  reference 算法；ordinary Price/IV/Greek Solver 尚未实现。
+- `verifier/`：不得导入 Solver 的实现；当前独立复算 v4/v5.1 并做 canonical exact equality。
+- `training/`：当前只有 package 标识；将来才负责把 verified task/trajectory/outcome 转换为训练记录
+  并按 snapshot 分组切分。
 
 生产部署时，四个子包不会共享同一个运行权限；代码分目录只是 repo 层面的组织方式。
 
 ### `environments/`
 
 保存三个隔离环境的依赖与容器定义。Authoring/verifier 可以安装固定版本的金融包，Solver 环境只安装 allowlist 依赖，并禁用网络、动态安装和 hidden verifier 访问。
-Solver 的 distribution、direct-import、NumPy/Pandas API、DuckDB query adapter 和 enforcement
-验收合同统一记录在 [Solver Environment Allowlist](environments/solver/README.md)。当前该文档
-已冻结目标设计，但 dependency lock 和 runtime enforcement 尚未完成。
+Solver 的 distribution、direct-import、DuckDB query adapter 和 enforcement 验收合同统一记录在
+[Solver Environment Allowlist](environments/solver/README.md)。仓库内 v4/v5.1 reference Solver 可在
+开发环境运行，但生产 allowlist image、trusted adapter 与 sandbox enforcement 尚未完成，二者不能
+混称。
 
 ### `datasets/`
 

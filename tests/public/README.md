@@ -7,6 +7,11 @@
 `market`/`metadata` tables 来确认写入质量；真正面向 Solver 的字段边界由
 `test_snapshot_schema.py` 单独锁定。
 
+该 suite 面向 ordinary checked-in snapshot/generator contract。F2A v4 runtime 位于 integration/unit
+tests；F2A v5.1 的 task-specific DuckDB、80-step inversion、linked validation 和 schema exactness
+目前位于 `tests/unit/test_f2a_v5_*`。不要因为 `tests/public` 通过就声称 production Solver sandbox
+或 v5.1 2,000+ cohort release gate 已通过。
+
 从仓库根目录运行：
 
 ```bash
@@ -68,6 +73,9 @@ private canonical-mid IV audit。当前 authoring config `1.6.0` 使用新的 v4
 根级约定把 generated v3 DRAFT 设为一般开发检查的 active database；本目录是一个明确例外，
 因为这些 tests 的目标就是 checked-in public contract。不得把这一例外扩展为应用代码或其他
 测试在 active DB 缺失时静默 fallback 到 public file。
+
+同理，F2A v4/v5.1 tests 必须显式选择各自 parent/fixture。Public v3 的历史 IV audit 不能作为
+v5.1 `submission-v5.1` 的 market-IV answer source。
 
 ## Public SQL queries
 

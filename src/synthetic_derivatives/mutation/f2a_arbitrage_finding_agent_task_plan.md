@@ -2,10 +2,15 @@
 
 ## 0. 返工结论与当前基线
 
-本计划以仓库根目录
-[`f2a_calendar_enable_v4_rework_handoff.md`](../../../f2a_calendar_enable_v4_rework_handoff.md)
-为强制交接合同。下一条 F2A successor 必须是可执行的 calendar-enabled v4，不再接受新的
-blocked review identity。
+本文件已经吸收并取代已删除的 calendar-v4 临时交接稿，作为 executable v4 的冻结实施合同与
+完成记录。新 executable-arbitrage work 必须继续路由到 calendar-enabled v4，不能回退到 blocked
+v2/v3 identity。
+
+仓库后来新增的 full-trajectory v5.1 与本合同并行而非替代：它使用
+`bsm_model_reconstruction_xut_signal_f2a_v5`、output
+`model-reconstruction-xut-full-trajectory-v2`，评分的是 linked-counterfactual model signal；v4 oracle
+只作为独立 execution audit。V5.1 的 market-IV/linked validation 不能改变本文件的 catalogue、
+cashflow certificate 或 executable-arbitrage truth。
 
 当前仓库事实是：
 
@@ -692,6 +697,8 @@ calendar，并拒绝错序、重复、bool/type 不一致和额外 maximal-sprea
 
 ## 8. 实施阶段与强制 gates
 
+以下七个 phases 均已完成；保留原顺序作为 replay/审查记录，而不是待办列表。
+
 ### Phase 1 — Freeze v4 contract
 
 - 新建 v4 identity/config/schema skeleton；历史 v1/v2/v3 不改义；
@@ -819,10 +826,11 @@ Real selector/full oracle fixtures 至少覆盖：
 - [x] Raw maturity ordering/model mismatch negative controls 被拒绝。
 - [x] `publication_task_count=8`，且 tracked fixture 与 verified calendar smoke command 存在。
 - [x] Fresh clone 有可重放 F2A fixture/parent path。
-- [x] Clean `make install && make test` 通过（188 tests passed）。
+- [x] V4 落地时 clean `make install && make test` 通过；当前 suite 数量会随 v5.1 tests 增长，不把
+  historical test count 冻结为合同。
 - [x] Active docs 把 v4 写为 executable，把 v2/v3 写为 superseded blocked records。
 
-最终 handoff 必须报告：全部新 IDs、实现文件、每个完整 chain 的 calendar candidate count、实际
+V4 handoff 已报告：全部新 IDs、实现文件、每个完整 chain 的 calendar candidate count、实际
 signature reachability/tick windows、执行过的 tests 与 exact results、仍不可达 signatures，以及
 calendar 已执行并启用而非只被配置声明的确认。
 

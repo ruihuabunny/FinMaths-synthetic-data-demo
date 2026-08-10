@@ -29,6 +29,10 @@
 `snapshots/generated/quantlib_bsm_metals_option_chain_smoke_v1_20260807.duckdb`；若该文件缺失，
 应报告缺失而不是改连本文件。
 
+它也不是 F2A parent。V4 executable audit 使用独立 frozen v2 parent；v5.1 full-trajectory 使用
+`DERIVATIVES-METALS-F2A-MODEL-SIGNAL-TICK-ALIGNED-TDGBM-Q-v1` 的 126-day、三节点 parent。
+任一 F2A parent 缺失或 qualification 失败时，都不能 fallback 到本文件。
+
 ## Logical size
 
 | 对象 | 行数 |
@@ -160,6 +164,11 @@ $\sigma_{Q,\mathrm{eff}}=\sqrt{(T-t)^{-1}\int_t^T\sigma_Q^2(u)du}$ 在 European 
 没有 solver-visible view。当前 authoring pipeline 不再生成这些 IV audit rows；它们只是
 这份 checked-in legacy snapshot 的历史内容。
 
+不要把这份 legacy audit 的 QuantLib method（bracket `[1e-6,4.0]`、最多 1,000 evaluations）写成
+当前 F2A v5.1 solver contract。V5.1 从实际 visible bid/ask midpoint 出发，使用独立的
+`bsm-bisection-float64-80-v1`、bracket `[1e-6,5.0]` 和 `invalid_bracket` status；其答案不会从本表
+复制。
+
 当前验收结果：put-call parity 最大绝对误差约 `1.0e-8`（来自 8 位价格量化），贴现
 European call/put bounds 无违规。这里的 no-arbitrage 来自合法 BSM pricing model、共同
 valuation convention 和 discounting；P-measure correlation matrix 本身不是
@@ -262,3 +271,7 @@ Public snapshot 已冻结。当前 pipeline 不再生成它的 legacy IV audit�
 underlyings、physical function nodes、P-to-Q mapping、$\Lambda$、liquidity rule、quote
 model 或已挂牌合约，必须使用新的
 `snapshot_id`，不能在现有逻辑 snapshot 内改写。
+
+若目标是 F2A v5.1，应改用
+`configs/generators/quantlib_bsm_metals_f2a_v5_parent_v1.json` 并生成 distinct model-signal parent；
+普通 v4 successor 也不能替代该 parent。

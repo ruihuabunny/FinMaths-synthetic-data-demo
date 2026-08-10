@@ -27,9 +27,9 @@ from synthetic_derivatives.verifier.f2a_model_signal import (
 )
 from synthetic_derivatives.verifier.f2a_stage1 import fit_underlying_path
 from synthetic_derivatives.verifier.f2a_stage2 import (
-    counterfactual_rows_by_id,
-    fit_option_series,
+    evaluate_option_series,
     localize_mutations,
+    stage2_rows_by_id,
 )
 
 
@@ -214,10 +214,11 @@ def precheck_public_artifact(database: str | Path) -> dict[str, Any]:
             _assert_finite(parsed, f"contract.{kind}")
         if {kind for kind, _ in contracts} != {
             "physical_fitting_contract",
-            "pricing_counterfactual_contract",
+            "bsm_inversion_contract",
+            "linked_diffusion_validation_contract",
             "model_signal_contract",
         }:
-            raise ValueError("public v5 child has an incomplete fitting contract set")
+            raise ValueError("public v5.1 child has an incomplete estimator contract set")
         selected = tuple(manifest.get("selected_underlyings", []))
         if len(selected) != 8 or len(set(selected)) != 8 or selected != tuple(sorted(selected)):
             raise ValueError("public v5 task must contain exactly eight underlyings")
@@ -422,7 +423,12 @@ def build_canonical_answer(database: str | Path) -> dict[str, Any]:
     """Recompute every scored semantic output from the public child only."""
 
     manifest = precheck_public_artifact(database)
-    physical_contracts, pricing_contract, signal_contract = load_public_contracts(database)
+    (
+        physical_contracts,
+        inversion_contract,
+        validation_contract,
+        signal_contract,
+    ) = load_public_contracts(database)
     histories = load_underlying_histories(database)
     if set(histories) != set(manifest["selected_underlyings"]):
         raise ValueError("public underlying histories do not match the task universe")
@@ -436,14 +442,15 @@ def build_canonical_answer(database: str | Path) -> dict[str, Any]:
         for underlying_id in sorted(histories)
     }
     observations = load_option_observations(database)
-    option_fits = fit_option_series(
+    option_series_results = evaluate_option_series(
         observations,
         physical_contracts,
         fits,
-        pricing_contract,
+        inversion_contract,
+        validation_contract,
     )
-    diagnoses = localize_mutations(option_fits, pricing_contract)
-    row_lookup = counterfactual_rows_by_id(option_fits)
+    diagnoses = localize_mutations(option_series_results, validation_contract)
+    row_lookup = stage2_rows_by_id(option_series_results)
     slices = tuple(
         iter_market_slices(
             database,
@@ -458,7 +465,9 @@ def build_canonical_answer(database: str | Path) -> dict[str, Any]:
         "variant_id": MODEL_SIGNAL_VARIANT_ID,
         "output_contract_id": V5_OUTPUT_CONTRACT_ID,
         "underlying_fits": [fits[key].to_dict() for key in sorted(fits)],
-        "option_fits": [item.to_dict() for item in option_fits],
+        "option_series_results": [
+            item.to_dict() for item in option_series_results
+        ],
         "mutation_diagnosis": [item.to_dict() for item in diagnoses],
         "model_signals": model_signals.to_dict(),
         "execution_audit": {
@@ -489,7 +498,8 @@ def compare_semantic_layers(
         "V0": all(submitted.get(key) == expected.get(key) for key in identity_keys),
         "V1": submitted.get("underlying_fits") == expected.get("underlying_fits"),
         "V2": (
-            submitted.get("option_fits") == expected.get("option_fits")
+            submitted.get("option_series_results")
+            == expected.get("option_series_results")
             and submitted.get("mutation_diagnosis") == expected.get("mutation_diagnosis")
         ),
         "V3": submitted.get("model_signals") == expected.get("model_signals"),

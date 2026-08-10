@@ -115,7 +115,7 @@ def _verify_v5_submission(
     variant_path: str | Path | None = None,
 ) -> VerificationReport:
     schema_directory = Path(schema_root)
-    _validator(schema_directory, "submission-v5.schema.json").validate(submission)
+    _validator(schema_directory, "submission-v5.1.schema.json").validate(submission)
     if variant_path is not None:
         variant = json.loads(Path(variant_path).read_text(encoding="utf-8"))
         if (

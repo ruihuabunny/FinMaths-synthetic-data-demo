@@ -19,6 +19,13 @@ pricing identity，实际生成 22 × 4 × 7 × 2 个流动性合约，并继续
 22 个 underlyings。相邻的 `...smoke_v1.json` 是 legacy v3 snapshot 的历史合同；当前
 pipeline 可以读取它，但拒绝用它创建、追加或冻结数据。
 
+F2A 不直接从两个教学模板起步。V4 executable audit 使用
+[`quantlib_bsm_metals_f2a_parent_v2.json`](../../configs/generators/quantlib_bsm_metals_f2a_parent_v2.json)；
+v5.1 full-trajectory pilot 使用独立的 126-business-date
+[`quantlib_bsm_metals_f2a_v5_parent_v1.json`](../../configs/generators/quantlib_bsm_metals_f2a_v5_parent_v1.json)。
+二者都要求 `0.01 USD` underlying/option ticks，但 snapshot identity、时间范围和任务合同不同，不能
+互相 fallback。
+
 ## 如何选择起点
 
 | 目标 | 推荐起点 | 说明 |
@@ -26,6 +33,8 @@ pipeline 可以读取它，但拒绝用它创建、追加或冻结数据。
 | 最小单标的 smoke | `quantlib_bsm_generator.template.json` | Legacy scalar 参数与逐条 option templates，适合快速理解表结构。 |
 | 两标的 P-measure dependence | `quantlib_bsm_correlated_underlyings.template.json` | 展示 `Lambda/D/R`，不改变 option pricing。 |
 | 当前完整 authoring | `configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json` | Config 1.6、static liquid chain、共同 Q identity，不生成 IV answer。 |
+| F2A v4 executable parent | `configs/generators/quantlib_bsm_metals_f2a_parent_v2.json` | 65 日、v4 catalogue 的冻结 mutation source；生产必须显式选择已物化 parent。 |
+| F2A v5.1 pilot parent | `configs/generators/quantlib_bsm_metals_f2a_v5_parent_v1.json` | 126 日、三组 shared drift/diffusion node locations；供 8-underlying full-trajectory task package。 |
 
 复制完整配置时，`snapshot_id`、`generator_config_id` 和 `generator_version` 是一组
 materialization identity。改变经济参数、随机法则、价格 increment 或 output contract 时，
@@ -51,6 +60,10 @@ cp authoring/templates/quantlib_bsm_generator.template.json \
 `option_minimum_price_increment`、`underlying_simulation`、`q_pricing` 和 `quote_model`。
 `q_pricing` 只声明定价测度、numeraire、rate path 与 P-to-Q diffusion mapping；IV root
 method 和 canonical answer 属于 task/verifier 配置，不能放回 generator JSON。
+
+V5 parent 还带 `f2a_parent_contract`，它只声明 distinct-parent role、三节点 shape 和 tick contract；
+public task 的 80-step BSM inversion、linked validation、model-signal costs 与 output schema 分别来自
+variant/dataset configs，不能复制进 generator 作为 latent answer。
 
 创建 DRAFT snapshot：
 
@@ -142,4 +155,7 @@ git diff --check
 
 Summary 至少应确认 identity、`DRAFT` status、revision、日期范围和 logical row counts。
 冻结前还应完成与所选模型对应的数学/quality gates；不要把模板生成的 smoke 数据描述为真实
-交易所市场，也不要把 P-measure volatility 或 hidden pricing volatility称为 implied volatility。
+交易所市场，也不要把 P-measure volatility 或 hidden pricing volatility 称为 implied volatility。
+V5.1 parent 冻结后还应先运行
+`scripts/materialize_f2a_agent_tasks.py --parent-db <path> --qualify-only`；qualification 失败时报告原因，
+不要改用 legacy v3 或 v4 parent。

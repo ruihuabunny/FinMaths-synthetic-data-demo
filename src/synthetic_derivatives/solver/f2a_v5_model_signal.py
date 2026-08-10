@@ -1,4 +1,4 @@
-"""Independent Solver post-cost fitted-counterfactual X/U/T scanner.
+"""Independent Solver post-cost linked-counterfactual X/U/T scanner.
 
 This module deliberately does not issue executable-arbitrage certificates.  It
 compares public executable quotes with the linked BSM counterfactual, charges the
@@ -20,7 +20,11 @@ from synthetic_derivatives.solver.f2a_v5_types import (
     terminal_spot_outflow,
 )
 from synthetic_derivatives.solver.f2a_v5_stage1 import UnderlyingFit
-from synthetic_derivatives.solver.f2a_v5_stage2 import CounterfactualRow, stable_row_id
+from synthetic_derivatives.solver.f2a_v5_stage2 import (
+    MARKET_IV_CONVERGED,
+    Stage2RowResult,
+    stable_row_id,
+)
 
 
 MODEL_SIGNAL_VARIANT_ID = "bsm_model_reconstruction_xut_signal_f2a_v5"
@@ -59,7 +63,8 @@ class ModelSignalContract:
     strict_inequality_rule: str = "net_signal_edge_gt_zero"
     activation_checkpoint: str = "after_half_even_output_quantization"
     observed_quote_execution_rule: str = "midpoint_plus_exact_half_spread_hurdle"
-    fitted_counterfactual_rule: str = "linked_stage1_bsm"
+    market_iv_eligibility_rule: str = "converged_rows_only"
+    linked_counterfactual_rule: str = "linked_stage1_bsm"
     contract_multiplier_rule: str = "every_option_leg"
     funding_rule: str = "public_discount_inputs"
     dividend_or_carry_rule: str = "public_integrated_carry_inputs"
@@ -84,7 +89,8 @@ class ModelSignalContract:
         expected = (
             (self.directional_candidate_rule, "both_directions_have_stable_ids"),
             (self.observed_quote_execution_rule, "midpoint_plus_exact_half_spread_hurdle"),
-            (self.fitted_counterfactual_rule, "linked_stage1_bsm"),
+            (self.market_iv_eligibility_rule, "converged_rows_only"),
+            (self.linked_counterfactual_rule, "linked_stage1_bsm"),
             (self.contract_multiplier_rule, "every_option_leg"),
             (self.funding_rule, "public_discount_inputs"),
             (self.dividend_or_carry_rule, "public_integrated_carry_inputs"),
@@ -128,7 +134,12 @@ class ModelSignalContract:
                 )
             ),
             observed_quote_execution_rule=str(raw.get("observed_quote_execution_rule", "midpoint_plus_exact_half_spread_hurdle")),
-            fitted_counterfactual_rule=str(raw.get("fitted_counterfactual_rule", "linked_stage1_bsm")),
+            market_iv_eligibility_rule=str(
+                raw.get("market_iv_eligibility_rule", "converged_rows_only")
+            ),
+            linked_counterfactual_rule=str(
+                raw.get("linked_counterfactual_rule", "linked_stage1_bsm")
+            ),
             contract_multiplier_rule=str(
                 raw.get("contract_multiplier_rule", "every_option_leg")
             ),
@@ -154,11 +165,11 @@ class ModelSignalContract:
 class ModelSignalCandidate:
     family: str
     candidate_id: str
-    rows: tuple[CounterfactualRow, ...]
+    rows: tuple[Stage2RowResult, ...]
     positions: tuple[float, ...]
     direction: str
     observed_executable_value: float
-    fitted_counterfactual_value: float
+    linked_counterfactual_value: float
     gross_model_edge: float
     option_spread_cost: float
     option_fees: float
@@ -193,7 +204,7 @@ class ModelSignalCandidate:
             "legs": legs,
             "direction": self.direction,
             "observed_executable_value": q(self.observed_executable_value),
-            "fitted_counterfactual_value": q(self.fitted_counterfactual_value),
+            "linked_counterfactual_value": q(self.linked_counterfactual_value),
             "gross_model_edge": q(self.gross_model_edge),
             "option_spread_cost": q(self.option_spread_cost),
             "option_fees": q(self.option_fees),
@@ -266,7 +277,7 @@ def _candidate(
     *,
     family: str,
     candidate_id: str,
-    weighted_rows: Sequence[tuple[CounterfactualRow, float]],
+    weighted_rows: Sequence[tuple[Stage2RowResult, float]],
     direction: int,
     underlying_fit: UnderlyingFit,
     contract: ModelSignalContract,
@@ -284,7 +295,9 @@ def _candidate(
         for row, weight in weighted_rows
     )
     counterfactual_base = sum(
-        weight * row.observation.contract_multiplier * row.fitted_counterfactual_price
+        weight
+        * row.observation.contract_multiplier
+        * row.linked_counterfactual_price
         for row, weight in weighted_rows
     )
     observed_functional = direction * observed_base
@@ -318,7 +331,7 @@ def _candidate(
     parameter_se = math.sqrt(max(0.0, parameter_variance))
     scale_floor = 10.0 ** (-contract.output_precision)
     standardized_margin = net_edge / max(parameter_se, scale_floor)
-    # A positive direction means the public relationship is rich to its fitted
+    # A positive direction means the public relationship is rich to its linked
     # value; the convergence trade therefore takes the negative relationship.
     positions = tuple(-direction * weight for weight in weights)
     return ModelSignalCandidate(
@@ -328,7 +341,7 @@ def _candidate(
         positions=positions,
         direction="positive" if direction > 0 else "negative",
         observed_executable_value=observed_functional - hurdle,
-        fitted_counterfactual_value=counterfactual_functional,
+        linked_counterfactual_value=counterfactual_functional,
         gross_model_edge=gross_edge,
         option_spread_cost=spread_cost,
         option_fees=fees,
@@ -342,11 +355,16 @@ def _candidate(
 
 
 def _row(
-    lookup: Mapping[str, CounterfactualRow],
+    lookup: Mapping[str, Stage2RowResult],
     market: PublicMarketSlice,
     option_id: str,
-) -> CounterfactualRow | None:
-    return lookup.get(stable_row_id(market.underlying_id, market.valuation_date, option_id))
+) -> Stage2RowResult | None:
+    row = lookup.get(
+        stable_row_id(market.underlying_id, market.valuation_date, option_id)
+    )
+    if row is None or row.market_iv_status != MARKET_IV_CONVERGED:
+        return None
+    return row
 
 
 def _canonical_candidate_key(candidate: ModelSignalCandidate) -> tuple[int, str]:
@@ -355,7 +373,7 @@ def _canonical_candidate_key(candidate: ModelSignalCandidate) -> tuple[int, str]
 
 def scan_model_signal_slice(
     market: PublicMarketSlice,
-    counterfactual_by_row_id: Mapping[str, CounterfactualRow],
+    counterfactual_by_row_id: Mapping[str, Stage2RowResult],
     underlying_fit: UnderlyingFit,
     contract: ModelSignalContract | None = None,
 ) -> ModelSignalSlice:
@@ -364,7 +382,7 @@ def scan_model_signal_slice(
     signal_contract = contract or ModelSignalContract()
     if market.underlying_id != underlying_fit.underlying_id:
         raise ValueError("market slice and Stage-1 fit underlying do not match")
-    buckets: dict[tuple[str, float], dict[Decimal, dict[str, CounterfactualRow]]] = {}
+    buckets: dict[tuple[str, float], dict[Decimal, dict[str, Stage2RowResult]]] = {}
     for quote in market.quotes:
         row = _row(counterfactual_by_row_id, market, quote.option_id)
         if row is None:
@@ -386,6 +404,8 @@ def scan_model_signal_slice(
                 if any(row is None for row, _ in weights):
                     continue
                 typed_weights = tuple((row, weight) for row, weight in weights if row is not None)
+                # Keep this versioned candidate ID byte-stable across v5.1; its
+                # price input is the linked counterfactual computed above.
                 base = (
                     f"X|strike-monotonicity|{market.underlying_id}|{market.valuation_date}|"
                     f"{expiry}|{option_type}|{lower}|{upper}|{multiplier:g}"
@@ -496,7 +516,7 @@ def scan_model_signal_slice(
                     )
 
     # T: all same-strike two-expiry call relationships, in both frozen directions.
-    calls: dict[tuple[str, Decimal, float], CounterfactualRow] = {}
+    calls: dict[tuple[str, Decimal, float], Stage2RowResult] = {}
     for (expiry, multiplier), pairs in buckets.items():
         for strike, pair in pairs.items():
             if "call" in pair:
@@ -573,7 +593,7 @@ def scan_model_signal_slice(
 
 def scan_model_signals(
     market_slices: Iterable[PublicMarketSlice],
-    counterfactual_by_row_id: Mapping[str, CounterfactualRow],
+    counterfactual_by_row_id: Mapping[str, Stage2RowResult],
     underlying_fits: Mapping[str, UnderlyingFit],
     contract: ModelSignalContract | None = None,
 ) -> DatabaseSignalResult:
