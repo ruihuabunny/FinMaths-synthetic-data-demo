@@ -20,9 +20,11 @@ from synthetic_derivatives.authoring.generator_common import (
 class UnderlyingDailyGenerator(QuantLibGeneratorBase):
     """Generate underlying masters, P paths and per-date pricing metadata.
 
-    This is the only generator that consumes ``underlying_simulation`` and its
-    Lambda/D/R dependence contract.  It exposes realized spot rows to the
-    pipeline; it never generates option contracts or option quotes.
+    This is the only generator that consumes the P dependence spec to construct
+    shocks. It also serializes the explicit P/Q dependence pair as provenance,
+    but never uses the Q spec to generate historical spot paths. It exposes
+    realized spot rows to the pipeline; it never generates option contracts or
+    option quotes.
     """
 
     def __init__(self, config: GeneratorConfig):
@@ -50,33 +52,35 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
         ]
         return (*logical, run_id)
 
-    def underlying_dependence_row(self, run_id: str) -> tuple[Any, ...] | None:
-        """Build the private, canonical P-measure dependence row.
+    def underlying_dependence_rows(self, run_id: str) -> tuple[tuple[Any, ...], ...]:
+        """Build canonical measure-qualified dependence provenance rows."""
 
-        Legacy configs return ``None``.  The resulting table is authoring
-        provenance and intentionally has no solver-visible view.
-        """
-
-        simulation = self.config.underlying_simulation
-        if simulation is None:
-            return None
-        logical = [
-            self.config.snapshot_id,
-            simulation.dependence_spec_id,
-            simulation.measure,
-            canonical_json(simulation.driver_order),
-            simulation.formulation,
-            canonical_json(simulation.factor_loading_matrix),
-            canonical_json(simulation.idiosyncratic_diagonal),
-            canonical_json(simulation.correlation_matrix),
-            simulation.matrix_dtype,
-            simulation.factorization_method,
-            simulation.factorization_order,
-            simulation.time_grid,
-            simulation.regime_id,
-            self.config.generator_config_id,
-        ]
-        return (*logical, run_id)
+        rows: list[tuple[Any, ...]] = []
+        for specification in self.config.underlying_dependence_specs:
+            logical = [
+                self.config.snapshot_id,
+                specification.dependence_spec_id,
+                specification.measure,
+                specification.source_dependence_spec_id,
+                specification.mapping_id,
+                specification.mapping_type,
+                specification.risk_neutral_measure_id,
+                specification.numeraire_id,
+                specification.rate_path_id,
+                canonical_json(specification.driver_order),
+                specification.formulation,
+                canonical_json(specification.factor_loading_matrix),
+                canonical_json(specification.idiosyncratic_diagonal),
+                canonical_json(specification.correlation_matrix),
+                specification.matrix_dtype,
+                specification.factorization_method,
+                specification.factorization_order,
+                specification.time_grid,
+                specification.regime_id,
+                self.config.generator_config_id,
+            ]
+            rows.append((*logical, run_id))
+        return tuple(rows)
 
     def underlying_daily_row(
         self,
@@ -328,6 +332,17 @@ class UnderlyingDailyGenerator(QuantLibGeneratorBase):
                     "same deterministic diffusion coefficient under Girsanov"
                 ),
             }
+            q_dependence = self.config.q_underlying_dependence
+            if q_dependence is not None:
+                pricing_dynamics_value["underlying_dependence"] = {
+                    "dependence_spec_id": q_dependence.dependence_spec_id,
+                    "source_dependence_spec_id": (
+                        q_dependence.source_dependence_spec_id
+                    ),
+                    "mapping_id": q_dependence.mapping_id,
+                    "driver_id": underlying.underlying_id,
+                    "driver_order": list(q_dependence.driver_order),
+                }
         if has_market_price_increments:
             pricing_dynamics_value["option_minimum_price_increment"] = str(
                 self.config.option_minimum_price_increment

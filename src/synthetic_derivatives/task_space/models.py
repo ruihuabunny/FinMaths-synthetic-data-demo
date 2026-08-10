@@ -6,13 +6,29 @@ from dataclasses import dataclass, replace
 from typing import Any, Mapping
 
 
-# This order is part of the serialized task identity and deterministic child IDs.
-AXES = ("L", "P", "M", "A", "D", "R")
+# This order is part of serialized task identity and deterministic child IDs.
+LEGACY_AXES = ("L", "P", "M", "A", "D", "R")
+AXES = (*LEGACY_AXES, "F")
+F_LEVELS = (
+    "F0",
+    "F1",
+    "F2A",
+    "F2B",
+    "F3A",
+    "F3B",
+    "F4A",
+    "F4B",
+    "F5A",
+    "F5B",
+    "F6A",
+    "F6B",
+)
+CoordinateValue = int | str
 
 
 @dataclass(frozen=True)
 class TaskCoordinates:
-    """The six independent difficulty coordinates ``(L, P, M, A, D, R)``."""
+    """The seven difficulty coordinates ``(L, P, M, A, D, R, F)``."""
 
     L: int
     P: int
@@ -20,11 +36,15 @@ class TaskCoordinates:
     A: int
     D: int
     R: int
+    F: str
 
     def __post_init__(self) -> None:
-        for axis, value in self.to_dict().items():
+        for axis in LEGACY_AXES:
+            value = getattr(self, axis)
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError(f"{axis} must be a non-negative integer")
+        if not isinstance(self.F, str) or self.F not in F_LEVELS:
+            raise ValueError(f"F must be one of {F_LEVELS}")
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "TaskCoordinates":
@@ -37,7 +57,7 @@ class TaskCoordinates:
             raise ValueError(f"coordinates require exactly {AXES}; missing={missing}, extra={extra}")
         return cls(**{axis: value[axis] for axis in AXES})
 
-    def to_dict(self) -> dict[str, int]:
+    def to_dict(self) -> dict[str, CoordinateValue]:
         """Serialize coordinates in canonical ``AXES`` order."""
 
         return {axis: getattr(self, axis) for axis in AXES}
@@ -47,13 +67,40 @@ class TaskCoordinates:
 
         return tuple(axis for axis in AXES if getattr(self, axis) != getattr(other, axis))
 
-    def with_changes(self, changes: Mapping[str, int]) -> "TaskCoordinates":
+    def with_changes(
+        self, changes: Mapping[str, CoordinateValue]
+    ) -> "TaskCoordinates":
         """Return a validated copy with the requested coordinate replacements."""
 
         unknown = set(changes) - set(AXES)
         if unknown:
             raise ValueError(f"unknown coordinate axes: {sorted(unknown)}")
         return replace(self, **dict(changes))
+
+    @property
+    def canonical_id(self) -> str:
+        """Return the coordinate component used by deterministic identities."""
+
+        return "-".join(
+            str(getattr(self, axis))
+            if axis == "F"
+            else f"{axis}{getattr(self, axis)}"
+            for axis in AXES
+        )
+
+
+def coordinate_rank(axis: str, value: CoordinateValue) -> int:
+    """Map an axis value to its declared monotone structural order."""
+
+    if axis == "F":
+        if not isinstance(value, str) or value not in F_LEVELS:
+            raise ValueError(f"F must be one of {F_LEVELS}")
+        return F_LEVELS.index(value)
+    if axis not in LEGACY_AXES:
+        raise ValueError(f"unknown coordinate axis: {axis}")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{axis} must be a non-negative integer")
+    return value
 
 
 @dataclass(frozen=True)
@@ -107,3 +154,34 @@ class TaskSpec:
             "method_id": self.method_id,
             "output_contract_id": self.output_contract_id,
         }
+
+
+def migrate_legacy_six_axis_coordinates(
+    value: Mapping[str, Any],
+) -> TaskCoordinates:
+    """Explicitly migrate one exact legacy coordinate mapping to ``F0``."""
+
+    keys = set(value)
+    if keys != set(LEGACY_AXES):
+        missing = sorted(set(LEGACY_AXES) - keys)
+        extra = sorted(keys - set(LEGACY_AXES))
+        raise ValueError(
+            "legacy coordinates require exactly "
+            f"{LEGACY_AXES}; missing={missing}, extra={extra}"
+        )
+    migrated = {axis: value[axis] for axis in LEGACY_AXES}
+    migrated["F"] = "F0"
+    return TaskCoordinates.from_mapping(migrated)
+
+
+def migrate_legacy_six_axis_task(value: Mapping[str, Any]) -> TaskSpec:
+    """Explicitly migrate a legacy public task while preserving its task ID."""
+
+    coordinates = value.get("coordinates")
+    if not isinstance(coordinates, Mapping):
+        raise ValueError("legacy task coordinates must be a mapping")
+    migrated = dict(value)
+    migrated["coordinates"] = migrate_legacy_six_axis_coordinates(
+        coordinates
+    ).to_dict()
+    return TaskSpec.from_mapping(migrated)

@@ -160,10 +160,16 @@ def test_authoring_schema_migrates_additively_from_v2(
                 "PRAGMA table_info('market.option_chain_specs')"
             ).fetchall()
         }
+        dependence_columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info('market.underlying_dependence')"
+            ).fetchall()
+        }
     finally:
         connection.close()
 
-    assert current_version == SCHEMA_VERSION == "2.4.0"
+    assert current_version == SCHEMA_VERSION == "2.5.0"
     assert dependence_table_count == 1
     assert option_chain_table_count == 1
     assert "underlying_dependence_count" in revision_columns
@@ -172,7 +178,69 @@ def test_authoring_schema_migrates_additively_from_v2(
         "chain_id", "listing_date", "listing_spot", "strike_moneyness"
     } <= option_contract_columns
     assert {"liquidity_filter", "quote_model"} <= option_chain_columns
+    assert {
+        "source_dependence_spec_id",
+        "mapping_id",
+        "mapping_type",
+        "risk_neutral_measure_id",
+        "numeraire_id",
+        "rate_path_id",
+    } <= dependence_columns
     assert "option_pricing_audit_count" in revision_columns
+
+
+def test_schema_24_dependence_row_migrates_without_changing_logical_values(
+    tmp_path: Path, smoke_config_path: Path
+) -> None:
+    config_path = _factor_config(
+        tmp_path, smoke_config_path, name="schema-24-source.json", business_days=2
+    )
+    database = tmp_path / "schema-24-source.duckdb"
+    with AuthoringPipeline(database, load_generator_config(config_path)) as pipeline:
+        pipeline.create_smoke_snapshot()
+
+    connection = duckdb.connect(str(database))
+    try:
+        legacy_columns = (
+            "snapshot_id, dependence_spec_id, measure, driver_order, formulation, "
+            "factor_loading_matrix, idiosyncratic_diagonal, correlation_matrix, "
+            "matrix_dtype, factorization_method, factorization_order, time_grid, "
+            "regime_id, generator_config_id, created_run_id"
+        )
+        before = connection.execute(
+            f"SELECT {legacy_columns} FROM market.underlying_dependence"
+        ).fetchall()
+        connection.execute(
+            "UPDATE metadata.schema_versions SET schema_version = '2.4.0'"
+        )
+        connection.execute(
+            "UPDATE metadata.snapshots SET schema_version = '2.4.0'"
+        )
+
+        initialize_schema(connection)
+
+        after = connection.execute(
+            f"SELECT {legacy_columns} FROM market.underlying_dependence"
+        ).fetchall()
+        q_mapping_values = connection.execute(
+            """
+            SELECT source_dependence_spec_id, mapping_id, mapping_type,
+                   risk_neutral_measure_id, numeraire_id, rate_path_id
+            FROM market.underlying_dependence
+            """
+        ).fetchone()
+        current_version = connection.execute(
+            """
+            SELECT schema_version FROM metadata.schema_versions
+            ORDER BY applied_at DESC, schema_version DESC LIMIT 1
+            """
+        ).fetchone()[0]
+    finally:
+        connection.close()
+
+    assert after == before
+    assert q_mapping_values == (None, None, None, None, None, None)
+    assert current_version == "2.5.0"
 
 
 @pytest.mark.parametrize(
@@ -273,6 +341,9 @@ def test_pipeline_persists_private_underlying_dependence_contract(
               AND table_name = 'underlying_dependence'
             """
         ).fetchone()[0]
+        solver_row_count = pipeline.connection.execute(
+            "SELECT count(*) FROM solver_visible.underlying_dependence"
+        ).fetchone()[0]
 
     assert result["table_stats"]["underlying_dependence"]["inserted"] == 1
     assert result["summary"]["underlying_dependence_count"] == 1
@@ -283,7 +354,8 @@ def test_pipeline_persists_private_underlying_dependence_contract(
     assert json.loads(row[4]) == [[1.0, 0.4], [0.4, 1.0]]
     assert physical_dynamics["dependence_spec_id"] == "SYNTH-P-SPOT-FACTOR-v1"
     assert physical_dynamics["measure"] == "P"
-    assert solver_view_count == 0
+    assert solver_view_count == 1
+    assert solver_row_count == 0
 
 
 def test_checked_in_correlated_underlying_template_is_runnable(

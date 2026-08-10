@@ -57,13 +57,14 @@ cp authoring/templates/quantlib_bsm_generator.template.json \
 
 | 字段 | 当前实现约束 |
 |:---|:---|
-| `schema_version` | `1.0.0` 支持 scalar physical 参数；`1.1.0` 增加 deterministic time functions；`1.2.0` 增加 P-measure `underlying_simulation`；`1.3.0` 使用 static `option_chain`；`1.4.0` 增加 liquidity filter 与 bid/ask noise。 |
+| `schema_version` | `1.0.0` 支持 scalar physical 参数；`1.1.0` 增加 deterministic time functions；`1.2.0` 增加 P-measure `underlying_simulation`；`1.3.0` 使用 static `option_chain`；`1.4.0` 增加 liquidity/noise；`1.5.0` 增加 Q pricing mapping；`1.6.0` 移除 authoring IV；`1.7.0` 使用 P/Q dependence specs。 |
 | `calendar` / `day_count` | 只支持 `WeekendsOnly` / `Actual365Fixed`。 |
 | `start_date` | 使用工作日；首条 underlying path 必须从该日开始。 |
 | `quote_decimal_places` | 使用 `8`，与当前价格量化精度一致。 |
 | `underlying_id` | 配置内唯一；spot 和两类 volatility 必须为正数。 |
 | `physical_drift` / `physical_volatility` | 可使用 scalar，或 `piecewise_linear` 时间函数；volatility 的所有节点必须为正数。 |
 | `underlying_simulation` | `1.2.0+` 必需；`measure=P`，`driver_order` 恰好覆盖全部 underlying，$\Lambda$ 每行 norm 不超过 1。 |
+| `underlying_dependence_specs` | `1.7.0` 替代 `underlying_simulation`；必须严格按 P、Q 排列，使用独立 IDs，Q 显式记录 source/mapping/Q context，并在当前 drift-only baseline 下保持相同 $\Lambda/D/R$ 与 ordering policy。 |
 | `option_chain` | `1.3.0+` 必需，且不能与 `option_templates` 混用；expiry/moneyness 严格递增、call/put 成对，当前只支持 `snapshot_start/static`。 |
 | `liquidity_filter` | `1.4.0` 必需；按 maximum candidate expiry 与 inclusive listing-moneyness band 选择挂牌合约。 |
 | `quote_model.bid_ask_noise` | `1.4.0` 必需；deterministic clipped-Gaussian multiplier 只扰动 bid/ask half-spread。 |

@@ -2,10 +2,11 @@
 
 Configuration versions describe both the market model and the rows an
 authoring run is allowed to materialize.  In particular, config 1.5 is a
-legacy readable identity that may contain an authoring-time IV solver, whereas
-config 1.6 keeps the same Q-pricing model but removes IV answers from market
-generation.  The write boundary in :mod:`pipeline` prevents those two output
-contracts from being mixed under one snapshot identity.
+legacy readable identity that may contain an authoring-time IV solver, config
+1.6 removes IV answers from market generation, and config 1.7 adds explicit,
+measure-qualified P/Q underlying-driver dependence specs.  The write boundary
+in :mod:`pipeline` prevents different output contracts from being mixed under
+one snapshot identity.
 """
 
 from __future__ import annotations
@@ -426,17 +427,18 @@ class OptionChainBuilder:
 
 
 @dataclass(frozen=True)
-class UnderlyingSimulationConfig:
-    """Canonical dependence contract for P-measure underlying spot paths.
+class UnderlyingDependenceConfig:
+    """Canonical dependence contract for underlying spot drivers under P or Q.
 
     The author supplies ``factor_loading_matrix`` (Lambda) in ``driver_order``.
     Config parsing derives the idiosyncratic diagonal D and correlation matrix
     R = Lambda Lambda^T + D; a separately supplied R is deliberately rejected.
     Drivers are underlying IDs, never option or other derivative contract IDs.
 
-    The first implementation supports one constant, business-daily regime.  A
-    future time-varying implementation must persist its regime/latent state so
-    incremental generation can restart from the complete Markov state.
+    Config 1.7 stores one P spec and one Q spec.  The Q fields identify the
+    source P spec and the drift-only Girsanov mapping under which Brownian
+    covariance is unchanged.  Only the P spec is consumed by historical path
+    generation.
     """
 
     dependence_spec_id: str
@@ -451,6 +453,12 @@ class UnderlyingSimulationConfig:
     factorization_order: str
     time_grid: str
     regime_id: str
+    source_dependence_spec_id: str | None = None
+    mapping_id: str | None = None
+    mapping_type: str | None = None
+    risk_neutral_measure_id: str | None = None
+    numeraire_id: str | None = None
+    rate_path_id: str | None = None
 
     @property
     def factor_count(self) -> int:
@@ -497,8 +505,34 @@ class GeneratorConfig:
     q_pricing: QPricingConfig | None
     quote_model: dict[str, Any]
     bid_ask_noise: BidAskNoiseConfig | None
-    underlying_simulation: UnderlyingSimulationConfig | None
+    underlying_dependence_specs: tuple[UnderlyingDependenceConfig, ...]
     option_chain: OptionChainConfig | None
+
+    @property
+    def underlying_simulation(self) -> UnderlyingDependenceConfig | None:
+        """Return the P spec consumed by historical path generation."""
+
+        return next(
+            (
+                specification
+                for specification in self.underlying_dependence_specs
+                if specification.measure == "P"
+            ),
+            None,
+        )
+
+    @property
+    def q_underlying_dependence(self) -> UnderlyingDependenceConfig | None:
+        """Return the explicit Q driver-dependence spec when configured."""
+
+        return next(
+            (
+                specification
+                for specification in self.underlying_dependence_specs
+                if specification.measure == "Q"
+            ),
+            None,
+        )
 
 
 def load_generator_config(path: str | Path) -> GeneratorConfig:
@@ -512,7 +546,9 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
     liquidity filter, and adds deterministic bid/ask half-spread noise. Version
     1.5 replaces latent base-IV inputs with an explicit common-Q contract whose
     deterministic diffusion coefficient is inherited through Girsanov. Version
-    1.6 removes authoring-time IV solving from that contract.
+    1.6 removes authoring-time IV solving from that contract. Version 1.7
+    replaces the P-only simulation field with ordered, measure-qualified P/Q
+    dependence specs linked by an explicit covariance-preserving mapping.
     """
 
     config_path = Path(path)
@@ -529,6 +565,7 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
         "1.4.0",
         "1.5.0",
         "1.6.0",
+        "1.7.0",
     }:
         raise ValueError("unsupported generator config schema_version")
 
@@ -578,7 +615,7 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
             item["physical_volatility"], field_name="physical_volatility"
         )
         if (
-            schema_version in {"1.5.0", "1.6.0"}
+            schema_version in {"1.5.0", "1.6.0", "1.7.0"}
             and "base_implied_volatility" in item
         ):
             raise ValueError(
@@ -588,7 +625,7 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
             )
         base_implied_volatility = (
             None
-            if schema_version in {"1.5.0", "1.6.0"}
+            if schema_version in {"1.5.0", "1.6.0", "1.7.0"}
             else float(item["base_implied_volatility"])
         )
         underlyings_list.append(
@@ -605,7 +642,7 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
             )
         )
     underlyings = tuple(underlyings_list)
-    if schema_version in {"1.3.0", "1.4.0", "1.5.0", "1.6.0"}:
+    if schema_version in {"1.3.0", "1.4.0", "1.5.0", "1.6.0", "1.7.0"}:
         if "option_templates" in raw:
             raise ValueError(
                 f"schema_version {schema_version} uses option_chain, not option_templates"
@@ -640,29 +677,7 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
             for item in raw["option_templates"]
         )
     _validate_entities(underlyings, templates)
-    if schema_version in {"1.2.0", "1.3.0", "1.4.0", "1.5.0", "1.6.0"}:
-        underlying_simulation = _parse_underlying_simulation(
-            raw.get("underlying_simulation"), underlyings
-        )
-    else:
-        if "underlying_simulation" in raw:
-            raise ValueError(
-                "underlying_simulation requires schema_version 1.2.0, 1.3.0, "
-                "1.4.0, 1.5.0 or 1.6.0"
-            )
-        underlying_simulation = None
-    expected_rng = (
-        "QuantLib.BoxMullerMersenneTwisterGaussianRng/"
-        "underlying-factor-idiosyncratic-sha256-v1"
-        if underlying_simulation is not None
-        else "QuantLib.BoxMullerMersenneTwisterGaussianRng/partitioned-sha256-seed-v1"
-    )
-    if raw.get("rng") != expected_rng:
-        raise ValueError(
-            "rng must match the configured underlying simulation and current "
-            f"generator: {expected_rng}"
-        )
-    if schema_version in {"1.5.0", "1.6.0"}:
+    if schema_version in {"1.5.0", "1.6.0", "1.7.0"}:
         if "smile" in raw:
             raise ValueError(
                 f"schema_version {schema_version} uses an explicit Q pricing "
@@ -680,6 +695,49 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
             raise ValueError("q_pricing requires schema_version 1.5.0+")
         q_pricing = None
         smile = {key: float(value) for key, value in raw["smile"].items()}
+    if schema_version == "1.7.0":
+        if "underlying_simulation" in raw:
+            raise ValueError(
+                "schema_version 1.7.0 uses underlying_dependence_specs, not "
+                "underlying_simulation"
+            )
+        if q_pricing is None:
+            raise ValueError("schema_version 1.7.0 requires q_pricing")
+        underlying_dependence_specs = _parse_measure_qualified_dependence_specs(
+            raw.get("underlying_dependence_specs"),
+            underlyings,
+            q_pricing,
+        )
+    elif schema_version in {"1.2.0", "1.3.0", "1.4.0", "1.5.0", "1.6.0"}:
+        if "underlying_dependence_specs" in raw:
+            raise ValueError(
+                "underlying_dependence_specs requires schema_version 1.7.0"
+            )
+        underlying_dependence_specs = (
+            _parse_underlying_dependence_spec(
+                raw.get("underlying_simulation"),
+                underlyings,
+                expected_measure="P",
+                field_name="underlying_simulation",
+            ),
+        )
+    else:
+        if "underlying_simulation" in raw or "underlying_dependence_specs" in raw:
+            raise ValueError(
+                "underlying dependence requires schema_version 1.2.0+"
+            )
+        underlying_dependence_specs = ()
+    expected_rng = (
+        "QuantLib.BoxMullerMersenneTwisterGaussianRng/"
+        "underlying-factor-idiosyncratic-sha256-v1"
+        if underlying_dependence_specs
+        else "QuantLib.BoxMullerMersenneTwisterGaussianRng/partitioned-sha256-seed-v1"
+    )
+    if raw.get("rng") != expected_rng:
+        raise ValueError(
+            "rng must match the configured underlying dependence and current "
+            f"generator: {expected_rng}"
+        )
     quote_model, bid_ask_noise = _parse_quote_model(
         raw.get("quote_model"), schema_version=schema_version
     )
@@ -708,7 +766,7 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
         q_pricing=q_pricing,
         quote_model=quote_model,
         bid_ask_noise=bid_ask_noise,
-        underlying_simulation=underlying_simulation,
+        underlying_dependence_specs=underlying_dependence_specs,
         option_chain=option_chain,
     )
 
@@ -876,7 +934,7 @@ def _parse_liquidity_filter(
 ) -> OptionLiquidityFilter | None:
     """Parse the config-1.4+ inclusive listing liquidity rule."""
 
-    if schema_version not in {"1.4.0", "1.5.0", "1.6.0"}:
+    if schema_version not in {"1.4.0", "1.5.0", "1.6.0", "1.7.0"}:
         if raw is not None:
             raise ValueError(
                 "option_chain.liquidity_filter requires schema_version 1.4.0+"
@@ -944,7 +1002,7 @@ def _parse_quote_model(
         raise ValueError("quote_model half-spreads must be non-negative")
 
     noise_raw = raw.get("bid_ask_noise")
-    if schema_version not in {"1.4.0", "1.5.0", "1.6.0"}:
+    if schema_version not in {"1.4.0", "1.5.0", "1.6.0", "1.7.0"}:
         if noise_raw is not None:
             raise ValueError(
                 "quote_model.bid_ask_noise requires schema_version 1.4.0+"
@@ -1004,10 +1062,10 @@ def _parse_q_pricing(raw: Any, *, schema_version: str) -> QPricingConfig:
 
     if not isinstance(raw, dict):
         raise ValueError(f"schema_version {schema_version} requires q_pricing")
-    if schema_version == "1.6.0" and "implied_volatility_solver" in raw:
+    if schema_version in {"1.6.0", "1.7.0"} and "implied_volatility_solver" in raw:
         raise ValueError(
             "q_pricing.implied_volatility_solver belongs to task/verifier "
-            "configuration and is forbidden by schema_version 1.6.0"
+            f"configuration and is forbidden by schema_version {schema_version}"
         )
     required_identifiers = (
         "risk_neutral_measure_id",
@@ -1074,93 +1132,192 @@ def _validate_chain_strikes(
             )
 
 
-def _parse_underlying_simulation(
+def _parse_measure_qualified_dependence_specs(
     raw: Any,
     underlyings: tuple[UnderlyingConfig, ...],
-) -> UnderlyingSimulationConfig:
+    q_pricing: QPricingConfig,
+) -> tuple[UnderlyingDependenceConfig, UnderlyingDependenceConfig]:
+    """Parse the config-1.7 P/Q pair and verify its measure-change mapping."""
+
+    if not isinstance(raw, list) or len(raw) != 2:
+        raise ValueError(
+            "schema_version 1.7.0 requires exactly two "
+            "underlying_dependence_specs ordered as P then Q"
+        )
+    if [item.get("measure") if isinstance(item, dict) else None for item in raw] != [
+        "P",
+        "Q",
+    ]:
+        raise ValueError(
+            "underlying_dependence_specs must use exact declared order P then Q"
+        )
+    physical = _parse_underlying_dependence_spec(
+        raw[0],
+        underlyings,
+        expected_measure="P",
+        field_name="underlying_dependence_specs[0]",
+    )
+    pricing = _parse_underlying_dependence_spec(
+        raw[1],
+        underlyings,
+        expected_measure="Q",
+        field_name="underlying_dependence_specs[1]",
+    )
+    if pricing.dependence_spec_id == physical.dependence_spec_id:
+        raise ValueError("P and Q dependence_spec_id values must be distinct")
+    if pricing.source_dependence_spec_id != physical.dependence_spec_id:
+        raise ValueError(
+            "Q source_dependence_spec_id must identify the declared P spec"
+        )
+    expected_q_context = (
+        q_pricing.risk_neutral_measure_id,
+        q_pricing.numeraire_id,
+        q_pricing.rate_path_id,
+    )
+    actual_q_context = (
+        pricing.risk_neutral_measure_id,
+        pricing.numeraire_id,
+        pricing.rate_path_id,
+    )
+    if actual_q_context != expected_q_context:
+        raise ValueError(
+            "Q dependence measure/numeraire/rate-path IDs must match q_pricing"
+        )
+    covariance_fields = (
+        "driver_order",
+        "formulation",
+        "factor_loading_matrix",
+        "idiosyncratic_diagonal",
+        "correlation_matrix",
+        "matrix_dtype",
+        "factorization_method",
+        "factorization_order",
+        "time_grid",
+        "regime_id",
+    )
+    if any(
+        getattr(pricing, field_name) != getattr(physical, field_name)
+        for field_name in covariance_fields
+    ):
+        raise ValueError(
+            "girsanov_drift_only_same_brownian_covariance requires identical "
+            "P/Q driver order, Lambda, D, R, dtype, factor order, time grid and regime"
+        )
+    return physical, pricing
+
+
+def _parse_underlying_dependence_spec(
+    raw: Any,
+    underlyings: tuple[UnderlyingConfig, ...],
+    *,
+    expected_measure: str,
+    field_name: str,
+) -> UnderlyingDependenceConfig:
     """Validate Lambda and deterministically derive D and R in float64 order.
 
     Row norms are checked against the decimal input and again after conversion
-    to the declared float64 representation.  This makes positive-semidefiniteness
-    a property of the factor construction instead of a tolerance-based eigenvalue
-    repair performed after the fact.
+    to the declared float64 representation. Positive semidefiniteness follows
+    from the factor construction; no eigenvalue clipping or matrix repair is
+    performed.
     """
 
     if not isinstance(raw, dict):
-        raise ValueError(
-            "schema_version 1.2.0, 1.3.0 or 1.4.0 requires underlying_simulation"
-        )
+        raise ValueError(f"{field_name} must be an object")
 
     dependence_spec_id = raw.get("dependence_spec_id")
     if not isinstance(dependence_spec_id, str) or not dependence_spec_id:
-        raise ValueError("underlying_simulation.dependence_spec_id must be non-empty")
-    if raw.get("measure") != "P":
-        raise ValueError("underlying_simulation.measure must be P")
+        raise ValueError(f"{field_name}.dependence_spec_id must be non-empty")
+    if raw.get("measure") != expected_measure:
+        raise ValueError(f"{field_name}.measure must be {expected_measure}")
     if raw.get("formulation") != "factor_loading":
-        raise ValueError(
-            "underlying_simulation.formulation must be factor_loading"
-        )
+        raise ValueError(f"{field_name}.formulation must be factor_loading")
     if raw.get("idiosyncratic_diagonal") != "derive_from_row_norms":
         raise ValueError(
-            "underlying_simulation.idiosyncratic_diagonal must be "
-            "derive_from_row_norms"
+            f"{field_name}.idiosyncratic_diagonal must be derive_from_row_norms"
         )
     if "correlation_matrix" in raw:
         raise ValueError(
-            "underlying_simulation.correlation_matrix is derived from factor loadings"
+            f"{field_name}.correlation_matrix is derived from factor loadings"
         )
     if raw.get("matrix_dtype") != "float64":
-        raise ValueError("underlying_simulation.matrix_dtype must be float64")
+        raise ValueError(f"{field_name}.matrix_dtype must be float64")
     if raw.get("factorization_method") != "factor_loading_direct":
         raise ValueError(
-            "underlying_simulation.factorization_method must be "
-            "factor_loading_direct"
+            f"{field_name}.factorization_method must be factor_loading_direct"
         )
     if raw.get("factorization_order") != "declared_driver_order":
         raise ValueError(
-            "underlying_simulation.factorization_order must be "
-            "declared_driver_order"
+            f"{field_name}.factorization_order must be declared_driver_order"
         )
     if raw.get("time_grid") != "business_daily":
-        raise ValueError(
-            "underlying_simulation.time_grid must be business_daily"
-        )
+        raise ValueError(f"{field_name}.time_grid must be business_daily")
     regime_id = raw.get("regime_id")
     if not isinstance(regime_id, str) or not regime_id:
-        raise ValueError("underlying_simulation.regime_id must be non-empty")
+        raise ValueError(f"{field_name}.regime_id must be non-empty")
+
+    mapping_fields = (
+        "source_dependence_spec_id",
+        "mapping_id",
+        "mapping_type",
+        "risk_neutral_measure_id",
+        "numeraire_id",
+        "rate_path_id",
+    )
+    mapping_values: dict[str, str | None]
+    if expected_measure == "P":
+        if any(name in raw for name in mapping_fields):
+            raise ValueError(f"{field_name} P spec must not contain Q mapping fields")
+        mapping_values = {name: None for name in mapping_fields}
+    else:
+        mapping_values = {}
+        for name in mapping_fields:
+            value = raw.get(name)
+            if not isinstance(value, str) or not value:
+                raise ValueError(f"{field_name}.{name} must be non-empty")
+            mapping_values[name] = value
+        if (
+            mapping_values["mapping_type"]
+            != "girsanov_drift_only_same_brownian_covariance"
+        ):
+            raise ValueError(
+                f"{field_name}.mapping_type must be "
+                "girsanov_drift_only_same_brownian_covariance"
+            )
 
     raw_driver_order = raw.get("driver_order")
     if not isinstance(raw_driver_order, list) or not raw_driver_order or any(
         not isinstance(driver, str) or not driver for driver in raw_driver_order
     ):
         raise ValueError(
-            "underlying_simulation.driver_order must be a non-empty string array"
+            f"{field_name}.driver_order must be a non-empty string array"
         )
     driver_order = tuple(raw_driver_order)
     if len(driver_order) != len(set(driver_order)):
-        raise ValueError("underlying_simulation.driver_order must be unique")
+        raise ValueError(f"{field_name}.driver_order must be unique")
     underlying_ids = {underlying.underlying_id for underlying in underlyings}
-    if set(driver_order) != underlying_ids:
+    undeclared_drivers = set(driver_order) - underlying_ids
+    if undeclared_drivers:
         raise ValueError(
-            "underlying_simulation.driver_order must contain every underlying_id "
-            "exactly once"
+            f"{field_name}.driver_order may contain underlying IDs only; "
+            "option/derivative drivers are forbidden"
+        )
+    missing_underlyings = underlying_ids - set(driver_order)
+    if missing_underlyings:
+        raise ValueError(
+            f"{field_name}.driver_order must contain every underlying_id exactly once"
         )
 
     raw_matrix = raw.get("factor_loading_matrix")
     if not isinstance(raw_matrix, list) or len(raw_matrix) != len(driver_order):
         raise ValueError(
-            "underlying_simulation.factor_loading_matrix row count must match "
-            "driver_order"
+            f"{field_name}.factor_loading_matrix row count must match driver_order"
         )
     if not raw_matrix or any(not isinstance(row, list) for row in raw_matrix):
-        raise ValueError(
-            "underlying_simulation.factor_loading_matrix must be a matrix"
-        )
+        raise ValueError(f"{field_name}.factor_loading_matrix must be a matrix")
     factor_count = len(raw_matrix[0])
     if factor_count < 1 or any(len(row) != factor_count for row in raw_matrix):
         raise ValueError(
-            "underlying_simulation.factor_loading_matrix must be non-ragged "
-            "with at least one factor"
+            f"{field_name}.factor_loading_matrix must be non-ragged with at least one factor"
         )
 
     factor_loading_rows: list[tuple[float, ...]] = []
@@ -1170,7 +1327,7 @@ def _parse_underlying_simulation(
             _finite_float(
                 value,
                 field_name=(
-                    "underlying_simulation.factor_loading_matrix"
+                    f"{field_name}.factor_loading_matrix"
                     f"[{row_index}][{column_index}]"
                 ),
             )
@@ -1181,17 +1338,17 @@ def _parse_underlying_simulation(
         )
         if exact_row_norm_squared > Decimal("1"):
             raise ValueError(
-                "underlying_simulation factor-loading row norm must not exceed 1: "
+                f"{field_name} factor-loading row norm must not exceed 1: "
                 f"{driver_order[row_index]}"
             )
         row_norm_squared = math.fsum(value * value for value in row)
         if row_norm_squared > 1.0:
             raise ValueError(
-                "underlying_simulation factor-loading row norm exceeds 1 in "
-                f"float64: {driver_order[row_index]}"
+                f"{field_name} factor-loading row norm exceeds 1 in float64: "
+                f"{driver_order[row_index]}"
             )
         factor_loading_rows.append(row)
-        idiosyncratic_diagonal.append(max(0.0, 1.0 - row_norm_squared))
+        idiosyncratic_diagonal.append(1.0 - row_norm_squared)
 
     factor_loading_matrix = tuple(factor_loading_rows)
     diagonal = tuple(idiosyncratic_diagonal)
@@ -1208,9 +1365,28 @@ def _parse_underlying_simulation(
         )
         for row_index in range(len(driver_order))
     )
-    return UnderlyingSimulationConfig(
+    if any(
+        not math.isfinite(value) or not -1.0 <= value <= 1.0
+        for row in correlation_matrix
+        for value in row
+    ):
+        raise ValueError(f"{field_name}.correlation_matrix must be finite and in [-1, 1]")
+    if any(
+        correlation_matrix[row_index][column_index]
+        != correlation_matrix[column_index][row_index]
+        for row_index in range(len(driver_order))
+        for column_index in range(len(driver_order))
+    ):
+        raise ValueError(f"{field_name}.correlation_matrix must be exactly symmetric")
+    if any(
+        correlation_matrix[index][index] != 1.0
+        for index in range(len(driver_order))
+    ):
+        raise ValueError(f"{field_name}.correlation_matrix must have exact unit diagonal")
+
+    return UnderlyingDependenceConfig(
         dependence_spec_id=dependence_spec_id,
-        measure="P",
+        measure=expected_measure,
         driver_order=driver_order,
         formulation="factor_loading",
         factor_loading_matrix=factor_loading_matrix,
@@ -1221,6 +1397,12 @@ def _parse_underlying_simulation(
         factorization_order="declared_driver_order",
         time_grid="business_daily",
         regime_id=regime_id,
+        source_dependence_spec_id=mapping_values["source_dependence_spec_id"],
+        mapping_id=mapping_values["mapping_id"],
+        mapping_type=mapping_values["mapping_type"],
+        risk_neutral_measure_id=mapping_values["risk_neutral_measure_id"],
+        numeraire_id=mapping_values["numeraire_id"],
+        rate_path_id=mapping_values["rate_path_id"],
     )
 
 

@@ -209,11 +209,14 @@ def test_frozen_snapshot_rejects_incremental_writes(
         run_count = pipeline.connection.execute(
             "SELECT count(*) FROM metadata.generation_runs"
         ).fetchone()[0]
+        revision = pipeline.connection.execute(
+            "SELECT current_revision FROM metadata.snapshots"
+        ).fetchone()[0]
         with pytest.raises(RuntimeError, match="FROZEN"):
             pipeline.append_business_days(1)
         assert pipeline.connection.execute(
             "SELECT count(*) FROM metadata.generation_runs"
-        ).fetchone()[0] == run_count + 1
+        ).fetchone()[0] == run_count
         assert pipeline.connection.execute(
-            "SELECT status FROM metadata.generation_runs ORDER BY started_at DESC LIMIT 1"
-        ).fetchone()[0] == "FAILED"
+            "SELECT current_revision FROM metadata.snapshots"
+        ).fetchone()[0] == revision

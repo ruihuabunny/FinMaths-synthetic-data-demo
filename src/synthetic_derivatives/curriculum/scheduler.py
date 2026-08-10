@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from synthetic_derivatives.task_space import AXES, TaskCoordinates, TaskSpec
+from synthetic_derivatives.task_space import AXES, F_LEVELS, TaskCoordinates, TaskSpec
+from synthetic_derivatives.task_space.models import CoordinateValue
 
 
 @dataclass(frozen=True)
@@ -16,7 +17,7 @@ class CurriculumStage:
 
     index: int
     stage_id: str
-    coordinates: dict[str, frozenset[int]]
+    coordinates: dict[str, frozenset[CoordinateValue]]
 
     def matches(self, coordinates: TaskCoordinates) -> bool:
         """Return whether all non-empty selectors admit ``coordinates``."""
@@ -43,7 +44,7 @@ class AdaptiveCurriculumScheduler:
     def __init__(self, raw: Mapping[str, Any]):
         """Validate stages, bucket mixture, and mastery intervals."""
 
-        if raw.get("schema_version") != "1.0.0":
+        if raw.get("schema_version") != "2.0.0":
             raise ValueError("unsupported curriculum schema_version")
         self.curriculum_id = str(raw["curriculum_id"])
         mixture = raw["mixture"]
@@ -89,13 +90,27 @@ class AdaptiveCurriculumScheduler:
         unknown = set(selectors) - set(AXES)
         if unknown:
             raise ValueError(f"unknown curriculum axes: {sorted(unknown)}")
+        coordinates: dict[str, frozenset[CoordinateValue]] = {}
+        for axis in AXES:
+            values = selectors.get(axis, [])
+            if not isinstance(values, list):
+                raise ValueError(f"curriculum selector {axis} must be a list")
+            if axis == "F":
+                if any(
+                    not isinstance(value, str) or value not in F_LEVELS
+                    for value in values
+                ):
+                    raise ValueError("curriculum F selector has an invalid level")
+            elif any(
+                isinstance(value, bool) or not isinstance(value, int)
+                for value in values
+            ):
+                raise ValueError(f"curriculum selector {axis} requires integers")
+            coordinates[axis] = frozenset(values)
         return CurriculumStage(
             index=int(raw["index"]),
             stage_id=str(raw["stage_id"]),
-            coordinates={
-                axis: frozenset(int(value) for value in selectors.get(axis, []))
-                for axis in AXES
-            },
+            coordinates=coordinates,
         )
 
     def _validate_bands(self) -> None:

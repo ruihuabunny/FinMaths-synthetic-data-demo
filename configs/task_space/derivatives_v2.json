@@ -1,0 +1,120 @@
+{
+  "schema_version": "2.0.0",
+  "registry_id": "derivatives-task-space-v2",
+  "axes": {
+    "L": {"min": 0, "max": 6, "label": "reasoning"},
+    "P": {"min": 0, "max": 8, "label": "product"},
+    "M": {"min": 0, "max": 9, "label": "model"},
+    "A": {"min": 0, "max": 8, "label": "method"},
+    "D": {"min": 0, "max": 8, "label": "data_tool"},
+    "R": {"min": 0, "max": 9, "label": "risk_output"},
+    "F": {
+      "values": ["F0", "F1", "F2A", "F2B", "F3A", "F3B", "F4A", "F4B", "F5A", "F5B", "F6A", "F6B"],
+      "label": "arbitrage_finding"
+    }
+  },
+  "compatibility_rules": [
+    {
+      "rule_id": "bsm-analytic-greeks-f0",
+      "task_family_id": "bsm_greeks",
+      "coordinates": {"L": [1], "P": [0], "M": [0], "A": [0], "D": [1], "R": [1], "F": ["F0"]},
+      "reason": "Direct analytic BSM Greeks use one structured input table and no arbitrage-finding output."
+    },
+    {
+      "rule_id": "bsm-market-implied-greeks-f0",
+      "task_family_id": "bsm_greeks",
+      "coordinates": {"L": [5], "P": [0], "M": [0], "A": [1], "D": [4], "R": [1], "F": ["F0"]},
+      "reason": "Market-implied BSM Greeks query a DuckDB market snapshot and use fixed root finding without arbitrage labels."
+    },
+    {
+      "rule_id": "bsm-vanilla-f0",
+      "task_family_id": "bsm_vanilla",
+      "coordinates": {"P": [0], "M": [0], "A": [0, 1, 2, 3, 4, 5, 6], "F": ["F0"]},
+      "reason": "BSM vanilla supports analytic, inversion, differentiation, transform, grid and Monte Carlo variants without arbitrage finding."
+    },
+    {
+      "rule_id": "bsm-digital-f0",
+      "task_family_id": "bsm_digital",
+      "coordinates": {"P": [1], "M": [0], "A": [0, 1, 2, 3, 4, 5], "F": ["F0"]},
+      "reason": "BSM cash/asset-or-nothing contracts have analytic and deterministic numerical variants."
+    },
+    {
+      "rule_id": "bsm-multileg-f0",
+      "task_family_id": "bsm_multileg",
+      "coordinates": {"P": [2, 3, 4, 5], "M": [0], "A": [0, 1, 2, 4, 5, 6], "F": ["F0"]},
+      "reason": "BSM multi-leg tasks aggregate compatible single-leg methods."
+    },
+    {
+      "rule_id": "shifted-bsm-vanilla-f0",
+      "task_family_id": "shifted_bsm_vanilla",
+      "coordinates": {"P": [0], "M": [1], "A": [0, 1, 2, 3, 4, 5, 6], "F": ["F0"]},
+      "reason": "Shifted BSM vanilla supports analytic and deterministic numerical methods."
+    },
+    {
+      "rule_id": "cev-vanilla-f0",
+      "task_family_id": "cev_vanilla",
+      "coordinates": {"P": [0], "M": [2], "A": [1, 2, 4, 5, 6, 7], "F": ["F0"]},
+      "reason": "CEV vanilla tasks use inversion, numerical Greeks, grids, Monte Carlo or calibration."
+    },
+    {
+      "rule_id": "mixture-vanilla-f0",
+      "task_family_id": "mixture_vanilla",
+      "coordinates": {"P": [0], "M": [3], "A": [0, 1, 2, 3, 6, 7], "F": ["F0"]},
+      "reason": "Mixture-lognormal vanilla tasks support mixture analytics, transforms, simulation and calibration."
+    },
+    {
+      "rule_id": "local-vol-vanilla-f0",
+      "task_family_id": "local_vol_vanilla",
+      "coordinates": {"P": [0], "M": [4], "A": [2, 5, 6, 7], "F": ["F0"]},
+      "reason": "Local-volatility tasks require a declared surface, differentiation and grid/simulation contract."
+    },
+    {
+      "rule_id": "heston-vanilla-f0",
+      "task_family_id": "heston_vanilla",
+      "coordinates": {"P": [0], "M": [5], "A": [1, 2, 3, 5, 6, 7], "F": ["F0"]},
+      "reason": "Heston vanilla tasks use inversion, Fourier/PDE, simulation or calibration."
+    },
+    {
+      "rule_id": "jump-vanilla-f0",
+      "task_family_id": "jump_vanilla",
+      "coordinates": {"P": [0], "M": [6], "A": [1, 2, 3, 5, 6, 7], "F": ["F0"]},
+      "reason": "Jump-diffusion vanilla tasks use inversion, transforms, PDE, simulation or calibration."
+    },
+    {
+      "rule_id": "barrier-f0",
+      "task_family_id": "barrier",
+      "coordinates": {"P": [6], "M": [0, 1, 2, 4, 5, 6], "A": [0, 2, 4, 5, 6], "F": ["F0"]},
+      "reason": "Barrier tasks require a supported analytic, lattice, PDE or Monte Carlo engine."
+    },
+    {
+      "rule_id": "path-dependent-f0",
+      "task_family_id": "path_dependent",
+      "coordinates": {"P": [7], "M": [0, 1, 2, 4, 5, 6], "A": [0, 2, 3, 4, 5, 6], "F": ["F0"]},
+      "reason": "Path-dependent tasks use a declared special case, transform, grid or frozen-path method."
+    },
+    {
+      "rule_id": "hybrid-f0",
+      "task_family_id": "hybrid",
+      "coordinates": {"P": [0, 1, 2, 3, 4, 5, 6, 7, 8], "M": [8], "A": [1, 2, 3, 5, 6, 7, 8], "F": ["F0"]},
+      "reason": "Hybrid tasks require a joint numerical or calibration pipeline."
+    },
+    {
+      "rule_id": "cir-rates-f0",
+      "task_family_id": "cir_rates",
+      "coordinates": {"P": [0, 1, 2, 3, 4, 5, 6, 7, 8], "M": [7], "A": [2, 3, 4, 5, 6, 7, 8], "F": ["F0"]},
+      "reason": "CIR denotes the declared rate process and requires a rate-sensitive numerical contract."
+    },
+    {
+      "rule_id": "structured-portfolio-f0",
+      "task_family_id": "structured_portfolio",
+      "coordinates": {"P": [8], "M": [0, 1, 2, 3, 4, 5, 6], "A": [8], "R": [2, 4, 5, 6, 7, 8, 9], "F": ["F0"]},
+      "reason": "Structured portfolios use a mixed pipeline whose leg-level methods remain explicit."
+    },
+    {
+      "rule_id": "model-risk-f0",
+      "task_family_id": "model_risk",
+      "coordinates": {"P": [0, 1, 2, 3, 4, 5, 6, 7, 8], "M": [9], "A": [8], "R": [8, 9], "F": ["F0"]},
+      "reason": "Model-risk tasks compare multiple compatible pricing pipelines."
+    }
+  ]
+}

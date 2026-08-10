@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synthetic-derivatives.invalid/schemas/bsm-implied-volatility-output.schema.json",
+  "title": "Canonical scalar BSM implied-volatility result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "valuation_date",
+    "underlying_id",
+    "option_id",
+    "call_put",
+    "expiry",
+    "status",
+    "observed_price",
+    "implied_volatility",
+    "iterations",
+    "method_id",
+    "convention_id",
+    "output_contract_id"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "valuation_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "underlying_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "option_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "call_put": {
+      "enum": [
+        "call",
+        "put"
+      ]
+    },
+    "expiry": {
+      "type": "string",
+      "format": "date"
+    },
+    "status": {
+      "enum": [
+        "OK",
+        "INVALID_INPUT",
+        "OUT_OF_BOUNDS",
+        "NO_BRACKET"
+      ]
+    },
+    "observed_price": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/observed_price"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "implied_volatility": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/implied_volatility"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "iterations": {
+      "enum": [
+        0,
+        80
+      ]
+    },
+    "method_id": {
+      "const": "bsm-bisection-float64-80-v1"
+    },
+    "convention_id": {
+      "const": "bsm-iv-actual365-flat-continuous-v1"
+    },
+    "output_contract_id": {
+      "const": "bsm-iv-scalar-output-v1"
+    }
+  },
+  "$defs": {
+    "observed_price": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.[0-9]{9}$"
+    },
+    "implied_volatility": {
+      "type": "string",
+      "pattern": "^(?:0\\.(?:00000[1-9][0-9]{2}|0000[1-9][0-9]{3}|000[1-9][0-9]{4}|00[1-9][0-9]{5}|0[1-9][0-9]{6}|[1-9][0-9]{7})|[1-4]\\.[0-9]{8}|5\\.00000000)$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "OK"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "observed_price": {
+            "$ref": "#/$defs/observed_price"
+          },
+          "implied_volatility": {
+            "$ref": "#/$defs/implied_volatility"
+          },
+          "iterations": {
+            "const": 80
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "INVALID_INPUT"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "observed_price": {
+            "type": "null"
+          },
+          "implied_volatility": {
+            "type": "null"
+          },
+          "iterations": {
+            "const": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "OUT_OF_BOUNDS",
+              "NO_BRACKET"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "observed_price": {
+            "$ref": "#/$defs/observed_price"
+          },
+          "implied_volatility": {
+            "type": "null"
+          },
+          "iterations": {
+            "const": 0
+          }
+        }
+      }
+    }
+  ],
+  "x-schema-version": "bsm-implied-volatility-output-v1.0.0"
+}

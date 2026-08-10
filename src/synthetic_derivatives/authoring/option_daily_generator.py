@@ -92,7 +92,8 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
             ),
             (
                 canonical_json(self.config.quote_model)
-                if self.config.schema_version in {"1.4.0", "1.5.0", "1.6.0"}
+                if self.config.schema_version
+                in {"1.4.0", "1.5.0", "1.6.0", "1.7.0"}
                 else None
             ),
             self.config.generator_config_id,
@@ -198,7 +199,7 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         """Price one frozen contract from the realized underlying spot.
 
         ``strike`` and the remaining static terms are unpacked from the contract
-        master row.  The method receives neither ``UnderlyingSimulationConfig``
+        master row.  The method receives no underlying-dependence spec
         nor its correlation matrix: P-measure dependence affects this quote only
         indirectly through the realized ``spot_close`` supplied by the pipeline.
 

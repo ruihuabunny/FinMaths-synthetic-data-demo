@@ -24,10 +24,10 @@ def test_scheduler_preserves_20_60_20_stage_mass_and_adapts_within_stage(
 ) -> None:
     scheduler = AdaptiveCurriculumScheduler.from_path(curriculum_config_path)
     tasks = [
-        _task("replay", TaskCoordinates(0, 0, 0, 0, 0, 0)),
-        _task("current-core", TaskCoordinates(1, 0, 0, 0, 0, 1)),
-        _task("current-mastered", TaskCoordinates(1, 0, 0, 1, 1, 1)),
-        _task("explore", TaskCoordinates(2, 2, 0, 0, 1, 2)),
+        _task("replay", TaskCoordinates(0, 0, 0, 0, 0, 0, "F0")),
+        _task("current-core", TaskCoordinates(1, 0, 0, 0, 0, 1, "F0")),
+        _task("current-mastered", TaskCoordinates(1, 0, 0, 1, 1, 1, "F0")),
+        _task("explore", TaskCoordinates(2, 2, 0, 0, 1, 2, "F0")),
     ]
     before = [task.to_dict() for task in tasks]
 
@@ -60,3 +60,17 @@ def test_mastery_diagnostics_do_not_change_binary_reward(
     assert scheduler.mastery_band(0.04).action == "decompose_or_sft"
     assert scheduler.mastery_band(0.5).action == "core_rl"
     assert scheduler.mastery_band(0.99).action == "replay_only"
+
+
+def test_current_curriculum_matches_only_structural_f0_tasks(
+    curriculum_config_path: Path,
+) -> None:
+    scheduler = AdaptiveCurriculumScheduler.from_path(curriculum_config_path)
+
+    assert scheduler.stage_for(TaskCoordinates(1, 0, 0, 0, 1, 1, "F0")).index == 1
+    try:
+        scheduler.stage_for(TaskCoordinates(1, 0, 0, 0, 1, 1, "F1"))
+    except ValueError as error:
+        assert "outside configured curriculum" in str(error)
+    else:
+        raise AssertionError("F1 must not enter the current F0 curriculum")

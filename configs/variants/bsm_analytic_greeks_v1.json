@@ -1,0 +1,57 @@
+{
+  "schema_version": "bsm-greeks-variant-v1.0.0",
+  "variant_id": "bsm_analytic_greeks_v1",
+  "task_family": "bsm_greeks",
+  "coordinates": {
+    "L": 1,
+    "P": 0,
+    "M": 0,
+    "A": 0,
+    "D": 1,
+    "R": 1,
+    "F": "F0"
+  },
+  "pricing_measure_id": "USD-MONEY-MARKET-Q-v1",
+  "numeraire_id": "USD-MONEY-MARKET-ACCOUNT-v1",
+  "economic_object": "ex_dividend_spot",
+  "pricing_law": "exact_analytic_constant_parameter_bsm",
+  "inputs": [
+    "spot",
+    "strike",
+    "time_to_expiry_actual365",
+    "risk_free_rate",
+    "dividend_yield",
+    "sigma",
+    "call_put"
+  ],
+  "outputs": [
+    "price",
+    "delta",
+    "gamma",
+    "vega",
+    "theta",
+    "rho"
+  ],
+  "method_id": "bsm-analytic-float64-greeks-v1",
+  "convention_id": "bsm-spot-greeks-actual365-flat-continuous-v1",
+  "output_contract_id": "bsm-analytic-greeks-output-v1",
+  "output_schema": "schemas/bsm-greeks-output.schema.json",
+  "day_count": "Actual365Fixed",
+  "rates": "flat_continuously_compounded",
+  "sigma_semantics": "annualized_Q_instantaneous_return_standard_deviation",
+  "greek_scaling": {
+    "delta": "per_1_spot_unit",
+    "gamma": "per_1_spot_unit_squared",
+    "vega": "per_0.01_absolute_volatility",
+    "theta": "per_1_calendar_day_expiry_fixed",
+    "rho": "per_0.01_absolute_continuous_rate"
+  },
+  "contract_multiplier_policy": "unit_option_not_applied",
+  "canonicalization": {
+    "input_dtype": "binary64_cast_once_at_contract_boundary",
+    "output_decimal_places": 8,
+    "rounding": "ROUND_HALF_EVEN",
+    "negative_zero": "canonical_positive_zero"
+  },
+  "persisted_intermediates": []
+}

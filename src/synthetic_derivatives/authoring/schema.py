@@ -1,6 +1,6 @@
 """Define DuckDB storage, visibility views, and deterministic MERGE contracts.
 
-Schema 2.4 still creates the legacy ``option_pricing_audit`` table so existing
+Schema 2.5 still creates the legacy ``option_pricing_audit`` table so existing
 databases remain readable.  Current authoring does not include that table in
 ``TABLE_SPECS`` and therefore cannot stage new IV-answer rows into it.
 """
@@ -13,11 +13,16 @@ from typing import Any, Sequence
 import duckdb
 
 
-SCHEMA_VERSION = "2.4.0"
-# The 2.1--2.4 changes are additive: private dependence, chain and quote-pricing
-# provenance plus nullable contract/filter/quote metadata are added without
-# rewriting existing market observations.
-MIGRATABLE_SCHEMA_VERSIONS = {"2.0.0", "2.1.0", "2.2.0", "2.3.0"}
+SCHEMA_VERSION = "2.5.0"
+# Schema 2.5 replaces only the dependence contract table so it can store
+# measure-qualified P/Q rows. Existing market observations are never rewritten.
+MIGRATABLE_SCHEMA_VERSIONS = {
+    "2.0.0",
+    "2.1.0",
+    "2.2.0",
+    "2.3.0",
+    "2.4.0",
+}
 
 SCHEMA_BOOTSTRAP = r"""
 CREATE SCHEMA IF NOT EXISTS metadata;
@@ -98,11 +103,19 @@ CREATE TABLE IF NOT EXISTS market.underlyings (
     PRIMARY KEY (snapshot_id, underlying_id)
 );
 
--- Private P-measure DGP.  Deliberately omitted from solver_visible views.
+-- Measure-qualified underlying/model-driver dependence. Config 1.7 writes a
+-- P/Q pair; legacy configs write one P row. Q mapping columns are forbidden on
+-- P and mandatory on Q.
 CREATE TABLE IF NOT EXISTS market.underlying_dependence (
     snapshot_id VARCHAR NOT NULL,
     dependence_spec_id VARCHAR NOT NULL,
-    measure VARCHAR NOT NULL CHECK (measure = 'P'),
+    measure VARCHAR NOT NULL CHECK (measure IN ('P', 'Q')),
+    source_dependence_spec_id VARCHAR,
+    mapping_id VARCHAR,
+    mapping_type VARCHAR,
+    risk_neutral_measure_id VARCHAR,
+    numeraire_id VARCHAR,
+    rate_path_id VARCHAR,
     driver_order JSON NOT NULL,
     formulation VARCHAR NOT NULL CHECK (formulation = 'factor_loading'),
     factor_loading_matrix JSON NOT NULL,
@@ -117,6 +130,23 @@ CREATE TABLE IF NOT EXISTS market.underlying_dependence (
     regime_id VARCHAR NOT NULL,
     generator_config_id VARCHAR NOT NULL,
     created_run_id VARCHAR NOT NULL,
+    CHECK (
+        (measure = 'P'
+            AND source_dependence_spec_id IS NULL
+            AND mapping_id IS NULL
+            AND mapping_type IS NULL
+            AND risk_neutral_measure_id IS NULL
+            AND numeraire_id IS NULL
+            AND rate_path_id IS NULL)
+        OR
+        (measure = 'Q'
+            AND source_dependence_spec_id IS NOT NULL
+            AND mapping_id IS NOT NULL
+            AND mapping_type = 'girsanov_drift_only_same_brownian_covariance'
+            AND risk_neutral_measure_id IS NOT NULL
+            AND numeraire_id IS NOT NULL
+            AND rate_path_id IS NOT NULL)
+    ),
     PRIMARY KEY (snapshot_id, dependence_spec_id)
 );
 
@@ -284,6 +314,37 @@ SELECT
     settlement_price, volume, open_interest
 FROM market.option_daily;
 
+CREATE OR REPLACE VIEW solver_visible.underlying_dependence AS
+WITH measure_qualified_snapshots AS (
+    SELECT snapshot_id
+    FROM market.underlying_dependence
+    GROUP BY snapshot_id
+    HAVING sum(CASE WHEN measure = 'P' THEN 1 ELSE 0 END) = 1
+       AND sum(CASE WHEN measure = 'Q' THEN 1 ELSE 0 END) = 1
+)
+SELECT
+    dependence.snapshot_id,
+    dependence.dependence_spec_id,
+    dependence.measure,
+    dependence.source_dependence_spec_id,
+    dependence.mapping_id,
+    dependence.mapping_type,
+    dependence.risk_neutral_measure_id,
+    dependence.numeraire_id,
+    dependence.rate_path_id,
+    dependence.driver_order,
+    dependence.formulation,
+    dependence.factor_loading_matrix,
+    dependence.idiosyncratic_diagonal,
+    dependence.correlation_matrix,
+    dependence.matrix_dtype,
+    dependence.factorization_method,
+    dependence.factorization_order,
+    dependence.time_grid,
+    dependence.regime_id
+FROM market.underlying_dependence AS dependence
+JOIN measure_qualified_snapshots USING (snapshot_id);
+
 CREATE OR REPLACE VIEW solver_visible.pricing_metadata AS
 SELECT
     snapshot_id, valuation_timestamp, underlying_id, currency,
@@ -317,6 +378,8 @@ SELECT
         'risk_neutral_drift',
             json_extract_string(pricing_dynamics, '$.risk_neutral_drift'),
         'q_pricing', json_extract(pricing_dynamics, '$.q_pricing'),
+        'underlying_dependence',
+            json_extract(pricing_dynamics, '$.underlying_dependence'),
         'volatility_parameterization',
             'private_deterministic_diffusion',
         'task_input_reference', 'task-specific pricing context'
@@ -407,8 +470,10 @@ TABLE_SPECS = {
     "underlying_dependence": TableSpec(
         "market.underlying_dependence",
         (
-            "snapshot_id", "dependence_spec_id", "measure", "driver_order",
-            "formulation", "factor_loading_matrix",
+            "snapshot_id", "dependence_spec_id", "measure",
+            "source_dependence_spec_id", "mapping_id", "mapping_type",
+            "risk_neutral_measure_id", "numeraire_id", "rate_path_id",
+            "driver_order", "formulation", "factor_loading_matrix",
             "idiosyncratic_diagonal", "correlation_matrix", "matrix_dtype",
             "factorization_method", "factorization_order", "time_grid",
             "regime_id", "generator_config_id", "created_run_id",
@@ -483,12 +548,12 @@ TABLE_SPECS = {
 
 
 def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
-    """Create the current schema or apply the supported additive migration.
+    """Create the current schema or apply the supported logical migration.
 
-    Existing 2.0--2.3 snapshots keep every market row unchanged. Migration
-    creates private provenance tables as needed, adds nullable option-contract,
-    liquidity and quote metadata plus revision counters, then advances metadata
-    to schema 2.4.
+    Existing mutable 2.0--2.4 snapshots keep every market observation unchanged.
+    The dependence table is rebuilt only to replace its P-only CHECK constraint
+    with the P/Q contract and nullable mapping columns. A frozen database is
+    never migrated in place; it remains readable through a read-only connection.
     """
 
     connection.execute(SCHEMA_BOOTSTRAP)
@@ -506,7 +571,65 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
         raise RuntimeError(
             f"unsupported DuckDB schema version: {current_version[0]}"
         )
+    legacy_dependence_table = False
+    if current_version and current_version[0] != SCHEMA_VERSION:
+        snapshots_table_exists = connection.execute(
+            """
+            SELECT count(*) FROM information_schema.tables
+            WHERE table_schema = 'metadata' AND table_name = 'snapshots'
+            """
+        ).fetchone()[0]
+        if snapshots_table_exists:
+            frozen_count = connection.execute(
+                "SELECT count(*) FROM metadata.snapshots WHERE status = 'FROZEN'"
+            ).fetchone()[0]
+            if frozen_count:
+                raise RuntimeError(
+                    "frozen snapshot schema is immutable; open it read-only or "
+                    "clone it before migration"
+                )
+        legacy_dependence_table = bool(
+            connection.execute(
+                """
+                SELECT count(*) FROM information_schema.tables
+                WHERE table_schema = 'market'
+                  AND table_name = 'underlying_dependence'
+                """
+            ).fetchone()[0]
+        )
+        if legacy_dependence_table:
+            connection.execute(
+                """
+                ALTER TABLE market.underlying_dependence
+                RENAME TO underlying_dependence_schema_2_4
+                """
+            )
     connection.execute(DDL)
+    if legacy_dependence_table:
+        connection.execute(
+            """
+            INSERT INTO market.underlying_dependence (
+                snapshot_id, dependence_spec_id, measure,
+                source_dependence_spec_id, mapping_id, mapping_type,
+                risk_neutral_measure_id, numeraire_id, rate_path_id,
+                driver_order, formulation, factor_loading_matrix,
+                idiosyncratic_diagonal, correlation_matrix, matrix_dtype,
+                factorization_method, factorization_order, time_grid,
+                regime_id, generator_config_id, created_run_id
+            )
+            SELECT
+                snapshot_id, dependence_spec_id, measure,
+                NULL, NULL, NULL, NULL, NULL, NULL,
+                driver_order, formulation, factor_loading_matrix,
+                idiosyncratic_diagonal, correlation_matrix, matrix_dtype,
+                factorization_method, factorization_order, time_grid,
+                regime_id, generator_config_id, created_run_id
+            FROM market.underlying_dependence_schema_2_4
+            """
+        )
+        connection.execute(
+            "DROP TABLE market.underlying_dependence_schema_2_4"
+        )
     connection.execute(
         """
         ALTER TABLE metadata.snapshot_revisions

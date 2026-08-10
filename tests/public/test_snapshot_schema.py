@@ -63,6 +63,28 @@ EXPECTED_METADATA_FIELDS = {
     "canonicalization",
 }
 
+EXPECTED_DEPENDENCE_FIELDS = {
+    "snapshot_id",
+    "dependence_spec_id",
+    "measure",
+    "source_dependence_spec_id",
+    "mapping_id",
+    "mapping_type",
+    "risk_neutral_measure_id",
+    "numeraire_id",
+    "rate_path_id",
+    "driver_order",
+    "formulation",
+    "factor_loading_matrix",
+    "idiosyncratic_diagonal",
+    "correlation_matrix",
+    "matrix_dtype",
+    "factorization_method",
+    "factorization_order",
+    "time_grid",
+    "regime_id",
+}
+
 
 def _columns(connection: duckdb.DuckDBPyConnection, table: str) -> set[str]:
     return {row[0] for row in connection.execute(f"DESCRIBE {table}").fetchall()}
@@ -85,6 +107,13 @@ def test_solver_visible_views_cover_framework_fields(
         )
         assert EXPECTED_METADATA_FIELDS <= _columns(
             connection, "solver_visible.pricing_metadata"
+        )
+        dependence_columns = _columns(
+            connection, "solver_visible.underlying_dependence"
+        )
+        assert EXPECTED_DEPENDENCE_FIELDS == dependence_columns
+        assert {"seed", "generator_config_id", "created_run_id"}.isdisjoint(
+            dependence_columns
         )
     finally:
         connection.close()

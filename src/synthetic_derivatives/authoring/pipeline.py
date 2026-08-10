@@ -48,6 +48,24 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         self.config = config
         self.underlying_generator = UnderlyingDailyGenerator(config)
         self.option_generator = OptionDailyGenerator(config)
+        if self.database.exists():
+            probe = duckdb.connect(str(self.database), read_only=True)
+            snapshot_table_exists = probe.execute(
+                """
+                SELECT count(*) FROM information_schema.tables
+                WHERE table_schema = 'metadata' AND table_name = 'snapshots'
+                """
+            ).fetchone()[0]
+            frozen = bool(
+                snapshot_table_exists
+                and probe.execute(
+                    "SELECT count(*) FROM metadata.snapshots WHERE status = 'FROZEN'"
+                ).fetchone()[0]
+            )
+            if frozen:
+                self.connection = probe
+                return
+            probe.close()
         self.connection = duckdb.connect(str(self.database))
         initialize_schema(self.connection)
 
@@ -121,6 +139,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         if not dates:
             raise ValueError("requested range contains no business dates")
         run_id = str(uuid4())
+        run_started = False
         self.connection.execute("BEGIN TRANSACTION")
         try:
             # Run immutable-contract checks before creating any market rows.
@@ -146,6 +165,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                     dates[-1],
                 ],
             )
+            run_started = True
 
             stats = self._generate_incremental_rows(dates, run_id)
             self._assert_quality_gates()
@@ -174,8 +194,13 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             self.connection.execute("COMMIT")
         except Exception as error:
             self.connection.execute("ROLLBACK")
-            # Failure lineage intentionally survives the rolled-back data batch.
-            self._record_failed_run(run_id, operation, dates[0], dates[-1], error)
+            # Failure lineage survives a rolled-back data batch only after the
+            # run itself began. Immutable-contract preflight failures, including
+            # attempts to edit a frozen snapshot, must not mutate that snapshot.
+            if run_started:
+                self._record_failed_run(
+                    run_id, operation, dates[0], dates[-1], error
+                )
             raise
         summary = self.summary()
         self._write_manifest(summary)
@@ -326,8 +351,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         the underlying dependence matrix.
         """
 
-        underlying_dependence_row = (
-            self.underlying_generator.underlying_dependence_row(run_id)
+        underlying_dependence_rows = (
+            self.underlying_generator.underlying_dependence_rows(run_id)
         )
         option_chain_spec_row = self.option_generator.option_chain_spec_row(run_id)
         # Private provenance and immutable masters are always reconstructed
@@ -346,9 +371,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             "underlying_dependence": merge_rows(
                 self.connection,
                 TABLE_SPECS["underlying_dependence"],
-                [underlying_dependence_row]
-                if underlying_dependence_row is not None
-                else [],
+                underlying_dependence_rows,
             ),
             "option_chain_specs": merge_rows(
                 self.connection,
@@ -523,26 +546,27 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             SELECT {', '.join(columns)}
             FROM market.underlying_dependence
             WHERE snapshot_id = ?
-            ORDER BY dependence_spec_id
+            ORDER BY CASE measure WHEN 'P' THEN 0 ELSE 1 END,
+                     dependence_spec_id
             """,
             [self.config.snapshot_id],
         ).fetchall()
-        expected_row = self.underlying_generator.underlying_dependence_row(
+        expected_rows = self.underlying_generator.underlying_dependence_rows(
             "compatibility-check"
         )
-        if expected_row is None:
+        if not expected_rows:
             if existing_rows:
                 raise ValueError(
-                    "underlying_simulation cannot be removed within one snapshot; "
+                    "underlying dependence cannot be removed within one snapshot; "
                     "create a new snapshot instead"
                 )
             return
 
-        expected_logical_row = tuple(expected_row[:-1])
+        expected_logical_rows = [tuple(row[:-1]) for row in expected_rows]
         if existing_rows:
-            if len(existing_rows) != 1 or tuple(existing_rows[0]) != expected_logical_row:
+            if [tuple(row) for row in existing_rows] != expected_logical_rows:
                 raise ValueError(
-                    "underlying_simulation cannot change within one snapshot; "
+                    "underlying dependence cannot change within one snapshot; "
                     "create a new snapshot instead"
                 )
             return
@@ -556,7 +580,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         ).fetchone()[0]
         if existing_path_count:
             raise ValueError(
-                "underlying_simulation cannot be added to an existing path; "
+                "underlying dependence cannot be added to an existing path; "
                 "create a new snapshot instead"
             )
 
@@ -661,6 +685,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         """
 
         self._assert_underlying_dependence_is_compatible()
+        self._assert_common_q_context()
         self._assert_option_chain_is_compatible()
         self._assert_option_contracts_are_compatible()
         checks = {
@@ -750,6 +775,73 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         failures = {name: count for name, count in failures.items() if count}
         if failures:
             raise ValueError(f"snapshot quality gates failed: {failures}")
+
+    def _assert_common_q_context(self) -> None:
+        """Freeze the common Q, numeraire and flat rate-path identity.
+
+        Config 1.7's drift-only mapping keeps P/Q Brownian covariance fixed,
+        while every same-currency vanilla margin uses the one declared pricing
+        measure, money-market numeraire and flat rate path. Correlation remains
+        absent from the option generator's marginal pricing inputs.
+        """
+
+        q_dependence = self.config.q_underlying_dependence
+        if q_dependence is None:
+            return
+        q_pricing = self.config.q_pricing
+        if q_pricing is None:
+            raise ValueError("Q dependence requires a common q_pricing contract")
+        expected_context = (
+            self.config.currency,
+            q_pricing.risk_neutral_measure_id,
+            q_pricing.numeraire_id,
+            q_pricing.rate_path_id,
+            q_dependence.dependence_spec_id,
+        )
+        if (
+            q_dependence.risk_neutral_measure_id,
+            q_dependence.numeraire_id,
+            q_dependence.rate_path_id,
+        ) != expected_context[1:4]:
+            raise ValueError(
+                "Q dependence and q_pricing measure/numeraire/rate-path IDs differ"
+            )
+        if len({underlying.risk_free_rate for underlying in self.config.underlyings}) != 1:
+            raise ValueError(
+                "one flat rate_path_id cannot identify different underlying rates"
+            )
+        persisted_contexts = set(
+            self.connection.execute(
+                """
+                SELECT DISTINCT
+                    currency,
+                    json_extract_string(
+                        pricing_dynamics,
+                        '$.q_pricing.risk_neutral_measure_id'
+                    ),
+                    json_extract_string(
+                        pricing_dynamics,
+                        '$.q_pricing.numeraire_id'
+                    ),
+                    json_extract_string(
+                        pricing_dynamics,
+                        '$.q_pricing.rate_path_id'
+                    ),
+                    json_extract_string(
+                        pricing_dynamics,
+                        '$.underlying_dependence.dependence_spec_id'
+                    )
+                FROM market.pricing_metadata
+                WHERE snapshot_id = ?
+                """,
+                [self.config.snapshot_id],
+            ).fetchall()
+        )
+        if persisted_contexts and persisted_contexts != {expected_context}:
+            raise ValueError(
+                "pricing metadata does not share one Q/numeraire/rate-path/"
+                "dependence identity"
+            )
 
     def _record_revision(self, run_id: str) -> None:
         """Snapshot current logical counts under the next monotonic revision."""

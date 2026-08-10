@@ -19,7 +19,7 @@
 |:---|:---|
 | [`test_authoring_smoke.py`](test_authoring_smoke.py) | 5-underlying baseline、初次生成、NOOP rerun、append 单日、legacy additive underlying/option template、freeze 和 failed-run audit。 |
 | [`test_authoring_template.py`](test_authoring_template.py) | Checked-in QuantLib template 可运行、deterministic time functions 写入 metadata、one-shot/append equality 和 existing-definition behavior。 |
-| [`test_snapshot_schema.py`](test_snapshot_schema.py) | `solver_visible` 三个 views 覆盖 framework 字段，以及 checked-in DuckDB 与 manifest 的 status/revision/counts 一致。 |
+| [`test_snapshot_schema.py`](test_snapshot_schema.py) | `solver_visible` views 覆盖 framework 字段与 P/Q dependence safe projection，以及 checked-in DuckDB 与 manifest 的 status/revision/counts 一致。 |
 | [`test_sql_queries.py`](test_sql_queries.py) | `snapshots/public/sql_query` 文件集合、只读约束、DuckDB 可执行性和固定结果行数。 |
 
 ## Public contract
@@ -31,10 +31,11 @@
 - `solver_visible.underlying_daily`
 - `solver_visible.option_daily`
 - `solver_visible.pricing_metadata`
+- `solver_visible.underlying_dependence`（仅对完整 P/Q pair 返回 rows）
 
 Private authoring provenance，例如 `created_run_id`、`generated_run_id`、
-`market.underlying_dependence` 和 `market.option_chain_specs`，不得因为 schema 重构意外进入
-solver-visible views。
+dependence calibration/run lineage 和 `market.option_chain_specs`，不得因为 schema 重构意外
+进入 solver-visible views。
 
 注意：`solver_visible.pricing_metadata` 目前仍是 smoke 阶段的过渡结构，尚未完成
 public/private metadata split。若主动改变它，必须同步 framework 文档、schema tests 和
@@ -48,7 +49,7 @@ Public pipeline 必须满足：
 - 相同 config/range 重跑返回 `NOOP`，revision 不变；
 - append 只新增请求日期的 daily/metadata rows，不重写历史；
 - legacy additive config 只回填新增 entity/contract family；
-- `FROZEN` snapshot 拒绝后续写入，并记录失败 run；
+- `FROZEN` snapshot 以只读连接重开并拒绝后续写入，不记录会改变文件的失败 run；
 - manifest counts 与 DuckDB logical counts 一致。
 
 ### Checked-in snapshot

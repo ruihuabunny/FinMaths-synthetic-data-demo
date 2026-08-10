@@ -1,15 +1,17 @@
 # DuckDB + QuantLib Authoring Pipeline
 
-> 实现状态（2026-08-06）：underlying simulator 第一阶段与 static
+> 实现状态（2026-08-10）：underlying simulator 第一阶段与 static
 > `OptionChainBuilder` 与 liquidity-filtered quote profile 已经实现。Generator config
 > `1.2.0` 可以用 $\Lambda/D/R$ 相关结构生成物理测度 $\mathbb P$ 下的多个
 > underlying path；config `1.3.0` 生成 expiry × listing-moneyness × call/put 完整网格，
 > 并冻结挂牌 strike；config `1.4.0` 从 candidate grid 只挂牌近月、近价合约，并以
 > deterministic quote noise 扰动 BSM bid/ask；config `1.5.0` 使用 sampled-and-frozen
-> piecewise-linear physical functions、显式 drift-only Girsanov Q mapping，并从 canonical
-> mid 调用 QuantLib 反解 IV；authoring schema `2.4.0` 另保存 private option pricing audit。
+> piecewise-linear physical functions与显式 drift-only Girsanov Q mapping；config `1.6.0`
+> 将 IV inversion 移出 authoring，config `1.7.0` 增加独立 P/Q underlying-driver
+> dependence identities。Authoring schema `2.5.0` 保存 source/mapping/common-Q context。
 > Option/derivative pricing 不读取 underlying 相关矩阵，原有 v1/v1.1/v1.2 pipeline
-> 保持兼容。
+> 保持兼容。独立 exporter 与 BSM Greeks packaging pipeline 已能从 frozen P/Q parent
+> 生成一条 accepted 的 8-underlying D4 golden task；batch packaging 尚未实现。
 
 ## 目标与范围
 
@@ -22,7 +24,8 @@
 Smoke test 中有 5 个 underlying 定义和 5 个 option templates。每个 template 会实例化到每个 underlying，因此数据库包含 25 个 option contracts，而不是总共 5 个合约。
 
 Mutation + curriculum 本身不直接写 authoring DuckDB：`task_space` 只登记 snapshot
-id/revision 和六维坐标，`mutation` 只产生 child task/lineage，`curriculum` 只计算
+id/revision 和七维坐标（当前 task 固定 `F0`；旧六维输入仅由显式 adapter 迁移），
+`mutation` 只产生 child task/lineage，`curriculum` 只计算
 采样权重。联合 simulator 会扩展 authoring pipeline；若 mutation 改变市场状态、共享
 利率路径、边际模型或联合依赖，仍须通过新的 authoring config/snapshot id 生成，再把
 新 revision 注册到 child task。
@@ -42,9 +45,9 @@ underlying 生成器，同时保持确定性重放、事务写入、snapshot 不
 - `option_daily_row()` 不接收 dependence spec，也不生成 correlated derivative shocks。
   Option quote 仍由当日可见 spot、声明的风险中性参数和 QuantLib engine 计算；固定 spot
   与定价参数时，切换 underlying correlation 不得改变该 option quote。
-- Config `1.5.0` 已为 single-asset vanilla margins 声明共同 $\mathbb Q$/numeraire/rate-path
-  identity 与 P-to-Q diffusion mapping；更复杂合法边际模型和 Q-measure multi-asset
-  dependence 仍属于后续独立改造，不与 P-measure path correlation 混装。
+- Config `1.7.0` 已为 vanilla margins 声明共同 $\mathbb Q$/numeraire/rate-path identity、
+  独立 P/Q dependence IDs 与 drift-only same-Brownian-covariance mapping；更复杂合法边际
+  模型仍需新的显式 measure mapping，不能沿用这一 baseline。
 - money-market numeraire 继续记为 $B_t$；factor-loading matrix 只记为 $\Lambda_t$。
 - v1/v1.1 配置不声明 `underlying_simulation`，继续使用原来的逐 entity 独立 close
   stream，已有固定 seed 结果不改变。
@@ -242,8 +245,8 @@ latent-smile volatility 输入，并引入明确的 single-asset common-$\mathbb
 
 ### Schema、增量与边界
 
-Option-chain provenance 首次由 schema `2.2.0` 引入；当前 schema `2.4.0` 支持从
-`2.0.0/2.1.0/2.2.0/2.3.0` additive migration：
+Option-chain provenance 首次由 schema `2.2.0` 引入；当前 schema `2.5.0` 支持 mutable
+`2.0.0`--`2.4.0` migration，冻结库保持只读且不原地迁移：
 
 | 对象 | 作用 |
 |:---|:---|
@@ -305,9 +308,12 @@ discounting 或 underlying simulation。完整 filter 与 quote model 均写入 
 | `src/synthetic_derivatives/authoring/underlying_daily_generator.py` | Underlying master/dependence、P path 与 pricing metadata；唯一消费 $\Lambda/D/R$ 的 generator。 |
 | `src/synthetic_derivatives/authoring/option_daily_generator.py` | Option chain spec、frozen contracts 与 daily quotes；只接收 realized spot，不提供 underlying dependence API。 |
 | `src/synthetic_derivatives/authoring/pipeline.py` | 显式编排两个 generator、DuckDB transaction、incremental MERGE 与 quality gates。 |
+| `src/synthetic_derivatives/export/solver_database.py` | 从 frozen parent 确定性写出独立 public-only child、stable IDs、logical checksum 与 read-only handoff。 |
+| `src/synthetic_derivatives/export/contracts.py` | 固定 public table/column/type/order、export identity、subset manifest 与 recursive leakage denylist。 |
 | `tests/public/test_authoring_smoke.py` | 初始规模、幂等、追加日期、增加品种和 freeze 测试。 |
 | `tests/unit/test_underlying_simulator.py` | $\Lambda/D/R$、联合 shock、持久化、append invariance 与 derivative boundary 测试。 |
 | `tests/unit/test_option_chain_builder.py` | chain config、完整网格、listing strike、不可变性及 append/sync tests。 |
+| `tests/integration/test_solver_database_replay.py` | 22→8 public child、parent immutability、replay checksum、nested leakage 与只读边界。 |
 
 ## DuckDB schemas（当前实现）
 
@@ -318,7 +324,7 @@ discounting 或 underlying simulation。完整 filter 与 quote model 均写入 
 | 表 | 业务主键 | 说明 |
 |:---|:---|:---|
 | `market.underlyings` | `(snapshot_id, underlying_id)` | Underlying master 和 P/Q 参数入口。 |
-| `market.underlying_dependence` | `(snapshot_id, dependence_spec_id)` | 私有的 P-measure underlying factor-loading 合同；不进入 solver views。 |
+| `market.underlying_dependence` | `(snapshot_id, dependence_spec_id)` | P/Q measure-qualified factor-loading 合同；完整 P/Q pair 通过 safe solver view 投影，不含 seed/run provenance。 |
 | `market.option_chain_specs` | `(snapshot_id, chain_id)` | 私有 option-chain listing/grid/roll/rounding 合同；不进入 solver views。 |
 | `market.option_contracts` | `(snapshot_id, option_id)` | Option 合约静态字段及 listing provenance；绝对 strike 挂牌后冻结。 |
 | `market.underlying_daily` | `(snapshot_id, date, underlying_id)` | Framework 要求的 underlying daily panel。 |
@@ -345,8 +351,56 @@ daily/metadata 表包含 framework 指定的全部字段。内部表额外保存
 - `solver_visible.underlying_daily`
 - `solver_visible.option_daily`
 - `solver_visible.pricing_metadata`
+- `solver_visible.underlying_dependence`（仅完整 P/Q pair）
 
-这些 view 不暴露 authoring lineage 字段。生产部署时还应把 solver 和 authoring database 放到不同权限环境，按 task variant 导出冻结切片。
+这些 authoring-DB views 只用于投影源，不构成最终文件权限边界。生产 Solver 必须接收由
+`synthetic_derivatives.export` 新建的独立 child 文件，不能打开包含 `market` tables 的 parent。
+
+### 独立 public child
+
+Public schema `solver-market-public-duckdb-v1.0.0` 固定六张 base tables：
+
+- `metadata.public_task`
+- `solver_visible.underlying_state`
+- `solver_visible.option_contracts`
+- `solver_visible.option_chain_quotes`
+- `solver_visible.pricing_context`
+- `solver_visible.underlying_dependence`
+
+Exporter 只接受单一 `FROZEN` parent；以 `READ_ONLY` attach 读取选中的 valuation date、
+underlyings 和 option IDs，写完后 detach。Sampling seed 只参与 SHA-256 stable identity，不写入
+child。P/Q dependence 同步截取 $\Lambda$ rows、$D$ entries 与 $R$ principal submatrix，因而
+不改变 factor law，也不进行 PSD repair。
+
+Child 不含 `market` schema、generation run IDs、seed/RNG、authoring IV audit、private function
+node heights、oracle/answer 或 parent path。Pre-export payload 与完成后的每个 public value 都会
+递归扫描；JSON strings 会先解析再检查 nested keys。Logical checksum 哈希固定类型合同和全部
+canonical rows，不读取 DuckDB file bytes，因此不受物理布局/mtime 影响。最终只通过
+`open_solver_database()` 的 read-only connection 交付；完整合同见
+[`src/synthetic_derivatives/export/README.md`](../src/synthetic_derivatives/export/README.md)。
+
+### D4 BSM Greeks golden package
+
+Task-specific packaging 在上述 generic public child 之后再做一次最小投影。当前 accepted
+`bsm_market_implied_greeks_v1` 从 valuation-date listing inputs 确定性选出 8 个
+underlyings；每个 underlying 保留两个最近 live expiries、每个 expiry 五个最接近 forward
+ATM 的 strikes，以及完整 call/put pairs。最终 Agent DuckDB 恰有 160 rows 和三张 base
+relations：
+
+- `metadata.public_task`；
+- `solver_visible.greeks_task_inputs`；
+- `solver_visible.greeks_task_contract`。
+
+三关系 DB 不保存 P/Q loading matrices；但其 public provenance 固定 parent/public-child
+logical checksums、joint-market contract、P/Q dependence IDs 和 drift-only covariance mapping
+policy。相关性只约束共同市场身份，不进入单资产 vanilla BSM 边际 price/Greeks。
+
+Agent 通过各一次的 trusted contract/input query adapter 读取数据，不得到 raw DuckDB handle。
+Reference solver 在 effective runtime allowlist 下两次重放；trusted verifier 只从 public
+bid/ask 和冻结 method config 用 QuantLib 独立重建 80-step IV 与五个 unit Greeks。Source
+package 自动导出 authoring、train/dev、evaluation views；私有 artifact manifest 覆盖所有源
+制品，evaluation view 只含 root manifest 与 `public/`。构建入口和当前边界见
+[`task_packages/README.md`](../task_packages/README.md)。
 
 ## QuantLib 生成方法（当前实现）
 

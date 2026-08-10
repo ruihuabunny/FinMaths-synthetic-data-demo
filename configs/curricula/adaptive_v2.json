@@ -1,0 +1,22 @@
+{
+  "schema_version": "2.0.0",
+  "curriculum_id": "adaptive-derivatives-v2",
+  "mixture": {"replay": 0.2, "current": 0.6, "explore": 0.2},
+  "mastery_bands": [
+    {"minimum": 0.0, "maximum": 0.05, "action": "decompose_or_sft", "weight_multiplier": 0.1},
+    {"minimum": 0.05, "maximum": 0.2, "action": "sparse_repair", "weight_multiplier": 0.35},
+    {"minimum": 0.2, "maximum": 0.8, "action": "core_rl", "weight_multiplier": 1.0},
+    {"minimum": 0.8, "maximum": 0.95, "action": "advance", "weight_multiplier": 0.6},
+    {"minimum": 0.95, "maximum": 1.0, "action": "replay_only", "weight_multiplier": 0.25}
+  ],
+  "stages": [
+    {"index": 0, "stage_id": "numeric_conventions", "coordinates": {"L": [0], "P": [0], "M": [0], "A": [0], "D": [0], "R": [0], "F": ["F0"]}},
+    {"index": 1, "stage_id": "complete_vanilla", "coordinates": {"L": [1], "P": [0], "M": [0], "A": [0, 1, 2], "D": [0, 1], "R": [1], "F": ["F0"]}},
+    {"index": 2, "stage_id": "multileg", "coordinates": {"L": [2], "P": [1, 2, 3, 4, 5], "M": [0], "A": [0, 1, 2], "D": [1, 2], "R": [2, 3], "F": ["F0"]}},
+    {"index": 3, "stage_id": "iv_smile_term", "coordinates": {"L": [3], "P": [0, 1, 2, 3, 4], "M": [0, 1, 2, 3], "A": [1, 7], "D": [2, 3, 4], "R": [1, 7], "F": ["F0"]}},
+    {"index": 4, "stage_id": "non_bsm", "coordinates": {"L": [3, 4], "P": [0, 1, 2, 3, 4, 5], "M": [1, 2, 3, 4, 5, 6], "A": [3, 4, 5, 6, 7], "D": [2, 3, 4], "R": [4, 7, 8], "F": ["F0"]}},
+    {"index": 5, "stage_id": "exotic_path", "coordinates": {"L": [3, 4, 5], "P": [6, 7], "M": [0, 1, 2, 3, 4, 5, 6], "A": [4, 5, 6], "D": [3, 4, 5], "R": [4, 5, 6, 7, 8], "F": ["F0"]}},
+    {"index": 6, "stage_id": "rates_hybrid", "coordinates": {"L": [4, 5], "P": [0, 1, 2, 3, 4, 5, 6, 7, 8], "M": [7, 8], "A": [5, 6, 7, 8], "D": [3, 4, 5, 6, 7], "R": [4, 5, 6, 7, 8, 9], "F": ["F0"]}},
+    {"index": 7, "stage_id": "agentic_risk", "coordinates": {"L": [5, 6], "P": [0, 1, 2, 3, 4, 5, 6, 7, 8], "M": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], "A": [0, 1, 2, 3, 4, 5, 6, 7, 8], "D": [4, 5, 6, 7, 8], "R": [5, 6, 7, 8, 9], "F": ["F0"]}}
+  ]
+}

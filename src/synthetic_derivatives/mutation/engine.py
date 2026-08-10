@@ -7,7 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from synthetic_derivatives.task_space import AXES, TaskSpaceRegistry, TaskSpec
+from synthetic_derivatives.task_space import (
+    AXES,
+    TaskSpaceRegistry,
+    TaskSpec,
+    coordinate_rank,
+)
+from synthetic_derivatives.task_space.models import CoordinateValue
 
 
 @dataclass(frozen=True)
@@ -27,8 +33,8 @@ class MutationLineage:
     parent_task_id: str
     child_task_id: str
     operator: str
-    before: dict[str, int]
-    after: dict[str, int]
+    before: dict[str, CoordinateValue]
+    after: dict[str, CoordinateValue]
     seed: int
     engine_id: str
     compatibility_rule_id: str
@@ -67,7 +73,7 @@ class MutationEngine:
     def __init__(self, raw: Mapping[str, Any], registry: TaskSpaceRegistry):
         """Validate operator definitions and bind their compatibility registry."""
 
-        if raw.get("schema_version") != "1.0.0":
+        if raw.get("schema_version") != "2.0.0":
             raise ValueError("unsupported mutation schema_version")
         self.engine_id = str(raw["engine_id"])
         self.registry = registry
@@ -114,7 +120,7 @@ class MutationEngine:
         parent: TaskSpec,
         *,
         operator_id: str,
-        changes: Mapping[str, int],
+        changes: Mapping[str, CoordinateValue],
         seed: int,
         task_family_id: str | None = None,
         method_id: str | None = None,
@@ -170,9 +176,7 @@ class MutationEngine:
             else snapshot_revision
         )
         decision = self.registry.require_compatible(coordinates, child_family)
-        coordinate_id = "-".join(
-            f"{axis}{value}" for axis, value in coordinates.to_dict().items()
-        )
+        coordinate_id = coordinates.canonical_id
         # Encode every permitted identity override, not just coordinates.  Two
         # children that point at different snapshots or methods must never
         # collapse to the same task ID.
@@ -216,8 +220,8 @@ class MutationEngine:
         if operator.direction == "any":
             return
         for axis in changed_axes:
-            before = getattr(parent.coordinates, axis)
-            after = getattr(child, axis)
+            before = coordinate_rank(axis, getattr(parent.coordinates, axis))
+            after = coordinate_rank(axis, getattr(child, axis))
             if operator.direction == "increase" and after <= before:
                 raise ValueError(f"operator {operator.operator_id} requires {axis} to increase")
             if operator.direction == "decrease" and after >= before:
