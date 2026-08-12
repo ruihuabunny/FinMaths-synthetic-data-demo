@@ -14,20 +14,24 @@
 | 能力 | 状态 | 说明 |
 |:---|:---:|:---|
 | Authoring pipeline | 已实现 | 支持 create、range sync、append、NOOP、quality gates、revision、manifest 与 freeze。 |
-| $\mathbb P$-measure underlying simulation | 已实现 | 分段线性 drift/volatility 按真实日历区间精确缩约；factor loading 只耦合 underlying shocks。 |
+| $\mathbb P$-measure underlying simulation | 已实现 | 分段线性 drift/volatility 按真实日历区间精确缩约；factor loading 只耦合 underlying shocks；发布 close 量化后作为下一期状态。 |
 | Single-asset $\mathbb Q$ pricing | 已实现 | 共同 measure/numeraire/rate-path identity；authoring 只生成 canonical quotes，不生成 IV/Greek answers。 |
 | Static option chain | 已实现 | 固定 listing strike、到期日/价内外筛选、可重放 bid/ask spread noise。 |
 | Task space / mutation / curriculum | 最小版本已实现 | 七维 compatibility registry、显式旧六维迁移、确定性 lineage 与 adaptive sampling weights；当前任务固定为 F0。 |
 | Public solver DuckDB export | 已实现 | Frozen parent → 独立 public child；稳定采样/任务 ID、subset manifest、logical checksum、递归 leakage scan 与只读打开。 |
 | Analytic BSM/IV/Greeks Solver / trusted verifier | 已实现 | 标准库 price/Greeks/固定 80 步 IV 与 pinned QuantLib 独立 oracle 按 canonical decimal exact compare。 |
-| BSM Greeks agent task package | 已实现 golden task | 8-underlying、160-row 三关系 DuckDB、自动渲染 prompt、有效 runtime allowlist、hidden pytest、reference trajectory 与三种 release views。 |
-| Training export | BSM-specific 已实现 | Golden package 含 observable reference trajectory；Phase F runner 可把 verified packages 导出为九字段 JSONL。完整 100-task batch 尚未执行，跨 family 通用 ORM exporter 仍未实现。 |
+| BSM Greeks agent task package | 已实现 golden task | 8-underlying、160-row 三关系 DuckDB、四个 public source 的最小路由 prompt、有效 runtime allowlist、hidden pytest、reference trajectory 与三种 release views。 |
+| Training export | BSM-specific 已实现 | Golden package 含 observable reference trajectory；Phase F runner 可把 verified packages 导出为九字段 JSONL。旧 solver interface 曾在本地执行 100-task run；当前最小 prompt/interface 版本尚未重建或发布该批次。 |
+| L3 Monte Carlo BSM Greeks | 仅规划骨架 | `solver/mc` 目前只有可导入包和说明文档，没有 estimator、draw bank、variant、schema、package 或验收测试。 |
 | 多资产 $\mathbb Q$ dependence / joint payoff | 部分实现 | P/Q underlying-driver covariance 已显式分层；basket/index/spread payoff 尚未实现。 |
 
 当前的 volatility mapping 是一个明确的 baseline 假设：Girsanov change of measure 只改变
 drift，并令确定性扩散函数满足 $\sigma_Q(t)=\sigma_P(t)$。这不是“physical volatility
 按定义等于 implied volatility”，也不是可推广到随机波动率、局部波动率或 jump model 的
 通用结论。
+
+上述“已实现”指源码与物化制品边界。截至 2026-08-12，当前工作树验证基线为
+`271 passed`；L3/F2A 等设计文档中的未来条目不计入可运行能力。
 
 ## 快速开始
 
@@ -87,7 +91,9 @@ $\mathbb Q$-measure 年化瞬时波动率，期限严格使用 Actual/365 Fixed�
 采用精确解析 BSM law；这不是路径离散化，也不把 physical volatility 当成 implied
 volatility。
 
-Solver 在 [`solver/bsm.py`](src/synthetic_derivatives/solver/bsm.py) 中只用 Python stdlib
+Solver 在
+[`solver/analytic_and_implied_greeks_iv/bsm.py`](src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/bsm.py)
+中只用 Python stdlib
 计算 unit-option price、spot Delta/Gamma、每 1 vol point Vega、每 calendar day Theta 和每
 1 percentage point Rho。Trusted verifier 在
 [`verifier/bsm_greeks.py`](src/synthetic_derivatives/verifier/bsm_greeks.py) 中使用固定的
@@ -95,6 +101,8 @@ QuantLib `1.39` `AnalyticEuropeanEngine` 独立复算。两端只共享
 [`tasks/bsm_greeks.py`](src/synthetic_derivatives/tasks/bsm_greeks.py) 中的输入、单位与
 canonicalization contract，不共享定价或 Greek 实现；所有数值结果经
 `Decimal(str(binary64))`、8 位 `ROUND_HALF_EVEN` 后逐字段 exact compare。
+三个 Solver 模块的数学、权限与公开 API 边界见
+[`analytic_and_implied_greeks_iv` 包说明](src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/README.md)。
 
 直接 Greeks 内核接受给定的 $\sigma_Q$。独立的
 [`bsm_iv_scalar_v1`](configs/variants/bsm_iv_scalar_v1.json) 则只从 solver-visible bid/ask
@@ -104,7 +112,9 @@ canonicalization contract，不共享定价或 Greek 实现；所有数值结果
 成功时无条件执行 80 次 midpoint update，不使用 tolerance、early stop、Newton/Brent 或
 fallback。结果明确区分 `OK`、`INVALID_INPUT`、`OUT_OF_BOUNDS` 和 `NO_BRACKET`。
 
-Solver 的 [IV 实现](src/synthetic_derivatives/solver/bsm_implied_volatility.py) 使用 stdlib BSM
+Solver 的
+[IV 实现](src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/bsm_implied_volatility.py)
+使用 stdlib BSM
 price；[trusted IV verifier](src/synthetic_derivatives/verifier/bsm_implied_volatility.py) 在相同
 冻结迭代 schedule 下调用 QuantLib price，并在
 [IV output schema](schemas/bsm-implied-volatility-output.schema.json) 后逐字段 exact compare。
@@ -123,19 +133,40 @@ call/put pairs，共 160 rows。Agent-visible DuckDB 只含：
 - `solver_visible.greeks_task_inputs`；
 - `solver_visible.greeks_task_contract`。
 
+Public prompt 刻意不复述 BSM 公式、IV pseudocode、Greek 单位、输出 schema 或权限清单；它只把
+Agent 路由到四个 authoritative sources：`query_greeks_task_contract_v1`、
+`query_greeks_task_inputs_v1`、`public/submission.schema.json` 和
+`public/runtime_contract.json`。概率测度、numeraire、定价 law、固定 IV schedule、Greek 定义、
+dtype/cast/rounding 与 canonical row order 的唯一数学合同位于 DuckDB
+`solver_visible.greeks_task_contract.contract_json`；schema 只定义输出形状，runtime contract
+只定义实际能力。
+
 Agent 不获得 raw DuckDB handle；trusted query adapter 各读取 contract/inputs 一次，并只允许
 一次 submission。Effective runtime 由 global allowlist 与 task overlay 取交集，禁用网络、
 动态安装、子进程、QuantLib/现成 IV/Greek packages 和私有路径。Reference solver 在同一
 权限与工具预算下两次 replay 得到 byte-identical submission，再由独立 QuantLib verifier
 从公开 bid/ask 重做 80-step inversion 和五个 unit Greeks，最终逐字符串 exact compare。
+Repo 内用于 authoring/package QA 的同合同组合实现位于
+[`bsm_market_greeks.py`](src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/bsm_market_greeks.py)；
+Train/dev 可观察的 reference source 仍是受 runtime/source policy 审计的独立 package
+artifact；evaluation Agent 只看到 `public/`，不能读取该 reference artifact。
 该输入仍标为 `D4`：任务载体是 DuckDB market snapshot，并要求读取冻结的 contract/input
 relations、保持跨关系 identity 与 canonical row workflow；`D1` 只表示直接给一张结构化表。
 是否把 raw SQL connection 暴露给 Agent 是 runtime security 选择，不会把 market-snapshot
 data/tool axis 降成 D1。
 Package 保持 `ACCEPTED`（单条 golden task）。Selector seed 已可由 Phase F batch runner
-参数化，并可导出九字段 JSONL；完整 100-task run 与 `RELEASED` promotion 尚未执行。Authoring 私有
+参数化，并可导出九字段 JSONL。`runs/` 下存在 2026-08-10 使用前一版 verbose prompt/interface
+生成的本地 100-task 历史 run；`runs/` 被 Git 忽略，该批次不属于当前最小 prompt 与
+`solver_interface_digest` 身份，也未成为 release。当前 interface 的完整 100-task rebuild、
+split audit 与 `RELEASED` promotion 尚未执行。Authoring 私有
 artifact manifest 覆盖全部 public/verifier/reference/private 源制品；package verifier 还会
 逐文件确认 authoring、train/dev、evaluation 三个 view 与各自源文件字节一致。
+
+新 materialization 的 stable task ID 必须纳入 `solver_interface_digest`；该 digest 绑定
+solver-interface contract version、rendered minimal prompt、method contract、submission schema
+与 effective runtime contract。Adapter/input surface 的语义变化必须升级 interface version；
+上述任一接口变化都会生成新 task identity，不能原地修改或复用已接受 package 的 ID。当前
+checked-in `bsm-mig-v1-bde472c5cb0ca8a660314c9e` 已按该规则完成构建与验收。
 
 方法合同要求恰好 80 步，但 79/80/81 步根之间约 $10^{-24}$ 的差异在 8 位输出下通常不可
 观察；因此 source/runtime policy 拒绝显式 schedule 改写，semantic verifier 只声称验证
@@ -146,11 +177,13 @@ artifact manifest 覆盖全部 public/verifier/reference/private 源制品；pac
 - 想运行项目：从上面的“快速开始”和 [public tests](tests/public/README.md) 开始。
 - 想修改 generator：先读 [authoring package](src/synthetic_derivatives/authoring/README.md) 和
   [unit-test invariants](tests/unit/README.md)。
+- 想修改 analytic Greeks、visible-price IV 或 market-implied Greeks：先读
+  [Solver 内核边界](src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/README.md)。
 - 想理解完整数学与训练框架：读
   [框架设计文档](docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md)。
 - 想查看可执行查询：读 [public SQL 说明](snapshots/public/sql_query/README.md)。
 - 想检查 golden agent package：读 [task package 说明](task_packages/README.md) 和
-  [packaging tests](tests/packaging/README.md)。
+  [packaging tests](tests/packaging_analytic_and_implied_greeks_iv/README.md)。
 
 ## 设计流程
 
@@ -169,7 +202,7 @@ artifact manifest 覆盖全部 public/verifier/reference/private 源制品；pac
   -> Curriculum Scheduler 按 mastery 选择训练分布
 
 规划中：
-  -> 执行并审核完整 100-task batch 与 split provenance
+  -> 用当前最小 prompt/interface 重建并审核完整 100-task batch 与 split provenance
   -> 将获批 artifacts 显式 promote 为 RELEASED
   -> 泛化跨 task-family ORM outcome/dataset export
 ```
@@ -249,6 +282,18 @@ scalar 写法继续支持，并等价于 constant function。当前 checked-in m
 重放 snapshot 时不会重新抽样。核心配置片段如下；完整 provenance 以 checked-in config
 为准。
 
+这里的 $S_t>0$ 是 USD/underlying-unit 计价的 synthetic ex-dividend spot，不是
+total-return index；`physical_drift` 是 $\mathbb P$ 下年化瞬时期望价格收益率（year$^{-1}$），
+`physical_volatility` 是年化瞬时收益标准差（year$^{-1/2}$），时钟为 calendar time、day-count
+为 Actual/365 Fixed。`adjusted_close = close`、`dividend = 0`、`corporate_action = none` 是当前
+独立 observation rules；pricing 用的 continuous dividend yield 仍是 $\mathbb Q$ 合同的一部分。
+
+在 filtration $(\mathcal F_t)$ 下，transition 时已知当前全体 published closes、确定性函数、
+日期和冻结 P-dependence spec；未来 date namespace 的 factor/idiosyncratic standard-normal
+shocks 与过去区间独立，且同一日期按冻结 $\Lambda/D/R$ 联合。由于 drift/volatility 都是
+确定性时间函数，下一期所需随机 state 只有当前 published close vector；若以后引入 latent
+variance/rate/regime，必须持久化相应状态，不能沿用这个 Markov state contract。
+
 ```json
 {
   "schema_version": "1.5.0",
@@ -322,13 +367,25 @@ RMS 是 $\sqrt{(a^2+ab+b^2)/3}$。跨节点或跨周末的区间会在节点处�
 当前实现由项目代码完成 piecewise-linear 插值与精确积分，再把每个区间的等效参数
 分别放入 QuantLib `FlatForward` 和 `BlackConstantVol`，最后调用
 `BlackScholesMertonProcess.evolve`。这与 deterministic time-inhomogeneous GBM
-在观测网格上的 exact transition 对齐：
+从当前 published state 到未量化 proposal 的 exact transition 对齐：
 
 $$
 \log\frac{S_{t_1}}{S_{t_0}}
 =\int_{t_0}^{t_1}\left(\mu(t)-\frac12\sigma^2(t)\right)dt
 +\sqrt{\int_{t_0}^{t_1}\sigma^2(t)dt}\,Z.
 $$
+
+随后实现按 `underlying_minimum_price_increment`（legacy config 使用 8 位 decimal
+quantum）对 proposal 做 `ROUND_HALF_EVEN`，并把该 published close 作为下一期 restart
+state。因此实际可重放路径是由上述 lognormal proposal 与确定性量化算子组成的
+rounded-state Markov chain；它不是保留隐藏未舍入状态的 continuous-state GBM。这个合同
+使 one-shot 与 append 生成一致，若改变 tick、量化 checkpoint 或 restart-state 规则，就会
+改变路径定律并必须生成新的 snapshot identity。
+
+当前 `open = previous published close`，对应显式 no-gap convention；`high/low` 使用独立
+`separate_synthetic_range-v1` heuristic stream，只保证与 open/close 的顺序约束，不来自同一
+intraperiod path、Brownian bridge 或 exact range law。Volume 也使用独立的 uniform rule。
+因此这些字段不能作为 barrier、realized-range、overnight-gap 或市场微观结构任务的真值。
 
 对应实现位置：
 
@@ -660,8 +717,8 @@ derivatives、多币种利率或 numeraire conversion。该方案保证模型内
 | 1（已完成） | `OptionChainBuilder` | config `1.3.0/1.4.0` 声明 candidate expiry/moneyness grid、成对 call/put、static listing/roll、liquidity filter 与 strike increment；listing date 冻结绝对 strike；quote noise 只扰动 BSM half-spread | 合约 id 跨日稳定；one-shot、append 与 `sync-config` 一致；22 品种、65 日 public profile 通过；far-expiry/far-strike candidates 不挂牌 |
 | 2（已完成） | `CommonQPricingContext` / `QUnderlyingDependenceSpec` | config `1.7.0` 声明唯一的 $\mathbb Q$/numeraire/rate path、独立 P/Q IDs，以及 drift-only same-Brownian-covariance mapping | P/Q specs 同时由 $\Lambda/D/R$ 构造；option ids 不进入 $R_t$；合法相关性不改变 vanilla margins；后续联合 payoff 必须来自同一 joint process |
 | 3（已完成） | Independent public-child exporter | Frozen authoring parent 确定性投影 task rows；public 层只留 spot/contract/quotes/curves/P-Q dependence，private 层保留 generation provenance | child 无 `market` schema、seed/RNG/run/oracle/node heights；stable IDs、subset manifest、logical checksum 与 read-only replay 通过 |
-| 3A（已完成） | D4 BSM Greeks golden package | 三关系 8-underlying/160-row DuckDB、trusted adapters、fixed-80 IV + five Greeks、QuantLib verifier 与三种 release views | reference replay byte-identical；canonical exact compare、runtime attacks、negative submissions、leakage 和 view allowlists 全部通过 |
-| 3B（工具已完成，运行待审核） | Phase F batch / BSM training export | 共享一次 frozen parent materialization，按 distinct selector seeds 构建 accepted packages，并导出按 task ID 排序的九字段 JSONL | batch runner 与单包 dataset contract test 已完成；完整 100-task run、split audit 与 `RELEASED` promotion 尚未执行 |
+| 3A（已完成） | D4 BSM Greeks golden package | 三关系 8-underlying/160-row DuckDB、四源最小路由 prompt、trusted adapters、fixed-80 IV + five Greeks、QuantLib verifier 与三种 release views | `solver_interface_digest` 绑定 interface version/prompt/method/schema/runtime；reference replay byte-identical；canonical exact compare、runtime attacks、negative submissions、leakage 和 view allowlists 全部通过 |
+| 3B（工具已完成，当前接口待重跑） | Phase F batch / BSM training export | 共享一次 frozen parent materialization，按 distinct selector seeds 构建 accepted packages，并导出按 task ID 排序的九字段 JSONL | batch runner 与单包 dataset contract test 已完成；旧接口有本地历史 run，当前 interface 的 100-task rebuild、split audit 与 `RELEASED` promotion 尚未执行 |
 | 4 | `ExchangeProfile` 与 `QuoteModel` | 加入真实 holiday/early-close、timezone、expiry/settlement、strike/tick rules，以及随 moneyness、maturity、vega、premium、liquidity 变化的 spread；补充 size、stale/missing/zero-bid 与 quality flags | 所有公开报价符合声明的 exchange profile；volume/open interest 和 liquidity state 具有跨日持续性 |
 | 5 | `CurveState` 与 richer driver blocks | 在 common-$\mathbb Q$ 与 measure-qualified underlying dependence 合同下支持非 flat curves、离散 dividend/corporate actions、共享 variance/regime/jump state、time-varying $R_t$ 及 spot--volatility/rate blocks | 同一 valuation timestamp 使用同一个 market-state/dependence version；边际内部相关结构不被 cross-asset coupling 改写；$\mathbb P/\mathbb Q$ 差异由显式 risk premia 描述 |
 | 6 | `GenerationModel` / `GenerationEngine` registry | 先保留 deterministic-time-varying-diffusion BSM baseline，再分别加入 Heston、Bates/jump-diffusion、local-vol snapshot DGP；每个 snapshot 只选一个 canonical engine，另一个 engine 做 verifier | 不同 DGP 使用不同 `snapshot_id`；同一 snapshot/合约/时间仍只有一条市场报价；cross-engine error 在预设 tolerance 内 |
@@ -679,13 +736,14 @@ derivatives、多币种利率或 numeraire conversion。该方案保证模型内
    独立 P/Q dependence specs 与显式 covariance mapping；需要多资产联合 payoff 时必须
    消费这一 joint underlying context，而不是构造 derivative correlation。
 4. 已完成独立 public-child、D4 golden-package 发布边界，以及 Phase F batch/dataset tooling；
-   完整 batch 执行与 release promotion 仍需审核。Authoring DB 内部更细的 metadata split、
-   Heston/Bates 等新 DGP 需分别版本化后再接入。
+   旧 interface 的本地 batch 已执行但未发布，当前 interface 仍需 rebuild、split audit 与
+   release review。Authoring DB 内部更细的 metadata split、Heston/Bates 等新 DGP 需分别
+   版本化后再接入。
 
 因此 measure-qualified P/Q underlying dependence、static `OptionChainBuilder`、
 common-$\mathbb Q$ vanilla baseline、独立 public child 和一条 accepted D4 golden package
 均已完成。Batch 参数化与 BSM-specific dataset exporter 也已实现；后续工作是执行并审核
-完整 batch、显式 release promotion、部署级 OS/container sandbox，以及
+当前-interface batch、显式 release promotion、部署级 OS/container sandbox，以及
 exchange/curve/richer-DGP roadmap；pricing model registry 仍应在这些边界稳定后推进。
 
 常用的只读 DuckDB 查询集中保存在
@@ -713,6 +771,7 @@ underlying 时间序列、option chain、moneyness、pricing context 和 authori
 │   └── manifests/                 # 数据集版本、split 和来源清单
 ├── docs/
 │   ├── examples/                  # 完整设计样例
+│   ├── plans/                     # 分阶段实施计划与审阅 checklist
 │   └── *.md                       # 框架、架构和方法说明
 ├── environments/
 │   ├── authoring/                 # Authoring dependency lock
@@ -733,18 +792,21 @@ underlying 时间序列、option chain、moneyness、pricing context 和 authori
 │       ├── authoring/             # 市场快照生成与冻结实现
 │       ├── export/                # Frozen parent → public-only solver DuckDB
 │       ├── task_space/            # 七维 task grammar、显式 legacy migration 与 compatibility
+│       ├── tasks/                 # Solver/Verifier 共享输入、单位与 canonicalization 合同
 │       ├── mutation/              # 确定性 child task 与 lineage
 │       ├── curriculum/            # 不改 task/reward 的 adaptive sampling
-│       ├── packaging/             # Agent package、prompt/runtime、三关系 DB 与 view materializer
+│       ├── packaging_analytic_and_implied_greeks_iv/ # 当前 market-implied BSM Greeks package materializer
 │       ├── solver/                # 受限环境中的公式、求根、Greeks 与拟合实现
+│       │   ├── analytic_and_implied_greeks_iv/ # Analytic Greeks、IV 与 market-implied Greeks（含 README）
+│       │   └── mc/                # L3 BSM Monte Carlo 数值实现骨架（尚未实现 estimator）
 │       ├── training/              # Verified BSM package → 九字段 JSONL；通用跨 family exporter 待实现
 │       └── verifier/              # 独立 package oracle 与 hard verifier 实现
 └── tests/
     ├── fixtures/                  # 小型冻结测试输入和公开期望结构
-    ├── unit/                      # task-space、mutation、curriculum 单元测试
-    ├── integration/               # task manifest 与 authoring snapshot 边界
-    ├── verifier_robustness/       # 预留目录；当前定向拒绝测试位于 integration/packaging
-    ├── packaging/                 # Golden package E2E、runtime attacks、replay 与 release views
+    ├── unit/                      # Authoring、Solver、task-space、mutation、curriculum 单元测试
+    ├── integration/               # Snapshot 边界、Solver/Verifier exact comparison 与 replay
+    ├── verifier_robustness/       # 预留目录；当前定向拒绝测试位于 integration/package tests
+    ├── packaging_analytic_and_implied_greeks_iv/ # Golden package E2E 与 release views
     └── public/                    # Snapshot、contract、重放和端到端公开测试
 ```
 
@@ -793,15 +855,50 @@ IV、Greeks、smile、surface、VaR 和 ES 是从统一快照派生的任务结�
 - `export/`：只读 frozen authoring parent，写入独立 public child，并固定 stable IDs、
   subset manifest、logical checksum、schema allowlist 与 recursive leakage gate。
 - `task_space/`：只判断七维坐标和 task family 是否兼容，并提供唯一的旧六维显式迁移入口；不生成任务、不决定采样。
+- `tasks/`：只保存 Solver/Verifier 共享的输入、单位、method identity 与 canonicalization
+  合同，不包含任何一侧的数值实现。
 - `mutation/`：从不可变母题生成确定性 child task 和 lineage，不读取模型表现。
 - `curriculum/`：根据 stage 与 `pass@1` diagnostics 计算采样权重，不修改 frozen task 或二值 hard reward。
-- `packaging/`：从 frozen P/Q parent 构建三关系 agent DB，组合 runtime allowlist、渲染 prompt、记录 observable trajectory，并导出隔离 views。
-- `solver/`：只使用合同允许的基础原语，自行实现指定计算方法。
+- `packaging_analytic_and_implied_greeks_iv/`：从 frozen P/Q parent 构建三关系 agent DB，组合 runtime allowlist、渲染只指向
+  四个 public source 的最小 prompt、绑定 `solver_interface_digest`、记录 observable trajectory，
+  并导出隔离 views。
+- `solver/`：只使用合同允许的基础原语，自行实现指定计算方法；
+  [`solver/analytic_and_implied_greeks_iv/`](src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/README.md)
+  集中已有的 analytic Greeks、visible-price IV 与 market-implied Greeks，`solver/mc/` 是
+  L3 BSM Monte Carlo 的规划骨架，目前不导出 estimator API。
 - `verifier/`：不得导入 Solver 的定价实现；使用独立 package oracle 复算并做 canonical exact equality。
 - `training/`：验证 source package 后导出 BSM market-Greeks 九字段 JSONL，并记录 parent
   grouping、task ordering 与无 private-oracle/seed 声明；通用跨 family exporter 尚未实现。
 
 生产部署时，四个子包不会共享同一个运行权限；代码分目录只是 repo 层面的组织方式。
+
+#### L3 Monte Carlo Greeks 目录映射（规划骨架）
+
+[`synthetic_bsm_l3_mc_greeks_implementation_plan.md`](synthetic_bsm_l3_mc_greeks_implementation_plan.md)
+第 10 节给出的是建议结构，并允许映射到现有权限边界。为保持 Solver 与 Trusted verifier
+数值实现独立，本仓库不建立双方共享的 `src/synthetic_derivatives/mc/` 数值包，而采用：
+
+| 职责 | 兼容路径 | 实施阶段 |
+|:---|:---|:---|
+| 输入、单位、bump、draw/order、canonicalization 合同 | `src/synthetic_derivatives/tasks/l3_mc_greeks.py` | Step 1 |
+| exact terminal、payoff、reduction、CRN、pathwise、LR | `src/synthetic_derivatives/solver/mc/` | Step 2–4 |
+| Solver task 入口 | `src/synthetic_derivatives/solver/l3_mc_greeks.py` | Step 2–4 |
+| frozen draw bank 与 task records | `src/synthetic_derivatives/authoring/l3_mc_greeks.py` | Step 5 |
+| 独立 MC reference 与 hard verifier | `src/synthetic_derivatives/verifier/l3_mc_greeks.py` | Step 6 |
+| L3 package materializer 与 release views | `src/synthetic_derivatives/packaging_l3_mc_greeks/` | Step 6 |
+| Rho、Theta 与 portfolio aggregation | `src/synthetic_derivatives/solver/mc/portfolio.py` | Step 7 |
+
+基础数值测试继续复用 `tests/unit/`、`tests/integration/` 与
+`tests/verifier_robustness/`。现有 `tests/packaging_analytic_and_implied_greeks_iv/` 只验证
+analytic/visible-IV family；L3 package 落地时使用独立的
+`tests/packaging_l3_mc_greeks/`，避免把不同 method/runtime contract 混在一个 suite。
+版本化 variant、package config 与跨边界 schema 继续分别使用 `configs/variants/`、
+`configs/task_packages/` 与 `schemas/` 的现有平铺布局。
+
+目前 [`solver/mc/`](src/synthetic_derivatives/solver/mc/README.md) 只是可导入包骨架；其余
+规划文件将在对应验收门开始时连同合同和测试一起创建，避免空模块形成虚假的已实现 API。
+实施计划建议 Solver 使用 NumPy 与 DuckDB client，但当前 capability profiles 禁止两者的直接
+import；正式实现前必须版本化解决 runtime profile 与 dependency lock，本骨架不改变现有权限。
 
 ### `environments/`
 
@@ -824,10 +921,10 @@ IV、Greeks、smile、surface、VaR 和 ES 是从统一快照派生的任务结�
 - `unit/` 检查 task grammar、受约束 mutation、lineage 与 curriculum sampling。
 - `integration/` 检查 task/authoring 边界，以及 frozen parent 到 public-only child 的确定性重放、
   parent byte immutability、logical checksum、leakage 和 read-only handoff。
-- `packaging/` 构建 temp P/Q parent 与完整 golden package，覆盖 runtime attacks、negative
+- `packaging_analytic_and_implied_greeks_iv/` 构建 temp P/Q parent 与完整 golden package，覆盖 runtime attacks、negative
   submissions、clean evaluation replay、leakage、hashes 和 release views。
 - `verifier_robustness/` 当前是预留目录；末位数字、单位、method ID、行顺序和 import 的
-  定向拒绝测试现位于 `integration/` 与 `packaging/`。
+  定向拒绝测试现位于 `integration/` 与 `packaging_analytic_and_implied_greeks_iv/`。
 
 生产 hidden tests 应放在 Solver 无法读取的独立环境中，不提交到公开仓库。
 
@@ -852,3 +949,7 @@ python3 -m venv .venv
 - [DuckDB + QuantLib Authoring Pipeline](docs/authoring_pipeline.md)
 - [金融衍生品联合模拟、Task Mutation 与 Curriculum 最终设计](docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md)
 - [合成期权链 IV、Greeks 与 Smile Agent Trajectory 样例](docs/examples/synthetic_derivatives_iv_greeks_smile_deterministic_orm_agent_trajectory_example.md)
+- [BSM Greeks agent task packaging 现状与历史计划](synthetic_bsm_greeks_agent_task_packaging_plan.md)
+- [Synthetic BSM 完整 curriculum（目标设计）](synthetic_bsm_agent_task_complete_curriculum.md)
+- [L3 Monte Carlo Greeks 实施计划（尚未实现）](synthetic_bsm_l3_mc_greeks_implementation_plan.md)
+- [F2A arbitrage-finding 非活动计划（尚未实现）](src/synthetic_derivatives/mutation/inactive_f2a_arbitrage_finding_agent_task_plan.md)

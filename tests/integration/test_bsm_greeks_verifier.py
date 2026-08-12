@@ -7,7 +7,7 @@ from pathlib import Path
 import QuantLib as ql
 import pytest
 
-from synthetic_derivatives.solver.bsm import (
+from synthetic_derivatives.solver.analytic_and_implied_greeks_iv.bsm import (
     solve_bsm_greeks,
     solve_bsm_greeks_batch,
 )

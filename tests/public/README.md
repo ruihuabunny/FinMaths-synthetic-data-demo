@@ -48,6 +48,7 @@ Public pipeline 必须满足：
 - 首次创建返回 `COMPLETED` 并写入 revision 1；
 - 相同 config/range 重跑返回 `NOOP`，revision 不变；
 - append 只新增请求日期的 daily/metadata rows，不重写历史；
+- append 从上一条量化后的 published close 重启，与 one-shot 执行同一个 rounded-state law；
 - legacy additive config 只回填新增 entity/contract family；
 - `FROZEN` snapshot 以只读连接重开并拒绝后续写入，不记录会改变文件的失败 run；
 - manifest counts 与 DuckDB logical counts 一致。
@@ -65,7 +66,8 @@ Checked-in snapshot 的 manifest 位于
 profile，包含 sampled-and-frozen physical functions、Q pricing contract 和 private
 canonical-mid IV audit；legacy 5-underlying config 只服务快速 incremental regression tests。
 Current writable config `1.6.0+` 不再写 authoring IV answers；accepted D4 package 使用独立
-临时生成并冻结的 `1.7.0` P/Q parent。该 agent-package boundary 由 `tests/packaging/` 验证，
+临时生成并冻结的 `1.7.0` P/Q parent。该 agent-package boundary 由
+`tests/packaging_analytic_and_implied_greeks_iv/` 验证，
 不应把这里的 frozen authoring-demo assertions 当作三关系 task DB contract。
 
 ## Public SQL queries

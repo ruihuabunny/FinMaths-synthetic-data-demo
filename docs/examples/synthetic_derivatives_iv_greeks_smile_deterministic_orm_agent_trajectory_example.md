@@ -10,12 +10,12 @@
 
 ---
 
-> 实现状态（2026-08-10）：本文件是说明性 design example，不是 checked-in accepted
+> 实现状态（2026-08-12）：本文件是说明性 design example，不是 checked-in accepted
 > package，也不是当前市场 surface 的无套利认证。实际
 > `bsm_market_implied_greeks_v1` 使用 bid/ask midpoint、8 underlyings、2 expiries、每 expiry
 > 5 strikes、paired call/put、共 160 rows 和 8-decimal outputs；它不拟合 smile，也不向
 > Solver 开放 NumPy。实际 artifact/contract 以 [`task_packages/README.md`](../../task_packages/README.md)
-> 与 package 生成的 prompt 为准。
+> 和四个 public sources 为准；当前 package prompt 只负责路由，不重复数学合同。
 
 ## 摘要
 

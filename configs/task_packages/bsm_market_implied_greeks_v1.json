@@ -1,5 +1,5 @@
 {
-  "package_config_version": "bsm-market-implied-greeks-package-config-v1.0.0",
+  "package_config_version": "bsm-market-implied-greeks-package-config-v1.1.0",
   "variant_id": "bsm_market_implied_greeks_v1",
   "task_family": "bsm_greeks",
   "task_version": "1.0.0",

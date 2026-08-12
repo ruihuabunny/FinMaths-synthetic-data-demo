@@ -26,8 +26,8 @@
   "output_contract_id": "bsm-market-implied-greeks-output-v1",
   "submission_schema": "schemas/bsm-greeks-submission-v1.schema.json",
   "runtime_contract": "schemas/agent-task-runtime-contract-v1.schema.json",
-  "golden_task_id": "bsm-mig-v1-1f1fc1880b42253725b118eb",
-  "package_path": "task_packages/bsm_market_implied_greeks_v1/bsm-mig-v1-1f1fc1880b42253725b118eb",
+  "golden_task_id": "bsm-mig-v1-bde472c5cb0ca8a660314c9e",
+  "package_path": "task_packages/bsm_market_implied_greeks_v1/bsm-mig-v1-bde472c5cb0ca8a660314c9e",
   "materialization_boundary": "P6_end_to_end_public_task_packaging_complete",
   "persisted_intermediates": []
 }

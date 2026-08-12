@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from synthetic_derivatives.solver import bsm_implied_volatility as solver_iv
+from synthetic_derivatives.solver.analytic_and_implied_greeks_iv import (
+    bsm_implied_volatility as solver_iv,
+)
 from synthetic_derivatives.tasks.bsm_implied_volatility import (
     BISECTION_ITERATIONS,
     BSM_IV_INVALID_INPUT,

@@ -13,11 +13,11 @@ import tempfile
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
-from synthetic_derivatives.packaging.package import (  # noqa: E402
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.package import (  # noqa: E402
     build_bsm_greeks_package,
     verify_bsm_greeks_package,
 )
-from synthetic_derivatives.packaging.parent import (  # noqa: E402
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.parent import (  # noqa: E402
     materialize_joint_parent,
 )
 

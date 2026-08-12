@@ -26,6 +26,19 @@ contract must freeze formulas, conventions, dtype, operation order and canonical
 serialization so the solver implementation and independent verifier can be
 compared exactly.
 
+## Repository source versus Agent runtime
+
+The maintained repository kernels for analytic BSM Greeks, visible-price IV,
+and market-implied Greeks live under
+[`src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/`](../../src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/README.md).
+That path is a developer-facing source boundary, not an additional Agent
+capability. A task may expose only the source artifact and imports declared by
+its effective runtime contract; the accepted golden task uses a standalone
+audited reference artifact rather than granting access to the whole repository
+package. That reference artifact is observable in train/dev and authoring views,
+but it is not mounted in the evaluation runtime. Trusted QuantLib verifier code
+remains separately hidden.
+
 The repository reference harness executes solver source in a separate `spawn`
 process. It enforces the frozen import/builtin policy, counted trusted adapters,
 submission call/size limits, one-CPU affinity, `RLIMIT_AS`, `RLIMIT_CPU`, and a
@@ -33,3 +46,8 @@ parent-side wall timeout. These controls make the checked-in reference replay an
 executable contract; they are not a substitute for deployment isolation. A
 production runner must independently enforce network, mount/filesystem, process,
 user/namespace, and resource policy at the OS or container boundary.
+
+The planned `solver/mc` package has no runnable estimator and inherits no
+capability by directory placement. An L3 implementation that needs NumPy,
+ordered draw access, or a different resource budget must introduce a new
+versioned environment/profile/lock before it can be exposed to an Agent.

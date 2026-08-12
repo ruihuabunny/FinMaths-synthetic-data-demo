@@ -10,16 +10,16 @@ import shutil
 import tempfile
 from typing import Any, Iterable
 
-from synthetic_derivatives.packaging.contracts import (
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts import (
     BSM_MARKET_GREEKS_VARIANT_ID,
     canonical_json_bytes,
     load_json_object,
 )
-from synthetic_derivatives.packaging.database import (
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.database import (
     load_bsm_greeks_contract,
     load_bsm_greeks_inputs,
 )
-from synthetic_derivatives.packaging.package import verify_bsm_greeks_package
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.package import verify_bsm_greeks_package
 from synthetic_derivatives.tasks.bsm_market_greeks import MarketGreeksSubmission
 
 

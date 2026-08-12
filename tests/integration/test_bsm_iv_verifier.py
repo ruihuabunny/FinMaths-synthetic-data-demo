@@ -9,7 +9,7 @@ from pathlib import Path
 import QuantLib as ql
 import pytest
 
-from synthetic_derivatives.solver.bsm_implied_volatility import (
+from synthetic_derivatives.solver.analytic_and_implied_greeks_iv.bsm_implied_volatility import (
     solve_bsm_implied_volatility,
 )
 from synthetic_derivatives.tasks.bsm_implied_volatility import (

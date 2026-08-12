@@ -19,14 +19,14 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
 from synthetic_derivatives.export import sample_underlyings  # noqa: E402
-from synthetic_derivatives.packaging.contracts import (  # noqa: E402
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts import (  # noqa: E402
     canonical_json_bytes,
     load_json_object,
 )
-from synthetic_derivatives.packaging.package import (  # noqa: E402
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.package import (  # noqa: E402
     build_bsm_greeks_package,
 )
-from synthetic_derivatives.packaging.parent import (  # noqa: E402
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.parent import (  # noqa: E402
     materialize_joint_parent,
 )
 from synthetic_derivatives.training import (  # noqa: E402

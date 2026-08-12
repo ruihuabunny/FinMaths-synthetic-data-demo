@@ -4,8 +4,8 @@
 - Target branch: `synthetic-BSM-agent-task`
 - F2A audit branches: `f2a-arbitrage-task` → `f2a-2nd-revised` → `f2a-arbitrage-revised`
 - Design source: `docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md`
-- Audit date: 2026-08-10
-- Status: Phase 0–7 与单条 golden packaging Phase A–E 已完成；task 已 `ACCEPTED`；Phase F batch runner/dataset exporter 已实现，完整 batch run 与 `RELEASED` promotion 尚未执行
+- Audit date: 2026-08-12
+- Status: Phase 0–7 与单条 golden packaging Phase A–E 已完成；task 已 `ACCEPTED`；Phase F batch runner/dataset exporter 已实现。旧 interface 有本地历史 batch，当前最小 prompt/interface 的 batch rebuild 与 `RELEASED` promotion 尚未执行
 
 > 第 2 节保留迁移前审计结果，便于解释差异来源；本文其他章节已按实际落地结果回填。
 > 逐项证据与唯一未完成的 commit checkpoint 以
@@ -454,9 +454,9 @@ schemas/bsm-greeks-submission-v1.schema.json
 schemas/bsm-greeks-oracle-config-v1.schema.json
 
 src/synthetic_derivatives/export/{contracts.py,solver_database.py}
-src/synthetic_derivatives/packaging/{contracts.py,database.py,leakage.py,package.py,parent.py,
-  prompt_renderer.py,reference_solver.py,runtime.py,trajectory.py,views.py}
-src/synthetic_derivatives/solver/{bsm.py,bsm_implied_volatility.py,bsm_market_greeks.py}
+src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv/{bsm_market_greeks_verifier_runtime.py,contracts.py,
+  database.py,leakage.py,package.py,parent.py,prompt_renderer.py,reference_solver.py,runtime.py,trajectory.py,views.py}
+src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/{README.md,__init__.py,bsm.py,bsm_implied_volatility.py,bsm_market_greeks.py}
 src/synthetic_derivatives/tasks/{bsm_greeks.py,bsm_implied_volatility.py,bsm_market_greeks.py}
 src/synthetic_derivatives/verifier/{bsm_greeks.py,bsm_implied_volatility.py,bsm_market_greeks.py}
 src/synthetic_derivatives/training/bsm_market_greeks.py
@@ -466,7 +466,7 @@ scripts/run_bsm_greeks_batch.py
 
 tests/unit/test_{bsm_solver,bsm_implied_volatility,bsm_greeks_contract,solver_database_export}.py
 tests/integration/test_{solver_database_replay,bsm_iv_verifier,bsm_greeks_verifier}.py
-tests/packaging/test_bsm_greeks_{database_and_replay,dataset_export,negative_submissions,
+tests/packaging_analytic_and_implied_greeks_iv/test_bsm_greeks_{database_and_replay,dataset_export,negative_submissions,
   package_contract,prompt_runtime_drift,release_views}.py
 ```
 
@@ -530,6 +530,6 @@ views/{authoring,train_dev,evaluation}/
 5. `package task, trajectory, allowlist and robustness tests`。
 
 代码与 golden package 已完成，但当前 worktree 没有按这五项形成新的 commit split；checklist
-中的 commit checkpoint 因此保持未勾选。下一步不是修改已验收 task，而是先用 Phase F
-runner 做有限批次重放/数据集验收，再由新的明确审批将合格工件从 `ACCEPTED` promote 为
-`RELEASED`。
+中的 commit checkpoint 因此保持未勾选。Phase F runner 已在前一版 interface 上完成本地
+100-task 历史 run；当前最小 prompt/interface 仍需先做有限批次重放，再做完整 rebuild、
+数据集与 split 验收，最后由新的明确审批将合格工件从 `ACCEPTED` promote 为 `RELEASED`。

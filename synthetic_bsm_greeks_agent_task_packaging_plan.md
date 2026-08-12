@@ -13,9 +13,11 @@
   - `docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md`
   - `docs/plans/synthetic_bsm_multi_asset_psd_duckdb_greeks_plan.md`
   - `docs/plans/synthetic_bsm_multi_asset_psd_duckdb_greeks_codex_checklist.md`
-- Status: Phase A–E complete；golden task `bsm-mig-v1-1f1fc1880b42253725b118eb` is
-  `ACCEPTED`。Phase F runner and nine-field dataset exporter are implemented, but the full
-  batch has not been executed and no artifact has been promoted to `RELEASED`.
+- Status (2026-08-12): Phase A–E complete；golden task
+  `bsm-mig-v1-bde472c5cb0ca8a660314c9e` is `ACCEPTED`。Phase F runner and
+  nine-field dataset exporter are implemented. A predecessor interface has a
+  Git-ignored local 100-task run; the current minimal-prompt interface has not
+  been rebuilt as a full batch and no artifact has been promoted to `RELEASED`.
 
 ## 1. Executive decision
 
@@ -35,7 +37,8 @@ database + prompt + pytest + reference agent trajectory
 
 - `M_i`：public-safe manifest、版本和 hashes；
 - `D_i`：独立、冻结、solver-visible 的 DuckDB；
-- `P_i`：任务 prompt 与提交协议；
+- `P_i`：最小任务路由 prompt；它只把 Agent 引向公开 method contract、ordered inputs、
+  submission schema 和 effective runtime contract，不重复这些 source 的内容；
 - `E_i`：真实生效的 solver runtime contract；
 - `V_i`：hidden `pytest` hard verifier；
 - `τ_i*`：在同一 solver 权限下可 replay 的参考 trajectory。
@@ -71,7 +74,8 @@ Public child 来自同一个 22-asset、P/Q measure-qualified、PSD-by-construct
 
 - cross-asset correlation 不进入单个 BSM price、IV 或 Greek 公式；
 - changing a legal correlation matrix must not change marginal row outputs when `S,K,T,r,q,σ` are fixed；
-- prompt 必须明确这一点，不能诱导 Agent 把 correlation 塞进 vanilla Greek 计算；
+- public method contract 必须明确这一点；prompt 只路由到该合同，不能另写一份可能漂移的
+  correlation 说明；
 - full factor loadings、private calibration provenance 和 latent node heights 不进入 solver-visible DB。
 
 ### 2.3 Out of scope
@@ -220,45 +224,46 @@ Exporter 必须在 read-only attach parent 后完成 `CREATE TABLE AS SELECT`，
 
 ## 5. Prompt contract
 
-`prompt.md` 必须由 task template 与 `runtime_contract.json` 联合渲染，不能手写一份会漂移的权限说明。
+`prompt.md` 是最小路由层，不是数学讲义、数据字典、schema 副本或权限副本。它必须由
+versioned prompt contract 确定性渲染，并且只要求 Agent 读取以下四个公开 source of truth：
 
-### 5.1 Required sections
+1. `query_greeks_task_contract_v1`：返回唯一的 BSM measure、定价、IV、Greeks、dtype、
+   canonicalization 与 row-order 合同；
+2. `query_greeks_task_inputs_v1`：返回完整且已经 canonical ordered 的 solver-visible rows；
+3. `public/submission.schema.json`：定义唯一允许的提交结构、字段与字符串格式；
+4. `public/runtime_contract.json`：定义 trusted tools、call limits、imports、filesystem、network
+   和 resource budget。
 
-1. Task goal；
-2. exact visible relations and data dictionary；
-3. BSM market assumptions and P/Q joint-market provenance；
-4. correlation non-role for marginal vanilla Greeks；
-5. exact midpoint and fixed 80-step inversion；
-6. five Greek conventions and units；
-7. dtype、cast order、8-decimal `ROUND_HALF_EVEN` canonicalization；
-8. effective tools/imports/filesystem/network/budgets；
-9. submission filename、JSON schema、row order and failure behavior；
-10. prohibited APIs and private resources。
+Prompt 可以陈述一句任务目标，并要求按这四个 source 生成完整 submission；除此之外不再展开
+公式、迭代 pseudocode、列名、Greek 单位、舍入规则、权限清单或禁止项。任何一个事实只能由其
+owner source 定义；四个 source 之间不一致时 packaging 必须失败，不能靠 prompt 规定优先级。
 
-### 5.2 Method contract rendered in prompt
+### 5.1 Minimal routing text
 
-主任务固定：
+规范化 prompt 只需要表达：
 
-```text
-observed_price = (Decimal(str(bid)) + Decimal(str(ask))) / 2
-cast observed_price to float64 exactly once
-volatility bracket = [1e-6, 5.0]
-iterations = exactly 80
-early_stop = false
-if bsm_price(mid) < observed_price: low = mid
-else: high = mid
-root = (low_80 + high_80) / 2
+```md
+# Market-implied BSM unit Greeks
+
+Produce a complete submission for every public input row.
+
+Call `query_greeks_task_contract_v1` and `query_greeks_task_inputs_v1` exactly
+once each. Treat their returned data, `public/submission.schema.json`, and
+`public/runtime_contract.json` as the complete authoritative specification.
+Call `submit_greeks_submission_v1` exactly once.
 ```
 
-Greeks：
+Solver-interface version 可以把纯排版归入同一语义版本，但 stable identity 仍绑定 rendered prompt
+digest，因此任何 byte change 都会得到新的 `solver_interface_digest`；改变 source 集合、
+ownership、required action、trusted adapter surface 或 submission routing 时还必须升级该版本。
 
-- `unit_delta`：spot delta per one option unit；
-- `unit_gamma`：spot gamma per one option unit；
-- `unit_vega_1volpt = 0.01 × ∂V/∂σ`；
-- `unit_theta_1calendar_day = annual row-local theta / 365`；
-- `unit_rho_1pct = 0.01 × ∂V/∂r`；
-- holding `S,K,T,r,q,σ_IV` convention fixed；
-- contract multiplier 不进入 unit Greeks。
+### 5.2 Mathematical ownership
+
+概率测度、numeraire、ex-dividend spot 语义、flat continuous curves、Actual/365 Fixed、
+Decimal quote midpoint、binary64 cast checkpoint、固定 IV 求根 law、normal CDF/PDF、五个
+unit Greek 定义与 scale、contract-multiplier policy、8 位 `ROUND_HALF_EVEN`、negative zero
+和 canonical row order 全部只存在于 `solver_visible.greeks_task_contract.contract_json`。
+Prompt 不复述这些条件；submission schema 也只负责输出形状，不反向定义数学。
 
 Prompt 不包含 oracle values、selected-row failure retries、parent private values、reference implementation 或 hidden test names。
 
@@ -324,7 +329,8 @@ process spawning: disabled
 - Runtime policy 在启动前与运行中强制；
 - semantic pytest 只验证 canonical submission；
 - policy violation 立即使 run 无效，不等待 pytest；
-- prompt 权限章节只是公开说明，不是 enforcement；
+- prompt 只指向 `public/runtime_contract.json`；权限由 runtime enforcement 实施，不由 prompt
+  文本授予；
 - runtime audit 由 harness 保存，Agent 不可修改；
 - reference solver 必须在完全相同的 `E_i` 下 replay。
 
@@ -494,6 +500,25 @@ prompt/database/runtime/schema hashes
 build status and release profile
 ```
 
+现有 v1 manifest 不增加一个重复的 `solver_interface_digest` 字段；package verifier 从上述
+public artifact/method digests 重算它，再核对由它导出的 `task_id`。
+
+`solver_interface_digest` 必须在 task ID 生成前按以下 canonical payload 计算：
+
+```text
+interface_contract_version
+method_contract_digest
+prompt_digest
+runtime_contract_digest
+submission_schema_digest
+```
+
+`interface_contract_version` 管理 trusted adapter 名称、input mapping surface 和四源 routing
+ownership；其语义改变时必须升级。Ordered input values 继续由 parent identity、selection、public
+child logical checksum 和 manifest 绑定，不再次塞入 interface digest。这样修改 prompt
+routing、method contract、solver interface version、输出 schema 或有效权限中的任一项，都会
+创建新的 solver interface，而不能沿用旧 task identity。
+
 Stable task ID：
 
 ```text
@@ -503,9 +528,14 @@ sha256(
   | valuation_date
   | ordered_selected_underlying_ids
   | method_contract_id
+  | solver_interface_digest
   | package_schema_version
 )
 ```
+
+Checked-in `ACCEPTED` package 不做原地升级。本次最小 prompt 已先计算新的
+`solver_interface_digest` 和 task ID，构建到新目录，并在通过 replay、verifier、leakage 与
+view checks 后把 registry 和文档引用显式更新为新 identity。
 
 Public manifest 不保存 sample seed、generator seed、latent values、rejected selectors、oracle answer 或 private filesystem paths。
 
@@ -547,7 +577,9 @@ require frozen parent + exact source commit
 → generate public task/method contracts
 → global allowlist ∩ restrictive task overlay
 → validate effective runtime contract
-→ render prompt permission section and drift-test
+→ render four-source minimal routing prompt
+→ compute and bind solver_interface_digest
+→ drift-test prompt against its versioned routing contract
 → generate hidden QuantLib oracle config/answer
 → generate reference submission under solver permissions
 → replay reference trajectory in clean sandbox
@@ -578,8 +610,8 @@ require frozen parent + exact source commit
 - [x] restrictive task overlay；
 - [x] effective-contract composer；
 - [x] prompt template；
-- [x] permission-section renderer；
-- [x] prompt/runtime drift tests；
+- [x] minimal four-source prompt renderer；
+- [x] prompt/source-ownership/runtime drift tests；
 - [x] positive/negative capability tests。
 
 ### Phase C — Public database package
@@ -589,7 +621,7 @@ require frozen parent + exact source commit
 - [x] three-relation child exporter；
 - [x] logical checksum；
 - [x] leakage scanner；
-- [x] stable task ID and manifest generation。
+- [x] stable task ID generation binds the derived `solver_interface_digest`；v1 manifest 保持原 shape。
 
 依赖主修改清单中的 P/Q contract 和 public-child exporter。
 
@@ -628,7 +660,7 @@ method、runtime、submission schema 和 verifier 均保持冻结。
 - [x] dataset exporter 的单 package contract test；
 - [x] 2-task scratch smoke：两个 task IDs/subsets 唯一，reference/QuantLib/package checks
   all-pass，dataset 恰有 2 records 且无 private oracle/seed；
-- [ ] 执行并保存完整 100-task batch run 与独立 dataset copy；
+- [ ] 用当前 solver interface 重建并保存完整 100-task batch 与独立 dataset copy；
 - [ ] 审核 run summary/split policy 后，将获批 artifacts 显式 promote 为 `RELEASED`。
 
 ## 14. Actual repository changes
@@ -646,28 +678,29 @@ schemas/bsm-greeks-oracle-config-v1.schema.json
 
 configs/task_packages/bsm_market_implied_greeks_v1.json
 
-src/synthetic_derivatives/packaging/contracts.py
-src/synthetic_derivatives/packaging/database.py
-src/synthetic_derivatives/packaging/leakage.py
-src/synthetic_derivatives/packaging/package.py
-src/synthetic_derivatives/packaging/parent.py
-src/synthetic_derivatives/packaging/prompt_renderer.py
-src/synthetic_derivatives/packaging/reference_solver.py
-src/synthetic_derivatives/packaging/runtime.py
-src/synthetic_derivatives/packaging/trajectory.py
-src/synthetic_derivatives/packaging/views.py
+src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv/contracts.py
+src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv/bsm_market_greeks_verifier_runtime.py
+src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv/database.py
+src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv/leakage.py
+src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv/package.py
+src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv/parent.py
+src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv/prompt_renderer.py
+src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv/reference_solver.py
+src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv/runtime.py
+src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv/trajectory.py
+src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv/views.py
 src/synthetic_derivatives/training/bsm_market_greeks.py
 
 scripts/package_bsm_greeks_task.py
 scripts/run_bsm_greeks_batch.py
 
-tests/packaging/conftest.py
-tests/packaging/test_bsm_greeks_database_and_replay.py
-tests/packaging/test_bsm_greeks_dataset_export.py
-tests/packaging/test_bsm_greeks_negative_submissions.py
-tests/packaging/test_bsm_greeks_package_contract.py
-tests/packaging/test_bsm_greeks_prompt_runtime_drift.py
-tests/packaging/test_bsm_greeks_release_views.py
+tests/packaging_analytic_and_implied_greeks_iv/conftest.py
+tests/packaging_analytic_and_implied_greeks_iv/test_bsm_greeks_database_and_replay.py
+tests/packaging_analytic_and_implied_greeks_iv/test_bsm_greeks_dataset_export.py
+tests/packaging_analytic_and_implied_greeks_iv/test_bsm_greeks_negative_submissions.py
+tests/packaging_analytic_and_implied_greeks_iv/test_bsm_greeks_package_contract.py
+tests/packaging_analytic_and_implied_greeks_iv/test_bsm_greeks_prompt_runtime_drift.py
+tests/packaging_analytic_and_implied_greeks_iv/test_bsm_greeks_release_views.py
 ```
 
 不要复制 F2A-specific capability profile、submission schema、trajectory outcome 或 certificate files；只复用通用 packaging abstractions。
@@ -696,8 +729,9 @@ tests/packaging/test_bsm_greeks_release_views.py
 
 ### Prompt and runtime
 
-- [x] prompt semantics match DB/method/output schema；
-- [x] permission text is auto-rendered from effective runtime contract；
+- [x] prompt routes only to contract query、input query、submission schema 与 runtime contract；
+- [x] mathematical and numerical semantics live only in the public DB method contract；
+- [x] solver-interface digest binds its version、prompt、method、schema 与 runtime；
 - [x] task overlay cannot expand global allowlist；
 - [x] trusted tool, import, filesystem, network and resource policies are enforced；
 - [x] QuantLib/pricer/IV/Greek shortcuts and raw DB access are blocked。
@@ -719,13 +753,13 @@ tests/packaging/test_bsm_greeks_release_views.py
 - [x] evaluation bundle excludes verifier/oracle/reference/private files；
 - [x] train/dev and authoring views contain only their declared files；
 - [x] manifests and hashes verify every accepted source artifact；
-- [x] full repository tests pass (`260 passed`, 2026-08-10) and no frozen snapshot changes。
+- [x] 2026-08-10 implementation checkpoint passed the then-current full suite (`260 passed`) without frozen snapshot changes；this is a historical gate, not the current test count。
 
 ### Batch and release promotion
 
 - [x] batch runner and nine-field dataset exporter are implemented and contract-tested；
 - [x] batch records distinct task IDs/subsets, candidate rejections and verification summary；
-- [ ] full 100-task batch and exported dataset have been executed and audited；
+- [ ] current-interface 100-task batch and exported dataset have been rebuilt and audited；
 - [ ] approved packages have been explicitly rebuilt/promoted as `RELEASED`。
 
 ## 17. Final recommendation
@@ -735,6 +769,7 @@ runtime attacks 与 leakage scan。当前只参数化 private selector seed，ba
 exporter 已就绪；下一项受控工作是执行完整 batch、审核数据集与 split provenance，然后再
 显式决定是否 promotion 到 `RELEASED`。
 
-现有结构保留 `(database, prompt, pytest, reference trajectory)` 的直观业务边界，并把
-allowlist 落在可执行 reference runtime 层；生产环境仍需 OS/container isolation。F2A 的
-arbitrage 语义没有进入本 task。
+现有结构保留 `(database, prompt, pytest, reference trajectory)` 的直观业务边界；prompt
+缩减为四个 public source 的路由层，数学真相留在 DB method contract，权限真相留在 effective
+runtime contract。`solver_interface_digest` 防止 prompt/interface 变化复用旧 task identity；
+生产环境仍需 OS/container isolation。F2A 的 arbitrage 语义没有进入本 task。

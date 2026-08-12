@@ -203,6 +203,25 @@ def test_contract_freezes_measure_units_operation_order_and_serialization() -> N
         "vega_rho_0.01_scaling",
         "theta_365_scaling",
     ]
+    formulas = contract["operation_formulas"]
+    assert formulas["common"][5:8] == [
+        "standardized_drift = (carry + 0.5 * variance) * tau",
+        "d1 = (log_moneyness + standardized_drift) / root_variance",
+        "d2 = d1 - root_variance",
+    ]
+    assert formulas["call"][-2] == (
+        "theta_per_year = diffusion_theta - r * discounted_strike * cdf_d2 "
+        "+ q * discounted_spot * cdf_d1"
+    )
+    assert formulas["put"][-2] == (
+        "theta_per_year = diffusion_theta + r * discounted_strike * "
+        "cdf_minus_d2 - q * discounted_spot * cdf_minus_d1"
+    )
+    assert formulas["scaling"] == [
+        "unit_vega_1volpt = 0.01 * vega_per_unit",
+        "unit_theta_1calendar_day = theta_per_year / 365.0",
+        "unit_rho_1pct = 0.01 * rho_per_unit",
+    ]
     assert contract["row_order"] == [
         "valuation_date",
         "underlying_id",

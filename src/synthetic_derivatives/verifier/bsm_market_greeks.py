@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping
 import math
 from typing import Any
 
-from synthetic_derivatives.packaging.contracts import oracle_config
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts import oracle_config
 from synthetic_derivatives.tasks.bsm_greeks import BSMGreeksInput
 from synthetic_derivatives.tasks.bsm_implied_volatility import (
     DEFAULT_BSM_IV_CONTRACT,

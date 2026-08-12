@@ -92,6 +92,9 @@ tool output 或 Solver 可访问的数据文件。默认日期的 56 条 Gold op
 ## Expected semantics
 
 - `option_chain.sql` 返回已挂牌且当日未到期的 contracts，不会动态重建 strike grid。
+- `underlying_daily` close 是 GBM proposal 按 8 位 decimal 量化后的 restart state；路径合同是
+  rounded-state Markov chain。`open = previous published close`，`high/low` 是独立
+  synthetic-range heuristic，不是 intraperiod path/range law。
 - `mid = settlement_price` 是经过 8-decimal canonicalization 的 BSM analytic NPV。
 - Bid/ask quote noise 只改变 half-spread，所以所有 rows 满足
   `0 <= bid <= mid <= ask`。

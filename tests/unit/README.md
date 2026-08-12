@@ -1,8 +1,8 @@
 # Unit tests
 
-本目录验证确定性 authoring、task mutation 和 curriculum 的内部不变量。Unit tests 可以
-直接导入具体实现类、调用非公开 helper，并检查 private DuckDB tables；它们不代表 Solver
-可访问的数据边界。
+本目录验证确定性 authoring、Solver 数值内核、task mutation 和 curriculum 的内部不变量。
+Unit tests 可以直接导入具体实现类、调用非公开 helper，并检查 private DuckDB tables；
+它们不代表 Solver 可访问的数据边界。
 
 从仓库根目录运行：
 
@@ -23,20 +23,22 @@
 | 文件 | 主要覆盖 |
 |:---|:---|
 | [`test_authoring_config.py`](test_authoring_config.py) | Deterministic piecewise-linear drift/volatility 的插值、精确区间缩约、flat extrapolation、schema version 和 positive-volatility validation。 |
-| [`test_underlying_simulator.py`](test_underlying_simulator.py) | $\Lambda/D/R$ 规范派生、factor/idiosyncratic shock、private dependence persistence、schema migration、append invariance、snapshot immutability，以及 option generator 不消费 underlying correlation。 |
+| [`test_underlying_simulator.py`](test_underlying_simulator.py) | $\Lambda/D/R$ 规范派生、factor/idiosyncratic shock、published-close rounded restart state、private dependence persistence、schema migration、append invariance、snapshot immutability，以及 option generator 不消费 underlying correlation。 |
 | [`test_joint_dependence.py`](test_joint_dependence.py) | Config 1.7 的 P/Q measure-qualified identities、drift-only covariance mapping、invalid driver/loading rejection、safe solver projection、common-Q gate、marginal BSM price/Greeks invariance 与 frozen byte immutability。 |
 | [`test_solver_database_export.py`](test_solver_database_export.py) | SHA-256 rank 无放回采样、stable sample/task IDs、显式 selector canonicalization，以及 nested JSON recursive leakage rejection。 |
 | [`test_bsm_greeks_contract.py`](test_bsm_greeks_contract.py) | $\mathbb Q$/numeraire、BSM 输入域、Greek holding-fixed/scaling、binary64-to-decimal checkpoint、variant/schema identities 与无公开中间量合同。 |
-| [`test_bsm_solver.py`](test_bsm_solver.py) | stdlib-only import boundary、call/put bounds、put-call parity、Delta relation、Gamma/Vega positivity、短长 maturity、低高 volatility 与 canonical row order。 |
-| [`test_bsm_implied_volatility.py`](test_bsm_implied_volatility.py) | Decimal-first visible midpoint、贴现 price domain、固定 `[1e-6,5.0]` bracket、恰好 80 次 bisection、四种 canonical status、无 fallback 与 task-only config boundary。 |
+| [`test_bsm_solver.py`](test_bsm_solver.py) | [`analytic_and_implied_greeks_iv`](../../src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/README.md) 的 stdlib-only import boundary、call/put bounds、put-call parity、Delta relation、Gamma/Vega positivity、短长 maturity、低高 volatility 与 canonical row order。 |
+| [`test_bsm_implied_volatility.py`](test_bsm_implied_volatility.py) | 同一 Solver 包的 Decimal-first visible midpoint、贴现 price domain、固定 `[1e-6,5.0]` bracket、恰好 80 次 bisection、四种 canonical status、无 fallback 与 task-only config boundary。 |
 | [`test_option_chain_builder.py`](test_option_chain_builder.py) | Expiry × grid × call/put 展开、liquidity filtering、quote-noise replay、moneyness/absolute-strike 互斥、listing strike 冻结、stable contract ID、append/`sync-config` invariance 和 22-underlying public config 结构。 |
 | [`test_task_space.py`](test_task_space.py) | 七维 task coordinates、F enum/schema 一致性、显式旧六维迁移、registry compatibility 和 documented axes。 |
 | [`test_mutation.py`](test_mutation.py) | Deterministic single-axis mutation、snapshot lineage、incompatible child rejection 和 method identity。 |
 | [`test_curriculum.py`](test_curriculum.py) | 20/60/20 stage mass、mastery-adaptive sampling，以及 diagnostics 不改变 binary reward。 |
+| [`test_hy3_chat_runner.py`](test_hy3_chat_runner.py) | Hy3 Chat Completions nested function-tool shape、普通文本拒绝、受限 solver replay、capability denial、tool-error repair round 与 trusted exact verification。 |
 
 Golden package 的 trusted-adapter runtime、reference replay、QuantLib verifier、release views、
 negative submissions 以及 BSM-specific nine-field dataset export 属于跨边界行为，统一在
-`tests/packaging/` 覆盖，不在 unit suite 重复构造完整 package。
+`tests/packaging_analytic_and_implied_greeks_iv/` 覆盖，不在 unit suite 重复构造完整 package。
+`test_hy3_chat_runner.py` 只用 fake API response 验证本地 orchestration；它不会发真实网络请求。
 
 ## Authoring unit-test 边界
 
@@ -59,7 +61,8 @@ negative submissions 以及 BSM-specific nine-field dataset export 属于跨边�
 
 固定 config/seed 时，one-shot 与 incremental append 必须产生完全相同的业务行。测试比较
 规范排序后的 logical rows，而不是 DuckDB 文件字节；数据库文件包含 run UUID、timestamp
-和物理布局，不能用文件 hash 代表市场结果相等。
+和物理布局，不能用文件 hash 代表市场结果相等。这里的 restart state 是前一期量化后的
+published close；测试锁定的是 rounded-state Markov law，不是隐藏 continuous state。
 
 ### Snapshot immutability
 

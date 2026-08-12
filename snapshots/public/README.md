@@ -83,6 +83,12 @@ $$
 `driver_order` 恰好只含这 22 个 underlying IDs。`market.underlying_dependence` 保存
 $\Lambda/D/R$，不建立 solver-visible view；1,232 个 option contracts 不进入相关矩阵。
 
+$S_t>0$ 是 USD/underlying-unit 计价的 synthetic ex-dividend spot。Physical drift/volatility
+分别是 $\mathbb P$ 下年化瞬时期望价格收益率（year$^{-1}$）与年化瞬时收益标准差
+（year$^{-1/2}$）；calendar clock 使用 Actual/365 Fixed。在每个 transition 已知当前 22 维
+published close state、日期、冻结 deterministic functions 与 P spec；同一日期的 shocks 按
+$\Lambda/D/R$ 联合，不同日期 namespaces 表示独立 Brownian increments。
+
 每个 underlying 的 annualized instantaneous `physical_drift` 和
 `physical_volatility` 都是 calendar-day-offset piecewise-linear functions。脚本先用记录的
 parameter-generator seed `20260806` 在 `[1, 4294967295]` 内抽得 global sampling seed
@@ -97,9 +103,20 @@ seed 全部保存在对应 underlying 的 `physical_sampling_parameters`。Drift
 snapshot replay 只读取 frozen nodes，不会重新抽样。
 
 `2026-08-03` 的 OHLC 是精确 initial condition $S(t_0)=S_0$；没有从虚构的前一日先走一步。
+该 frozen config 的所有 `initial_spot` 都已与价格 quantum 对齐，所以 initial
+canonicalization 不改变 $S_0$。
 之后每个 observation interval 对 drift 精确积分取平均，对 variance 精确积分取 RMS，再
-调用 QuantLib 的 flat-coefficient GBM exact transition。周末跨度按 Actual/365 calendar
-time 处理。
+调用 QuantLib 的 flat-coefficient GBM exact proposal transition。周末跨度按 Actual/365
+calendar time 处理。Proposal 经 8 位 decimal `ROUND_HALF_EVEN` 后成为 published close，
+并作为下一 interval 的 restart state；因此该 frozen snapshot 重放的是 rounded-state
+Markov chain，而不是保留未舍入 latent close 的 continuous-state GBM。
+
+Snapshot 采用显式 no-gap convention：`open = previous published close`。`high/low` 来自
+独立 `separate_synthetic_range-v1` heuristic shock，只满足必要的 OHLC 顺序与正值约束，
+并非同一 intraperiod path、Brownian bridge 或 exact range law。Volume 使用独立 uniform
+rule；这些字段不应作为 barrier、realized-range、overnight-gap 或真实流动性任务的真值。
+`adjusted_close = close`、`dividend = 0`、`corporate_action = none` 也是独立常量规则，不把
+该 close series 变成 total-return index。
 
 ## Liquid option chain
 

@@ -1,13 +1,16 @@
 # Authoring templates
 
-`quantlib_bsm_generator.template.json` 是与当前
-`synthetic_derivatives.authoring` v1 实现同步的最小可运行配置。它包含一个
+`quantlib_bsm_generator.template.json` 是当前 parser 仍支持的 config `1.1.0` 最小可运行
+兼容性模板。它包含一个
 underlying 和一组平值 European call/put option templates；每个 option template
-都会实例化到每个 underlying。
+都会实例化到每个 underlying。它不是当前 `1.6.0` authoring/IV 分离基线，也不包含
+`1.7.0` P/Q dependence pair。
 
 `quantlib_bsm_correlated_underlyings.template.json` 是 config `1.2.0` 的双 underlying
 示例。它只用 factor-loading correlation 改变 $\mathbb P$-measure underlying close
-paths；option pricing 不读取该相关矩阵。
+paths；option pricing 不读取该相关矩阵。两份模板用于 legacy/增量行为演示；新建当前
+market task parent 时应从 `quantlib_bsm_metals_option_chain_smoke_v2.json` 这类 `1.6.0`
+配置开始，再由专用 builder 创建新的 `1.7.0` identity。
 
 完整 option-chain 例子见
 `configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json`。它使用 config
@@ -93,11 +96,22 @@ cp authoring/templates/quantlib_bsm_generator.template.json \
 ```
 
 Underlying 每个 close interval 使用时间函数的精确区间缩约：drift 取算术平均，
-volatility 取均方根。因此 QuantLib 的单步 GBM transition 满足
+volatility 取均方根。因此 QuantLib 从当前 published state 到未量化 proposal 的单步 GBM
+transition 满足
 `integral(mu(t) dt)` 与 `integral(sigma(t)^2 dt)`，跨周末时也会覆盖完整的日历日
-区间。`market.underlyings` 中的 scalar `physical_drift` / `physical_volatility`
+区间。Proposal 随后按价格 quantum 做 `ROUND_HALF_EVEN`，published close 作为下一期状态；
+最终 materialized path 是 rounded-state Markov chain。模板的 `open = previous published
+close`（no-gap），`high/low` 是独立 synthetic range heuristic，volume 是独立 activity
+rule；它们不构成同一 intraperiod diffusion path，也不适合作为 barrier、realized-range
+或市场微观结构任务真值。`market.underlyings` 中的 scalar `physical_drift` / `physical_volatility`
 保存函数在 `day_offset = 0` 的值；完整函数和当日有效参数保存在
 `pricing_metadata.physical_dynamics`。
+
+`initial_spot` 的合同是 start-date initial condition，模板值均已与 underlying price quantum
+对齐。当前 parser 未单独拒绝非对齐自定义值，而 generator 会先执行
+`ROUND_HALF_EVEN`；自定义模板必须自行保持 tick alignment。该 $S_t$ 是 synthetic
+ex-dividend spot，drift/volatility 分别使用 Actual/365 Fixed 下的 year$^{-1}$ 与
+year$^{-1/2}$ 单位；`adjusted_close=close`、零 dividend 与 `corporate_action=none` 是显式规则。
 
 v1/v1.1 的已有 DRAFT 配置只能追加 underlying 或 option template。config `1.2.0` 把
 underlying 集合与完整 `underlying_simulation` 视为同一个不可变 path contract；修改

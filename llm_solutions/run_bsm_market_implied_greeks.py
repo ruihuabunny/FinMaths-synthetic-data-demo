@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Let an external LLM answer BSM market-implied Greeks tasks directly.
+"""Let Hy3 write and run a solver for BSM market-implied Greeks tasks.
 
-The runner exposes exactly the three trusted tools declared by each public task:
-two queries and one submission.  The LLM's ``submit_greeks_submission_v1`` tool
-arguments are the answer; no intermediate solver source is generated.
+Hy3 submits complete Python source to one agent-side execution tool.  The source
+is audited and replayed in the repository's restricted solver harness, where it
+must use exactly the three trusted tools declared by the public task.
 """
 
 from __future__ import annotations
@@ -25,12 +25,13 @@ from urllib.request import Request, urlopen
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
-from synthetic_derivatives.packaging.database import (  # noqa: E402
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.database import (  # noqa: E402
     load_bsm_greeks_inputs,
 )
-from synthetic_derivatives.packaging.runtime import (  # noqa: E402
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.runtime import (  # noqa: E402
+    CapabilityViolation,
     RuntimeReplayResult,
-    TrustedGreeksTools,
+    replay_solver_source,
 )
 from synthetic_derivatives.verifier.bsm_market_greeks import (  # noqa: E402
     verify_market_greeks_submission,
@@ -39,21 +40,27 @@ from synthetic_derivatives.verifier.bsm_market_greeks import (  # noqa: E402
 
 VARIANT_ID = "bsm_market_implied_greeks_v1"
 DEFAULT_RUN_ROOT = REPOSITORY_ROOT / "runs/bsm_market_implied_greeks"
-DEFAULT_API_KEY_ENV = "LLM_API_KEY"
+DEFAULT_API_URL = "https://tokenhub.tencentmaas.com/v1/chat/completions"
+DEFAULT_MODEL = "hy3"
+DEFAULT_API_KEY_ENV = "TOKENHUB_API_KEY"
 TRANSIENT_HTTP_STATUSES = {408, 409, 425, 429, 500, 502, 503, 504}
-QUERY_CONTRACT_TOOL = "query_greeks_task_contract_v1"
-QUERY_INPUTS_TOOL = "query_greeks_task_inputs_v1"
-SUBMIT_TOOL = "submit_greeks_submission_v1"
+RUN_PYTHON_TOOL = "run_python_solver_v1"
+MAX_SOLVER_SOURCE_BYTES = 131_072
 
 SYSTEM_PROMPT = """\
-You are the solver for one public market-implied BSM Greeks task. Interact only
-through the three supplied tools and follow the public prompt literally.
+You are a coding agent for one public market-implied BSM Greeks task. Follow the
+public prompt literally and call run_python_solver_v1 with a complete Python
+3.12 solver. Do not return source, Markdown, prose, or JSON in ordinary response
+content.
 
-Do not return Python source, Markdown, prose, or a JSON answer in ordinary chat
-content. First call each query tool exactly once. After receiving both public
-tool results, compute every answer yourself and call
-submit_greeks_submission_v1 exactly once. The arguments of that tool call must
-be the complete final submission object matching the supplied public schema.
+The source must define solve(tools). Inside solve, call each public query tool
+exactly once, compute every row using the frozen numerical method, call
+submit_greeks_submission_v1 exactly once, and return the identical submission
+object. The restricted harness supplies only the imports and trusted tools in
+the public runtime contract. It has no raw database, network, subprocess,
+verifier, reference answer, or private resource access.
+
+If the execution tool returns an error, correct the source and call it again.
 Never use precomputed answers, hidden resources, or task-specific constants.
 """
 
@@ -88,6 +95,7 @@ class ApiConfig:
     timeout_seconds: float
     retries: int
     max_tokens: int
+    reasoning_effort: str
 
 
 def _load_json(path: Path) -> Any:
@@ -195,9 +203,9 @@ def _public_task_message(package: TaskPackage) -> str:
     runtime = package.runtime_path.read_text(encoding="utf-8")
     schema = package.schema_path.read_text(encoding="utf-8")
     return (
-        "Solve this task by using the supplied tools. Your final answer must be "
-        "the arguments of submit_greeks_submission_v1, not ordinary response "
-        "content.\n\n<public_prompt>\n"
+        "Write a complete solver for this task and execute it with "
+        "run_python_solver_v1. The solver itself must use the public trusted "
+        "tools exactly as declared.\n\n<public_prompt>\n"
         + prompt
         + "\n</public_prompt>\n\n<public_runtime_contract>\n"
         + runtime
@@ -207,55 +215,32 @@ def _public_task_message(package: TaskPackage) -> str:
     )
 
 
-def _submission_parameters(package: TaskPackage) -> dict[str, Any]:
-    schema = _load_json(package.schema_path)
-    if not isinstance(schema, dict):
-        raise RunnerError("public submission schema must be a JSON object")
-    supported = {"type", "additionalProperties", "required", "properties", "$defs"}
-    parameters = {key: value for key, value in schema.items() if key in supported}
-    if not {"type", "required", "properties"} <= set(parameters):
-        raise RunnerError("public submission schema lacks required object fields")
-    return parameters
-
-
-def _tool_definitions(package: TaskPackage) -> list[dict[str, Any]]:
-    no_arguments = {
-        "type": "object",
-        "additionalProperties": False,
-        "properties": {},
-    }
+def _tool_definitions() -> list[dict[str, Any]]:
     return [
         {
             "type": "function",
             "function": {
-                "name": QUERY_CONTRACT_TOOL,
+                "name": RUN_PYTHON_TOOL,
                 "description": (
-                    "Return the one public canonical method contract. "
-                    "Call exactly once."
+                    "Audit and execute a complete Python 3.12 solver in the frozen "
+                    "restricted task harness. The source must define solve(tools), "
+                    "use the declared trusted tools, submit the result, and return "
+                    "that same result. Fix and call again if execution reports an error."
                 ),
-                "parameters": no_arguments,
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": QUERY_INPUTS_TOOL,
-                "description": (
-                    "Return all 160 public task rows in canonical order. "
-                    "Call exactly once."
-                ),
-                "parameters": no_arguments,
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": SUBMIT_TOOL,
-                "description": (
-                    "Submit the complete final answer after both query results. "
-                    "The arguments are the submission object itself. Call exactly once."
-                ),
-                "parameters": _submission_parameters(package),
+                "parameters": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["source"],
+                    "properties": {
+                        "source": {
+                            "type": "string",
+                            "maxLength": MAX_SOLVER_SOURCE_BYTES,
+                            "description": (
+                                "Complete solver.py source defining solve(tools)."
+                            ),
+                        }
+                    },
+                },
             },
         },
     ]
@@ -269,31 +254,41 @@ def _decode_http_error(error: HTTPError) -> str:
     return f"HTTP {error.code}" + (f": {body}" if body else "")
 
 
+def _chat_request_body(
+    config: ApiConfig,
+    messages: Sequence[Mapping[str, Any]],
+    tool_definitions: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "model": config.model,
+        "messages": list(messages),
+        "tools": list(tool_definitions),
+        "tool_choice": "auto",
+        "parallel_tool_calls": False,
+        "reasoning_effort": config.reasoning_effort,
+        "max_tokens": config.max_tokens,
+        "stream": False,
+    }
+
+
 def call_chat_completions(
     config: ApiConfig,
     messages: Sequence[Mapping[str, Any]],
     tool_definitions: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    """POST one non-streaming OpenAI-compatible tool-calling request."""
+    """POST one non-streaming Hy3 Chat Completions tool-calling request."""
 
     parsed = urlparse(config.url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise RunnerError("LLM API URL must be an absolute http(s) URL")
+        raise RunnerError("TokenHub API URL must be an absolute http(s) URL")
     body = json.dumps(
-        {
-            "model": config.model,
-            "messages": list(messages),
-            "tools": list(tool_definitions),
-            "tool_choice": "auto",
-            "max_tokens": config.max_tokens,
-            "stream": False,
-        },
+        _chat_request_body(config, messages, tool_definitions),
         ensure_ascii=False,
     ).encode("utf-8")
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "synthetic-data-demo-direct-llm-solver/1.0",
+        "User-Agent": "synthetic-data-demo-hy3-coding-runner/1.0",
     }
     if config.api_key:
         headers["Authorization"] = f"Bearer {config.api_key}"
@@ -319,41 +314,39 @@ def call_chat_completions(
         if not retryable or attempt == config.retries:
             break
         time.sleep(min(2**attempt, 8))
-    raise RunnerError(f"LLM API request failed after retries: {last_error}")
+    raise RunnerError(f"TokenHub API request failed after retries: {last_error}")
 
 
 def _assistant_tool_message(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, Mapping):
-        raise AttemptError("api_response", "LLM API response is not an object")
+        raise AttemptError("api_response", "Hy3 API response is not an object")
     choices = payload.get("choices")
     if not isinstance(choices, list) or not choices:
-        raise AttemptError("api_response", "LLM API response has no choices")
+        raise AttemptError("api_response", "Hy3 API response has no choices")
     first = choices[0]
     if not isinstance(first, Mapping) or not isinstance(first.get("message"), Mapping):
-        raise AttemptError("api_response", "LLM API response has no assistant message")
-    raw_message = first["message"]
-    tool_calls = raw_message.get("tool_calls")
+        raise AttemptError("api_response", "Hy3 API response has no assistant message")
+    message = dict(first["message"])
+    if message.get("role") != "assistant":
+        raise AttemptError("api_response", "Hy3 response message is not assistant")
+    tool_calls = message.get("tool_calls")
     if not isinstance(tool_calls, list) or not tool_calls:
         raise AttemptError(
             "tool_protocol",
-            "LLM returned ordinary content instead of calling a required tool",
+            "Hy3 returned ordinary output instead of calling a required tool",
         )
-    return {
-        "role": "assistant",
-        "content": raw_message.get("content"),
-        "tool_calls": tool_calls,
-    }
+    return message
 
 
 def _tool_call(call: Any) -> tuple[str, str, dict[str, Any]]:
     if not isinstance(call, Mapping):
-        raise AttemptError("tool_protocol", "LLM tool call is not an object")
+        raise AttemptError("tool_protocol", "Hy3 tool call is not an object")
     call_id = call.get("id")
     function = call.get("function")
     if not isinstance(call_id, str) or not call_id:
-        raise AttemptError("tool_protocol", "LLM tool call has no ID")
+        raise AttemptError("tool_protocol", "Hy3 tool call has no ID")
     if not isinstance(function, Mapping) or not isinstance(function.get("name"), str):
-        raise AttemptError("tool_protocol", "LLM tool call has no function name")
+        raise AttemptError("tool_protocol", "Hy3 tool call has no function name")
     arguments = function.get("arguments")
     if isinstance(arguments, str):
         try:
@@ -365,15 +358,14 @@ def _tool_call(call: Any) -> tuple[str, str, dict[str, Any]]:
     else:
         parsed = arguments
     if not isinstance(parsed, dict):
-        raise AttemptError("tool_protocol", "LLM tool arguments must be an object")
+        raise AttemptError("tool_protocol", "Hy3 function arguments must be an object")
     return call_id, function["name"], parsed
 
 
-def _tool_result_message(call_id: str, name: str, result: Any) -> dict[str, Any]:
+def _tool_result_message(call_id: str, result: Any) -> dict[str, Any]:
     return {
         "role": "tool",
         "tool_call_id": call_id,
-        "name": name,
         "content": json.dumps(result, ensure_ascii=False, separators=(",", ":")),
     }
 
@@ -398,8 +390,55 @@ def _verify_submission(
         except ValueError as error:
             raise AttemptError(
                 "trusted_semantic_mismatch",
-                "LLM submission failed exact trusted verification",
+                "generated solver submission failed exact trusted verification",
             ) from error
+
+
+def _run_python_solver(
+    *,
+    package: TaskPackage,
+    run_directory: Path,
+    source: str,
+    trusted_verification: bool,
+) -> RuntimeReplayResult:
+    run_directory.mkdir(parents=True, exist_ok=False)
+    if not source.strip():
+        raise AttemptError("solver_source", "solver source must not be empty")
+    if len(source.encode("utf-8")) > MAX_SOLVER_SOURCE_BYTES:
+        raise AttemptError(
+            "solver_source",
+            f"solver source exceeds {MAX_SOLVER_SOURCE_BYTES} UTF-8 bytes",
+        )
+
+    source_path = run_directory / "solver.py"
+    source_path.write_text(source, encoding="utf-8")
+    try:
+        result = replay_solver_source(
+            source_path=source_path,
+            database=package.database_path,
+            submission_directory=run_directory / "submission",
+            runtime_contract=_runtime_contract(package),
+        )
+    except (CapabilityViolation, OSError, ValueError) as error:
+        raise AttemptError("solver_execution", str(error)) from error
+    _verify_submission(
+        package,
+        result,
+        trusted_verification=trusted_verification,
+    )
+    return result
+
+
+def _solver_error_output(error: AttemptError) -> dict[str, str]:
+    message = str(error)
+    if len(message) > 2000:
+        message = message[:2000] + "..."
+    return {
+        "status": "error",
+        "failure_kind": error.kind,
+        "error": message,
+        "instruction": "Correct the complete solver source and call the tool again.",
+    }
 
 
 def direct_submission_attempt(
@@ -411,7 +450,7 @@ def direct_submission_attempt(
     trusted_verification: bool,
     retry_feedback: str | None,
 ) -> RuntimeReplayResult:
-    """Run one fresh tool-budgeted LLM conversation for a single task."""
+    """Run one fresh Hy3 coding conversation for a single task."""
 
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -419,21 +458,13 @@ def direct_submission_attempt(
     ]
     if retry_feedback:
         messages.append({"role": "user", "content": retry_feedback})
-    definitions = _tool_definitions(package)
+    definitions = _tool_definitions()
     _write_json(
         attempt_dir / "public_agent_request.json",
-        {
-            "model": api_config.model,
-            "messages": messages,
-            "tools": definitions,
-        },
+        _chat_request_body(api_config, messages, definitions),
     )
 
-    trusted_tools = TrustedGreeksTools(
-        package.database_path,
-        _runtime_contract(package),
-    )
-    query_counts = {QUERY_CONTRACT_TOOL: 0, QUERY_INPUTS_TOOL: 0}
+    last_solver_error: AttemptError | None = None
     try:
         for round_number in range(1, max_agent_rounds + 1):
             payload = call_chat_completions(api_config, messages, definitions)
@@ -441,92 +472,93 @@ def direct_submission_attempt(
                 attempt_dir / f"api_response_round_{round_number:02d}.json",
                 payload,
             )
-            assistant = _assistant_tool_message(payload)
-            messages.append(assistant)
-            calls = assistant["tool_calls"]
-            queries_complete_before_round = all(
-                count == 1 for count in query_counts.values()
-            )
+            assistant_message = _assistant_tool_message(payload)
+            messages.append(assistant_message)
+            calls = assistant_message["tool_calls"]
+            if len(calls) != 1:
+                raise AttemptError(
+                    "tool_protocol",
+                    f"Hy3 must make exactly one {RUN_PYTHON_TOOL} call per turn",
+                )
+            call_id, name, arguments = _tool_call(calls[0])
+            if name != RUN_PYTHON_TOOL:
+                raise AttemptError(
+                    "tool_protocol", f"Hy3 called unavailable tool: {name}"
+                )
+            if set(arguments) != {"source"} or not isinstance(
+                arguments["source"], str
+            ):
+                raise AttemptError(
+                    "tool_protocol",
+                    f"{RUN_PYTHON_TOOL} requires one string field named source",
+                )
 
-            for call_index, raw_call in enumerate(calls):
-                call_id, name, arguments = _tool_call(raw_call)
-                if name == QUERY_CONTRACT_TOOL:
-                    if arguments:
-                        raise AttemptError(
-                            "tool_protocol", f"{QUERY_CONTRACT_TOOL} takes no arguments"
-                        )
-                    if query_counts[name]:
-                        raise AttemptError(
-                            "tool_protocol", f"{QUERY_CONTRACT_TOOL} was called twice"
-                        )
-                    result = trusted_tools.query_greeks_task_contract_v1()
-                    query_counts[name] += 1
-                    messages.append(_tool_result_message(call_id, name, result))
-                elif name == QUERY_INPUTS_TOOL:
-                    if arguments:
-                        raise AttemptError(
-                            "tool_protocol", f"{QUERY_INPUTS_TOOL} takes no arguments"
-                        )
-                    if query_counts[name]:
-                        raise AttemptError(
-                            "tool_protocol", f"{QUERY_INPUTS_TOOL} was called twice"
-                        )
-                    result = trusted_tools.query_greeks_task_inputs_v1()
-                    query_counts[name] += 1
-                    messages.append(_tool_result_message(call_id, name, result))
-                elif name == SUBMIT_TOOL:
-                    if not queries_complete_before_round:
-                        raise AttemptError(
-                            "tool_protocol",
-                            "LLM submitted before receiving both public query results",
-                        )
-                    if len(calls) != 1 or call_index != 0:
-                        raise AttemptError(
-                            "tool_protocol",
-                            "the submission must be the only tool call in its turn",
-                        )
-                    try:
-                        trusted_tools.submit_greeks_submission_v1(arguments)
-                        replay = trusted_tools.result()
-                    except ValueError as error:
-                        raise AttemptError(
-                            "submission_schema",
-                            "LLM submission violates the public schema or tool schedule",
-                        ) from error
-                    (attempt_dir / "candidate_submission.json").write_bytes(
-                        replay.submission_bytes
-                    )
-                    _verify_submission(
-                        package,
-                        replay,
-                        trusted_verification=trusted_verification,
-                    )
-                    _write_json(attempt_dir / "transcript.json", messages)
-                    return replay
-                else:
-                    raise AttemptError(
-                        "tool_protocol", f"LLM called unavailable tool: {name}"
-                    )
+            run_directory = (
+                attempt_dir / "python_runs" / f"run_{round_number:02d}"
+            )
+            try:
+                result = _run_python_solver(
+                    package=package,
+                    run_directory=run_directory,
+                    source=arguments["source"],
+                    trusted_verification=trusted_verification,
+                )
+            except AttemptError as error:
+                last_solver_error = error
+                error_output = _solver_error_output(error)
+                _write_json(run_directory / "result.json", error_output)
+                messages.append(_tool_result_message(call_id, error_output))
+                continue
+
+            accepted_output = {
+                "status": "accepted",
+                "task_id": package.task_id,
+                "row_count": len(result.submission["rows"]),
+                "trusted_verification": trusted_verification,
+            }
+            _write_json(run_directory / "result.json", accepted_output)
+            messages.append(_tool_result_message(call_id, accepted_output))
+            (attempt_dir / "candidate_submission.json").write_bytes(
+                result.submission_bytes
+            )
+            _write_json(
+                attempt_dir / "transcript.json",
+                {"messages": messages},
+            )
+            return result
+        if last_solver_error is not None:
+            raise AttemptError(
+                last_solver_error.kind,
+                f"Hy3 failed all {max_agent_rounds} solver runs: "
+                f"{last_solver_error}",
+            ) from last_solver_error
         raise AttemptError(
             "tool_protocol",
-            f"LLM did not submit within {max_agent_rounds} agent rounds",
+            f"Hy3 did not call the solver tool in {max_agent_rounds} rounds",
         )
     except Exception:
-        _write_json(attempt_dir / "transcript.json", messages)
+        _write_json(
+            attempt_dir / "transcript.json",
+            {"messages": messages},
+        )
         raise
 
 
 def _retry_feedback(error: AttemptError) -> str:
     if error.kind == "trusted_semantic_mismatch":
         detail = (
-            "A previous independent attempt had the correct tool/schema shape but "
-            "failed exact numeric verification. No oracle values are available. "
+            "A previous generated solver passed the tool/schema checks but failed "
+            "exact numeric verification. No oracle values are available. "
             "Recheck the declared BSM formulas, units, 80 binary64 bisection updates, "
             "row order, and Decimal ROUND_HALF_EVEN serialization."
         )
     else:
         detail = f"A previous independent attempt failed: {error}"
-    return detail + " Start again and obey the three-tool schedule exactly."
+    return (
+        detail
+        + " Start again, call the Python solver tool, and make the generated "
+        "solve(tools) obey the three trusted-tool calls exactly."
+    )
 
 
 def solve_task(
@@ -598,20 +630,31 @@ def _default_output_dir(run_root: Path) -> Path:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Let an external OpenAI-compatible tool-calling LLM directly submit "
-            "answers for BSM market-implied Greeks task packages."
+            "Let Hy3 use TokenHub's Chat Completions API to write and execute "
+            "restricted solvers for BSM market-implied Greeks task packages."
         )
     )
     parser.add_argument("--run-root", type=Path, default=DEFAULT_RUN_ROOT)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--task-id", action="append", default=[])
     parser.add_argument("--limit", type=int)
-    parser.add_argument("--api-url", default=os.environ.get("LLM_API_URL"))
-    parser.add_argument("--model", default=os.environ.get("LLM_MODEL"))
+    parser.add_argument(
+        "--api-url",
+        default=os.environ.get("TOKENHUB_API_URL", DEFAULT_API_URL),
+    )
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("TOKENHUB_MODEL", DEFAULT_MODEL),
+    )
     parser.add_argument("--api-key-env", default=DEFAULT_API_KEY_ENV)
     parser.add_argument("--api-timeout", type=float, default=300.0)
     parser.add_argument("--api-retries", type=int, default=3)
     parser.add_argument("--max-tokens", type=int, default=32768)
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=("low", "medium", "high"),
+        default="high",
+    )
     parser.add_argument("--task-attempts", type=int, default=2)
     parser.add_argument("--max-agent-rounds", type=int, default=4)
     parser.add_argument(
@@ -624,9 +667,9 @@ def _parser() -> argparse.ArgumentParser:
 
 def _api_config(arguments: argparse.Namespace) -> ApiConfig:
     if not arguments.api_url:
-        raise RunnerError("set --api-url or LLM_API_URL")
+        raise RunnerError("set --api-url or TOKENHUB_API_URL")
     if not arguments.model:
-        raise RunnerError("set --model or LLM_MODEL")
+        raise RunnerError("set --model or TOKENHUB_MODEL")
     if arguments.api_timeout <= 0:
         raise RunnerError("--api-timeout must be positive")
     if arguments.api_retries < 0:
@@ -635,8 +678,8 @@ def _api_config(arguments: argparse.Namespace) -> ApiConfig:
         raise RunnerError("--max-tokens must be positive")
     if arguments.task_attempts < 1:
         raise RunnerError("--task-attempts must be positive")
-    if arguments.max_agent_rounds < 2:
-        raise RunnerError("--max-agent-rounds must be at least 2")
+    if arguments.max_agent_rounds < 1:
+        raise RunnerError("--max-agent-rounds must be positive")
     return ApiConfig(
         url=arguments.api_url,
         model=arguments.model,
@@ -644,6 +687,7 @@ def _api_config(arguments: argparse.Namespace) -> ApiConfig:
         timeout_seconds=arguments.api_timeout,
         retries=arguments.api_retries,
         max_tokens=arguments.max_tokens,
+        reasoning_effort=arguments.reasoning_effort,
     )
 
 
@@ -666,9 +710,14 @@ def run(arguments: argparse.Namespace) -> Path:
             "run_root": str(arguments.run_root.resolve()),
             "task_count": len(packages),
             "task_ids": [package.task_id for package in packages],
-            "llm_submission_mode": "direct_trusted_tool_call",
+            "llm_submission_mode": "generated_solver_restricted_replay",
             "trusted_verification": trusted_verification,
-            "api": {"url": api_config.url, "model": api_config.model},
+            "api": {
+                "protocol": "openai_chat_completions",
+                "url": api_config.url,
+                "model": api_config.model,
+                "reasoning_effort": api_config.reasoning_effort,
+            },
         },
     )
 
@@ -704,7 +753,7 @@ def run(arguments: argparse.Namespace) -> Path:
         {
             "status": "completed",
             "variant_id": VARIANT_ID,
-            "submission_mode": "direct_trusted_tool_call",
+            "submission_mode": "generated_solver_restricted_replay",
             "task_count": len(results),
             "trusted_verification": trusted_verification,
             "results": results,
