@@ -1,0 +1,33 @@
+{
+  "schema_version": "bsm-greeks-variant-v1.0.0",
+  "status": "ACCEPTED_GOLDEN_PACKAGE",
+  "variant_id": "bsm_market_implied_greeks_v1",
+  "task_family": "bsm_greeks",
+  "coordinates": {
+    "L": 5,
+    "P": 0,
+    "M": 0,
+    "A": 1,
+    "D": 4,
+    "R": 1,
+    "F": "F0"
+  },
+  "input_interface": "trusted_query_adapter_over_public_duckdb_market_snapshot",
+  "solver_visible_relations": [
+    "metadata.public_task",
+    "solver_visible.greeks_task_inputs",
+    "solver_visible.greeks_task_contract"
+  ],
+  "pricing_measure_id": "USD-MONEY-MARKET-Q-v1",
+  "numeraire_id": "USD-MONEY-MARKET-ACCOUNT-v1",
+  "iv_method_id": "bsm-bisection-float64-80-v1",
+  "greeks_method_id": "bsm-analytic-float64-greeks-v1",
+  "method_id": "bsm-mid-iv-bisection80-analytic-greeks-v1",
+  "output_contract_id": "bsm-market-implied-greeks-output-v1",
+  "submission_schema": "schemas/bsm-greeks-submission-v1.schema.json",
+  "runtime_contract": "schemas/agent-task-runtime-contract-v1.schema.json",
+  "golden_task_id": "bsm-mig-v1-1f1fc1880b42253725b118eb",
+  "package_path": "task_packages/bsm_market_implied_greeks_v1/bsm-mig-v1-1f1fc1880b42253725b118eb",
+  "materialization_boundary": "P6_end_to_end_public_task_packaging_complete",
+  "persisted_intermediates": []
+}

@@ -1,0 +1,28 @@
+{
+  "package_config_version": "bsm-market-implied-greeks-package-config-v1.0.0",
+  "variant_id": "bsm_market_implied_greeks_v1",
+  "task_family": "bsm_greeks",
+  "task_version": "1.0.0",
+  "coordinates": {"L": 5, "P": 0, "M": 0, "A": 1, "D": 4, "R": 1, "F": "F0"},
+  "valuation_date": "2026-08-03",
+  "private_selection": {
+    "sampling_seed": 17,
+    "underlying_count": 8,
+    "live_expiry_count": 2,
+    "strike_count_per_expiry": 5,
+    "strike_selection": "absolute_log_forward_moneyness_then_strike",
+    "retain_call_put_pairs": true
+  },
+  "method_id": "bsm-mid-iv-bisection80-analytic-greeks-v1",
+  "iv_method_id": "bsm-bisection-float64-80-v1",
+  "greeks_method_id": "bsm-analytic-float64-greeks-v1",
+  "package_schema_version": "agent-task-package-v1.0.0",
+  "public_database_schema_version": "bsm-greeks-task-duckdb-v1.0.0",
+  "submission_schema": "schemas/bsm-greeks-submission-v1.schema.json",
+  "runtime_schema": "schemas/agent-task-runtime-contract-v1.schema.json",
+  "trajectory_schema": "schemas/agent-task-trajectory-v1.schema.json",
+  "oracle_config_schema": "schemas/bsm-greeks-oracle-config-v1.schema.json",
+  "global_capability_profile": "environments/solver/capabilities.global_v1.json",
+  "task_capability_overlay": "environments/solver/capabilities.bsm_greeks_v1.json",
+  "release_profile": "golden-single-task-v1"
+}

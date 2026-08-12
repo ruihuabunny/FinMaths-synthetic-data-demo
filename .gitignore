@@ -79,6 +79,9 @@ authoring/audit/
 # Local databases, database volumes, and backups
 *.db
 *.db-journal
+*.duckdb.wal
+*.duckdb.tmp
+*.manifest.json.tmp
 *.sqlite
 *.sqlite3
 *.sqlite-journal

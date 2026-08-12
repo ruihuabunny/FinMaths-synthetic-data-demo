@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "status": "DRAFT",
+  "publication_eligible": false,
+  "task_id": "quantlib_bsm_smoke_price_v1",
+  "task_family_id": "bsm_vanilla",
+  "coordinates": {"L": 0, "P": 0, "M": 0, "A": 0, "D": 0, "R": 0},
+  "snapshot_id": "DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3",
+  "snapshot_revision": 1,
+  "snapshot_manifest": "snapshots/public/quantlib_bsm_smoke_v1.manifest.json",
+  "task_space_registry_id": "derivatives-task-space-v1",
+  "compatibility_rule_id": "bsm-vanilla",
+  "method_id": "bsm-analytic-price-v1",
+  "output_contract_id": "canonical-float64-json-v1"
+}

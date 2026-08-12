@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task.schema.json",
+  "title": "Registered immutable derivatives task",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["task_id", "task_family_id", "coordinates", "snapshot_id", "snapshot_revision", "method_id", "output_contract_id"],
+  "properties": {
+    "task_id": {"type": "string", "minLength": 1},
+    "task_family_id": {"type": "string", "minLength": 1},
+    "coordinates": {"$ref": "difficulty.schema.json"},
+    "snapshot_id": {"type": "string", "minLength": 1},
+    "snapshot_revision": {"type": "integer", "minimum": 1},
+    "method_id": {"type": "string", "minLength": 1},
+    "output_contract_id": {"type": "string", "minLength": 1}
+  }
+}

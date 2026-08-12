@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "curriculum-v2.schema.json",
+  "title": "Reproducible adaptive seven-dimensional curriculum state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["curriculum_id", "current_stage", "pass_at_1", "sampling_weights"],
+  "properties": {
+    "curriculum_id": {"const": "adaptive-derivatives-v2"},
+    "current_stage": {"type": "integer", "minimum": 0, "maximum": 8},
+    "pass_at_1": {"type": "object", "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}},
+    "sampling_weights": {"type": "object", "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}}
+  }
+}

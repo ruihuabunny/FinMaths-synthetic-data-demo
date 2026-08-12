@@ -1,0 +1,60 @@
+{
+  "schema_version": "bsm-iv-variant-v1.0.0",
+  "variant_id": "bsm_iv_scalar_v1",
+  "task_family": "bsm_vanilla",
+  "coordinates": {
+    "L": 1,
+    "P": 0,
+    "M": 0,
+    "A": 1,
+    "D": 1,
+    "R": 0,
+    "F": "F0"
+  },
+  "pricing_measure_id": "USD-MONEY-MARKET-Q-v1",
+  "numeraire_id": "USD-MONEY-MARKET-ACCOUNT-v1",
+  "economic_object": "ex_dividend_spot",
+  "pricing_law": "exact_analytic_constant_parameter_bsm",
+  "inputs": [
+    "spot",
+    "strike",
+    "time_to_expiry_actual365",
+    "risk_free_rate",
+    "dividend_yield",
+    "bid",
+    "ask",
+    "call_put"
+  ],
+  "output_schema": "schemas/bsm-implied-volatility-output.schema.json",
+  "inversion_contract": {
+    "pricing_measure_id": "USD-MONEY-MARKET-Q-v1",
+    "numeraire_id": "USD-MONEY-MARKET-ACCOUNT-v1",
+    "pricing_law": "exact_analytic_constant_parameter_bsm",
+    "method_id": "bsm-bisection-float64-80-v1",
+    "input_price_rule": "decimal_bid_ask_midpoint_then_one_binary64_cast",
+    "volatility_bracket": [
+      0.000001,
+      5.0
+    ],
+    "iterations": 80,
+    "midpoint_rule": "binary64_(low_plus_high)_divided_by_2",
+    "comparison_rule": "price_mid_lt_observed_updates_low_else_high",
+    "final_root_rule": "binary64_(low_80_plus_high_80)_divided_by_2",
+    "price_bounds_rule": "discounted_european_bsm_finite_iv_bounds_v1",
+    "finite_iv_price_domain": "lower_inclusive_upper_exclusive",
+    "bracket_endpoint_rule": "closed",
+    "early_stop": false,
+    "fallback_method": null,
+    "input_dtype": "binary64_after_declared_decimal_midpoint",
+    "output_precision": 8,
+    "rounding": "ROUND_HALF_EVEN",
+    "statuses": {
+      "OK": "finite_root_in_closed_bracket_after_80_updates",
+      "INVALID_INPUT": "input_domain_or_quote_contract_failure",
+      "OUT_OF_BOUNDS": "outside_discounted_BSM_finite_iv_price_domain",
+      "NO_BRACKET": "inside_price_domain_but_not_numerically_bracketed_by_[1e-6,5.0]"
+    },
+    "failure_iterations": 0,
+    "persisted_intermediates": []
+  }
+}

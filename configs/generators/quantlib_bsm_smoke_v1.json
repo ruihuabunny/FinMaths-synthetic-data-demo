@@ -1,0 +1,125 @@
+{
+  "schema_version": "1.0.0",
+  "generator_config_id": "quantlib-bsm-ticked-smoke-v2",
+  "generator_version": "0.1.1",
+  "snapshot_id": "DERIVATIVES-QUANTLIB-TICKED-SMOKE-v2",
+  "seed": 20260804,
+  "rng": "QuantLib.BoxMullerMersenneTwisterGaussianRng/partitioned-sha256-seed-v1",
+  "start_date": "2026-08-03",
+  "business_days": 5,
+  "calendar": "WeekendsOnly",
+  "day_count": "Actual365Fixed",
+  "valuation_time_utc": "16:00:00",
+  "pricing_model": "Black-Scholes-Merton",
+  "pricing_engine": "QuantLib.AnalyticEuropeanEngine",
+  "physical_process": "QuantLib.BlackScholesMertonProcess",
+  "currency": "USD",
+  "quote_decimal_places": 8,
+  "underlying_minimum_price_increment": "0.01",
+  "option_minimum_price_increment": "0.01",
+  "underlyings": [
+    {
+      "underlying_id": "SYNTH-U01",
+      "initial_spot": 80.0,
+      "physical_drift": 0.06,
+      "physical_volatility": 0.18,
+      "risk_free_rate": 0.025,
+      "dividend_yield": 0.005,
+      "base_implied_volatility": 0.19
+    },
+    {
+      "underlying_id": "SYNTH-U02",
+      "initial_spot": 90.0,
+      "physical_drift": 0.065,
+      "physical_volatility": 0.2,
+      "risk_free_rate": 0.0275,
+      "dividend_yield": 0.0075,
+      "base_implied_volatility": 0.21
+    },
+    {
+      "underlying_id": "SYNTH-U03",
+      "initial_spot": 100.0,
+      "physical_drift": 0.07,
+      "physical_volatility": 0.22,
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_implied_volatility": 0.23
+    },
+    {
+      "underlying_id": "SYNTH-U04",
+      "initial_spot": 110.0,
+      "physical_drift": 0.075,
+      "physical_volatility": 0.24,
+      "risk_free_rate": 0.0325,
+      "dividend_yield": 0.0125,
+      "base_implied_volatility": 0.25
+    },
+    {
+      "underlying_id": "SYNTH-U05",
+      "initial_spot": 120.0,
+      "physical_drift": 0.08,
+      "physical_volatility": 0.26,
+      "risk_free_rate": 0.035,
+      "dividend_yield": 0.015,
+      "base_implied_volatility": 0.27
+    }
+  ],
+  "option_templates": [
+    {
+      "template_id": "CALL-090-030D",
+      "call_put": "call",
+      "strike_moneyness": 0.9,
+      "expiry_days": 30,
+      "exercise_style": "european",
+      "settlement_type": "cash",
+      "contract_multiplier": 100
+    },
+    {
+      "template_id": "PUT-095-060D",
+      "call_put": "put",
+      "strike_moneyness": 0.95,
+      "expiry_days": 60,
+      "exercise_style": "european",
+      "settlement_type": "cash",
+      "contract_multiplier": 100
+    },
+    {
+      "template_id": "CALL-100-090D",
+      "call_put": "call",
+      "strike_moneyness": 1.0,
+      "expiry_days": 90,
+      "exercise_style": "european",
+      "settlement_type": "cash",
+      "contract_multiplier": 100
+    },
+    {
+      "template_id": "PUT-105-120D",
+      "call_put": "put",
+      "strike_moneyness": 1.05,
+      "expiry_days": 120,
+      "exercise_style": "european",
+      "settlement_type": "cash",
+      "contract_multiplier": 100
+    },
+    {
+      "template_id": "CALL-110-180D",
+      "call_put": "call",
+      "strike_moneyness": 1.1,
+      "expiry_days": 180,
+      "exercise_style": "european",
+      "settlement_type": "cash",
+      "contract_multiplier": 100
+    }
+  ],
+  "smile": {
+    "skew": -0.08,
+    "curvature": 0.35,
+    "term_slope": 0.01,
+    "minimum_volatility": 0.05
+  },
+  "quote_model": {
+    "relative_half_spread": 0.0025,
+    "minimum_half_spread": 0.005,
+    "null_policy": "no-null-for-required-snapshot-fields"
+  }
+}

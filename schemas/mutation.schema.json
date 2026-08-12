@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mutation.schema.json",
+  "title": "Mutated task and deterministic lineage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task", "lineage"],
+  "properties": {
+    "task": {"$ref": "task.schema.json"},
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parent_task_id", "child_task_id", "operator", "before", "after", "seed", "engine_id", "compatibility_rule_id"],
+      "properties": {
+        "parent_task_id": {"type": "string", "minLength": 1},
+        "child_task_id": {"type": "string", "minLength": 1},
+        "operator": {"type": "string", "minLength": 1},
+        "before": {"$ref": "difficulty.schema.json"},
+        "after": {"$ref": "difficulty.schema.json"},
+        "seed": {"type": "integer", "minimum": 0},
+        "engine_id": {"type": "string", "minLength": 1},
+        "compatibility_rule_id": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

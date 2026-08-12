@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "difficulty.schema.json",
+  "title": "Six-dimensional derivatives task coordinates",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["L", "P", "M", "A", "D", "R"],
+  "properties": {
+    "L": {"type": "integer", "minimum": 0, "maximum": 6},
+    "P": {"type": "integer", "minimum": 0, "maximum": 8},
+    "M": {"type": "integer", "minimum": 0, "maximum": 9},
+    "A": {"type": "integer", "minimum": 0, "maximum": 8},
+    "D": {"type": "integer", "minimum": 0, "maximum": 8},
+    "R": {"type": "integer", "minimum": 0, "maximum": 9}
+  }
+}
