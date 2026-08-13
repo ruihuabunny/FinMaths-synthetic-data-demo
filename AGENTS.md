@@ -377,6 +377,34 @@
   common-measure identities, joint-process provenance, snapshot immutability, and
   fixed-seed replay.
 
+## Default Deliverable Scope: One Standalone Agent Task
+
+Unless the user explicitly says otherwise, the deliverable is **one self-contained, portable agent-task package**. It is **not** the entire project, authoring pipeline, simulator, dataset, sandbox platform, deployment system, or production-ready repository.
+
+### Scope rules
+
+* Work only on artifacts required to package and validate the requested agent task.
+* Follow the repository’s existing agent-task packaging specification as the source of truth.
+* Reuse existing project infrastructure. Do not redesign, rewrite, duplicate, or package unrelated infrastructure.
+* Include only task-scoped files required by the agreed packaging specification.
+* If data is required, include only the minimal frozen subset or fixture needed by this task—not the full source dataset or database.
+* Supporting generator code, authoring pipelines, full datasets, reference solutions or trajectories, sandbox/container infrastructure, CI, deployment, and broad documentation are excluded unless the user explicitly requests them.
+* “Standalone,” “package,” “deliver,” or “ready to take away” means the individual agent task is portable; it does not mean the whole repository must be productized or exported.
+
+### Do not infer or expand scope
+
+Do not add deliverables merely because they seem useful, complete, professional, or potentially needed later. Never silently interpret a task-packaging request as a request to deliver the entire project.
+
+Before making changes, state in one sentence:
+
+1. What exact agent-task package you intend to deliver.
+2. What major items you are intentionally excluding.
+
+If the package contents, portability boundary, required data, verifier interface, execution environment, or expected output are unclear, **stop and ask the user one concise clarification question before implementing anything**. Do not fill material gaps with assumptions, and do not choose the larger scope “to be safe.”
+
+When uncertainty exists, asking the user is the required behavior.
+
+
 ## Keep implementations simple
 
 - Prefer the simplest implementation that satisfies the current requirement.

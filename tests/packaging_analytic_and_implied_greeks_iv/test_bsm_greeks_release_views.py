@@ -13,6 +13,9 @@ import pytest
 
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts import load_json_object
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.database import load_bsm_greeks_inputs
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.portable_delivery import (
+    verify_portable_bsm_greeks_delivery,
+)
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.runtime import replay_solver_source
 from synthetic_derivatives.verifier.bsm_market_greeks import (
     verify_market_greeks_submission,
@@ -222,20 +225,20 @@ def test_clean_evaluation_view_is_solvable_through_trusted_tools(
     )
 
 
-def test_checked_in_golden_package_is_self_consistent(
+def test_checked_in_portable_delivery_is_self_consistent(
     repository_root,
 ) -> None:
-    packages = list(
-        (
-            repository_root
-            / "task_packages/bsm_market_implied_greeks_v1"
-        ).glob("bsm-mig-v1-*")
+    delivery = (
+        repository_root
+        / "task_packages/deliveries/bsm_market_implied_greeks_v1"
+        / "20260813_current_interface_100"
     )
-    assert len(packages) == 1
-    manifest = load_json_object(packages[0] / "manifest.json")
-    assert manifest["build_status"] == "ACCEPTED"
-    assert manifest["task_id"] == packages[0].name
-    assert (packages[0] / "verifier/runtime.py").is_file()
-    assert (packages[0] / "verifier/requirements.lock").read_bytes() == (
+    manifest = verify_portable_bsm_greeks_delivery(delivery)
+    assert manifest["delivery_status"] == "PORTABLE_VERIFIED"
+    assert manifest["task_count"] == 100
+    assert len(set(manifest["task_ids"])) == 100
+    first_task = delivery / "tasks" / manifest["task_ids"][0]
+    assert (first_task / "verifier/runtime.py").is_file()
+    assert (first_task / "verifier/requirements.lock").read_bytes() == (
         repository_root / "environments/verifier/requirements.lock"
     ).read_bytes()

@@ -1,6 +1,7 @@
 # Agent task packages
 
-Each task directory is an immutable accepted package with four source areas:
+A source-package task produced under `runs/` is an immutable accepted package
+with four source areas:
 
 - `public/`: the Agent-visible DuckDB, minimal routing prompt, effective runtime
   contract, and submission schema;
@@ -43,30 +44,30 @@ The evaluation and train/dev views intentionally omit the trusted verifier;
 the future sandbox may mount it separately without needing the authoring
 repository.
 
-The checked-in golden package is
-`bsm_market_implied_greeks_v1/bsm-mig-v1-bde472c5cb0ca8a660314c9e`. It is an
-`ACCEPTED` D4 task, not a batch release: 8 underlyings × 2 live expiries × 5
-strikes × call/put = 160 ordered rows, with exactly three relations in
-`public/task.duckdb`. Its public logical checksum is
-`0630a0216e36d5f8785d9f1e0dfd8d2e2445038010895f0f07221eb6409aeec3`.
+The maintained task-data delivery is
+`deliveries/bsm_market_implied_greeks_v1/20260813_current_interface_100`.
+It contains 100 unique portable D4 tasks. Each task has 8 underlyings × 2 live
+expiries × 5 strikes × call/put = 160 ordered rows, with exactly three
+relations in `public/task.duckdb`. All 100 tasks share one parent snapshot, so
+the batch is declared as one unsplit evaluation group rather than randomly
+dividing related children across train/validation/test.
 
 New materializations bind a `solver_interface_digest` into the stable task ID.
 That digest covers the solver-interface contract version, rendered prompt,
 method contract, submission schema, and effective runtime contract. The version
 owns the trusted-adapter and input-mapping surface. Changing any of those creates
-a new task directory; an `ACCEPTED` package is never edited in place. The
-checked-in ID above was promoted only after the newly identified package
-passed replay, verifier, leakage, release-view, and repository-isolation checks.
+a new task directory; an `ACCEPTED` source package is never edited in place.
+Moving an observably identical adapter binding into a portable delivery changes
+only delivery identity and does not change the mathematical task ID.
 
-Rebuild and verify a single package with `scripts/package_bsm_greeks_task.py`;
-the script refuses to overwrite an existing task identity. Phase F tooling in
-`scripts/run_bsm_greeks_batch.py` parameterizes only the private nonnegative
-selection seed, reuses one frozen parent, verifies every accepted package, and
-exports a nine-field JSONL dataset. A Git-ignored local 100-task run dated
-2026-08-10 was built with the predecessor verbose-prompt interface. Because the
-current minimal prompt changes `solver_interface_digest` and task IDs, that run
-is historical only; a current-interface 100-task rebuild, split audit, and
-explicit `RELEASED` promotion have not been performed.
+Rebuild and verify a single source package with
+`scripts/package_bsm_greeks_task.py`; the script refuses to overwrite an
+existing task identity. Phase F tooling in `scripts/run_bsm_greeks_batch.py`
+parameterizes only the private nonnegative selection seed, reuses one frozen
+parent, verifies every accepted package, and exports a nine-field JSONL dataset.
+The current-interface 100-task source run completed on 2026-08-13; its portable
+envelope is `PORTABLE_VERIFIED`, while explicit `RELEASED` promotion remains a
+separate release-policy decision.
 
 Use scratch output paths for a rebuild:
 
@@ -84,5 +85,32 @@ run:
 .venv/bin/python scripts/run_bsm_greeks_batch.py \
   --run-root /tmp/bsm-greeks-batch-smoke \
   --dataset-copy /tmp/bsm-greeks-dataset-smoke \
-  --task-count 2
+    --task-count 2
+```
+
+## Portable data-only delivery
+
+A completed batch can be converted into agent-task deliveries that do not
+depend on this repository's Python source. Each delivered task contains the
+four unchanged `public/` artifacts, package-local `verifier/`, and a
+host-only declarative `trusted_tools/` directory. The latter binds the two
+query tools to canonical JSON payloads exported from `public/task.duckdb` and
+binds the submission tool to the public schema. A receiving platform only
+needs to implement the declared generic
+`static-json-query-schema-submit-v1` host protocol; the sandbox itself is not
+part of the delivery.
+
+The converter excludes reference answers, trajectories, authoring-private
+files, selector configuration and readable seed/run names, generated datasets,
+and release views. It preserves the existing task IDs because the observable
+tool interface and returned values do not change. The source packages remain
+immutable `ACCEPTED` artifacts; the outer delivery has its own
+`PORTABLE_VERIFIED` status and complete file-digest and visibility manifests.
+
+```bash
+.venv/bin/python scripts/package_bsm_greeks_delivery.py \
+  --run-root runs/bsm_market_implied_greeks/<completed-run> \
+  --output-root task_packages/deliveries \
+  --delivery-id <delivery-id> \
+  --expected-task-count 100
 ```

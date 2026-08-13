@@ -1,0 +1,4 @@
+# Trusted evaluation image. This lock is never installed in the solver image.
+duckdb==1.5.5
+QuantLib==1.39
+pytest==8.4.1

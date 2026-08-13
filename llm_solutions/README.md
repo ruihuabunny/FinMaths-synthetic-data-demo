@@ -1,8 +1,9 @@
 # Hy3 Chat Completions coding runner
 
-这个目录让腾讯混元 Hy3 为 `runs/bsm_market_implied_greeks` 的公开任务编写并执行
-`solver.py`。Hy3 通过一个外层 Agent 工具 `run_python_solver_v1` 提交完整源码；源码必须
-定义 `solve(tools)`，并在仓库已有的受限 solver harness 内使用题面声明的三个 trusted tools：
+这个目录让腾讯混元 Hy3 为 BSM market-implied Greeks 的 source package 或 portable
+delivery 编写并执行 `solver.py`。Hy3 通过一个外层 Agent 工具 `run_python_solver_v1`
+提交完整源码；源码必须定义 `solve(tools)`，并在仓库已有的受限 solver harness 内使用
+题面声明的三个 trusted tools：
 
 1. 调用 `query_greeks_task_contract_v1` 一次；
 2. 调用 `query_greeks_task_inputs_v1` 一次；
@@ -12,10 +13,12 @@
 `submissions/<task_id>/submission.json`。Hy3 不需要在模型输出中复制 160 行结果；普通
 assistant 文本、Markdown 或未通过执行工具提交的源码都会被拒绝。
 
-`run_python_solver_v1` 不是第四个任务 trusted tool。它是外层 Agent 执行器，内部复用
-`replay_solver_source`：先审计源码，再在独立 `spawn` 进程中执行，并由原有 runtime contract
-强制两次查询和一次提交。允许的 imports、CPU、内存、墙钟时间和 submission 大小都沿用
-公开任务契约；网络、动态安装、子进程、原始数据库、verifier、reference 和私有文件不可用。
+`run_python_solver_v1` 不是第四个任务 trusted tool。它是外层 Agent 执行器：先审计源码，
+再在独立 `spawn` 进程中执行，并由原有 runtime contract 强制两次查询和一次提交。source
+package 使用原有 DuckDB-backed trusted adapter；portable delivery 只使用包内
+`trusted_tools/payloads/*.json` 构造 `PortableGreeksTools`，不会回退到 DuckDB adapter。
+允许的 imports、CPU、内存、墙钟时间和 submission 大小都沿用公开任务契约；网络、动态安装、
+子进程、原始数据库、verifier、reference 和私有文件不可用。
 
 ## Submission 契约
 
@@ -85,13 +88,13 @@ Token Plan 可能未开放的 Responses API。
 
 ## 运行
 
-`--run-root` 可以指向单个 package、包含 manifests 的 batch run，或其父目录；runner 会按
-`task_id` 去重，并优先选择带完整 source package 的路径。建议先用当前 checked-in package
-做一题 smoke：
+`--run-root` 可以指向单个 source `manifest.json`、单个 portable
+`delivery_manifest.json`、包含 manifests 的 batch，或其父目录；runner 会按 `task_id` 去重。
+建议先用今天 portable delivery 的第一题做 smoke：
 
 ```bash
 .venv/bin/python llm_solutions/run_bsm_market_implied_greeks.py \
-  --run-root task_packages/bsm_market_implied_greeks_v1 \
+  --run-root task_packages/deliveries/bsm_market_implied_greeks_v1/20260813_current_interface_100 \
   --limit 1 \
   --output-dir llm_solutions/hy3_coding_sol
 ```
@@ -112,9 +115,10 @@ Token Plan 可能未开放的 Responses API。
 最多启动两次独立 LLM 尝试。数值不匹配时只返回通用的公式、单位、二分和舍入检查提示，
 不会获得 oracle 数值。
 
-默认还会在本地用 pinned QuantLib exact verifier 检查完整 submission。这个 verifier 只读取
-公开 task rows，不会把期望答案发给 LLM。`--skip-trusted-verification` 可以只检查公开
-tool schedule 和 submission schema，但这不能证明数值正确。
+默认还会在本地用 pinned QuantLib exact verifier 检查完整 submission。portable task 的
+verifier 输入来自同一个静态 `inputs.json`，source task 则读取公开 DuckDB；两者都不会把
+期望答案发给 LLM。`--skip-trusted-verification` 可以只检查公开 tool schedule 和
+submission schema，但这不能证明数值正确。
 
 结果目录包含：
 

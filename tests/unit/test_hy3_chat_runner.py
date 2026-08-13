@@ -13,15 +13,88 @@ sys.path.insert(0, str(REPOSITORY_ROOT))
 from llm_solutions import run_bsm_market_implied_greeks as runner
 
 
-def _checked_in_package() -> runner.TaskPackage:
-    manifest_path = next(
-        (
-            REPOSITORY_ROOT / "task_packages/bsm_market_implied_greeks_v1"
-        ).glob("*/manifest.json")
-    )
+PORTABLE_DELIVERY_ROOT = (
+    REPOSITORY_ROOT
+    / "task_packages/deliveries/bsm_market_implied_greeks_v1"
+    / "20260813_current_interface_100"
+)
+
+
+def _portable_package() -> runner.TaskPackage:
+    manifest_path = sorted(
+        (PORTABLE_DELIVERY_ROOT / "tasks").glob("*/delivery_manifest.json")
+    )[0]
     package = runner._package_from_manifest(manifest_path)
     assert package is not None
+    assert package.is_portable
+    assert package.database_path is None
     return package
+
+
+def _source_package(tmp_path: Path) -> runner.TaskPackage:
+    root = tmp_path / "source_package"
+    public = root / "public"
+    public.mkdir(parents=True)
+    for name in (
+        "prompt.md",
+        "runtime_contract.json",
+        "submission.schema.json",
+    ):
+        (public / name).write_text("{}", encoding="utf-8")
+    (public / "task.duckdb").write_bytes(b"source database")
+    manifest = root / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "task_id": "bsm-mig-v1-000000000000000000000000",
+                "variant_id": runner.VARIANT_ID,
+            }
+        ),
+        encoding="utf-8",
+    )
+    package = runner._package_from_manifest(manifest)
+    assert package is not None
+    assert not package.is_portable
+    assert package.database_path == public / "task.duckdb"
+    return package
+
+
+def test_discovers_portable_delivery_tasks() -> None:
+    packages = runner.discover_task_packages(PORTABLE_DELIVERY_ROOT)
+
+    assert len(packages) == 100
+    assert all(package.is_portable for package in packages)
+    assert all(package.database_path is None for package in packages)
+
+
+def test_source_package_format_remains_supported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package = _source_package(tmp_path)
+    expected = runner.RuntimeReplayResult(
+        submission={"rows": []},
+        submission_bytes=b'{"rows":[]}\n',
+        tool_calls={},
+        contract_digest="contract",
+        input_digest="inputs",
+        submission_digest="submission",
+    )
+
+    def fake_replay_solver_source(**kwargs):
+        assert kwargs["database"] == package.database_path
+        return expected
+
+    monkeypatch.setattr(runner, "replay_solver_source", fake_replay_solver_source)
+    monkeypatch.setattr(runner, "_runtime_contract", lambda _: {})
+
+    result = runner._run_python_solver(
+        package=package,
+        run_directory=tmp_path / "source_run",
+        source="def solve(tools):\n    return {}\n",
+        trusted_verification=False,
+    )
+
+    assert result is expected
 
 
 def test_hy3_chat_request_uses_nested_function_tools() -> None:
@@ -117,14 +190,22 @@ def test_hy3_ordinary_output_is_not_accepted_as_a_tool_call() -> None:
         )
 
 
-def test_generated_solver_runs_in_frozen_harness(tmp_path: Path) -> None:
+def test_portable_solver_runs_static_tools_without_database_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     source = (
         REPOSITORY_ROOT
         / "src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv/reference_solver.py"
     ).read_text(encoding="utf-8")
 
+    def reject_database_fallback(*args, **kwargs):
+        raise AssertionError("portable replay must not use the database adapter")
+
+    monkeypatch.setattr(runner, "replay_solver_source", reject_database_fallback)
+    monkeypatch.setattr(runner, "load_bsm_greeks_inputs", reject_database_fallback)
+
     result = runner._run_python_solver(
-        package=_checked_in_package(),
+        package=_portable_package(),
         run_directory=tmp_path / "python_run",
         source=source,
         trusted_verification=True,
@@ -141,7 +222,7 @@ def test_generated_solver_runs_in_frozen_harness(tmp_path: Path) -> None:
 def test_generated_solver_cannot_expand_runtime_capabilities(tmp_path: Path) -> None:
     with pytest.raises(runner.AttemptError, match="import is not allowed"):
         runner._run_python_solver(
-            package=_checked_in_package(),
+            package=_portable_package(),
             run_directory=tmp_path / "denied_run",
             source="import numpy\n\ndef solve(tools):\n    return {}\n",
             trusted_verification=True,
@@ -202,7 +283,7 @@ def test_hy3_solver_tool_call_produces_verified_submission(
     attempt_dir = tmp_path / "attempt"
     attempt_dir.mkdir()
     result = runner.direct_submission_attempt(
-        package=_checked_in_package(),
+        package=_portable_package(),
         attempt_dir=attempt_dir,
         api_config=runner.ApiConfig(
             url=runner.DEFAULT_API_URL,

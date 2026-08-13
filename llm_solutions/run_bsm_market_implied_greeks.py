@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal
 import json
 import os
 from pathlib import Path
@@ -28,10 +29,18 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.database import (  # noqa: E402
     load_bsm_greeks_inputs,
 )
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.portable_tools import (  # noqa: E402
+    PortableGreeksTools,
+    load_portable_greeks_task,
+)
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.runtime import (  # noqa: E402
     CapabilityViolation,
     RuntimeReplayResult,
     replay_solver_source,
+    replay_solver_source_with_tools,
+)
+from synthetic_derivatives.tasks.bsm_market_greeks import (  # noqa: E402
+    BSMMarketGreeksInput,
 )
 from synthetic_derivatives.verifier.bsm_market_greeks import (  # noqa: E402
     verify_market_greeks_submission,
@@ -84,7 +93,8 @@ class TaskPackage:
     prompt_path: Path
     runtime_path: Path
     schema_path: Path
-    database_path: Path
+    database_path: Path | None
+    is_portable: bool = False
 
 
 @dataclass(frozen=True)
@@ -114,6 +124,8 @@ def _write_json(path: Path, payload: Any) -> None:
 
 
 def _package_from_manifest(manifest_path: Path) -> TaskPackage | None:
+    if manifest_path.name not in {"manifest.json", "delivery_manifest.json"}:
+        return None
     try:
         manifest = _load_json(manifest_path)
     except RunnerError:
@@ -127,24 +139,46 @@ def _package_from_manifest(manifest_path: Path) -> TaskPackage | None:
 
     root = manifest_path.parent
     public = root / "public"
-    required = {
-        "prompt_path": public / "prompt.md",
-        "runtime_path": public / "runtime_contract.json",
-        "schema_path": public / "submission.schema.json",
-        "database_path": public / "task.duckdb",
-    }
-    if any(not path.is_file() for path in required.values()):
+    prompt_path = public / "prompt.md"
+    runtime_path = public / "runtime_contract.json"
+    schema_path = public / "submission.schema.json"
+    database_path = public / "task.duckdb"
+    public_files = (prompt_path, runtime_path, schema_path, database_path)
+    is_portable = manifest_path.name == "delivery_manifest.json"
+    portable_files = (
+        root / "trusted_tools/toolset.json",
+        root / "trusted_tools/payloads/contract.json",
+        root / "trusted_tools/payloads/inputs.json",
+    )
+    if any(not path.is_file() for path in public_files) or (
+        is_portable and any(not path.is_file() for path in portable_files)
+    ):
         return None
-    return TaskPackage(task_id=manifest["task_id"], root=root, **required)
+    return TaskPackage(
+        task_id=manifest["task_id"],
+        root=root,
+        prompt_path=prompt_path,
+        runtime_path=runtime_path,
+        schema_path=schema_path,
+        database_path=None if is_portable else database_path,
+        is_portable=is_portable,
+    )
 
 
 def discover_task_packages(run_root: Path) -> list[TaskPackage]:
-    """Find source packages and deduplicate their copied release views."""
+    """Find source or portable packages and deduplicate release-view copies."""
 
     root = run_root.resolve()
     if not root.exists():
         raise RunnerError(f"run root does not exist: {root}")
-    manifests = [root] if root.is_file() else list(root.rglob("manifest.json"))
+    manifests = (
+        [root]
+        if root.is_file()
+        else [
+            *root.rglob("manifest.json"),
+            *root.rglob("delivery_manifest.json"),
+        ]
+    )
 
     by_task_id: dict[str, TaskPackage] = {}
     for manifest_path in manifests:
@@ -384,7 +418,24 @@ def _verify_submission(
     trusted_verification: bool,
 ) -> None:
     if trusted_verification:
-        inputs = load_bsm_greeks_inputs(package.database_path)
+        if package.is_portable:
+            _, _, raw_inputs = load_portable_greeks_task(package.root)
+            inputs = []
+            for item in raw_inputs:
+                typed = dict(item)
+                for field in (
+                    "spot",
+                    "strike",
+                    "bid",
+                    "ask",
+                    "contract_multiplier",
+                ):
+                    typed[field] = Decimal(typed[field])
+                inputs.append(BSMMarketGreeksInput.from_mapping(typed))
+        else:
+            if package.database_path is None:
+                raise RunnerError("source package database path is missing")
+            inputs = load_bsm_greeks_inputs(package.database_path)
         try:
             verify_market_greeks_submission(inputs, result.submission)
         except ValueError as error:
@@ -413,12 +464,23 @@ def _run_python_solver(
     source_path = run_directory / "solver.py"
     source_path.write_text(source, encoding="utf-8")
     try:
-        result = replay_solver_source(
-            source_path=source_path,
-            database=package.database_path,
-            submission_directory=run_directory / "submission",
-            runtime_contract=_runtime_contract(package),
-        )
+        runtime_contract = _runtime_contract(package)
+        if package.is_portable:
+            result = replay_solver_source_with_tools(
+                source_path=source_path,
+                tools=PortableGreeksTools(package.root),
+                submission_directory=run_directory / "submission",
+                runtime_contract=runtime_contract,
+            )
+        else:
+            if package.database_path is None:
+                raise RunnerError("source package database path is missing")
+            result = replay_solver_source(
+                source_path=source_path,
+                database=package.database_path,
+                submission_directory=run_directory / "submission",
+                runtime_contract=runtime_contract,
+            )
     except (CapabilityViolation, OSError, ValueError) as error:
         raise AttemptError("solver_execution", str(error)) from error
     _verify_submission(

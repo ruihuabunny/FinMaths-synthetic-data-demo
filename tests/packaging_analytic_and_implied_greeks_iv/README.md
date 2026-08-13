@@ -1,10 +1,11 @@
 # Packaging tests
 
-This suite exercises the accepted `bsm_market_implied_greeks_v1` agent package
-boundary. It builds a distinct short-lived P/Q parent and complete package under
-`tmp_path`; tests do not require or modify a checked-in private parent.
-The current checked-in identity uses the minimal four-source routing prompt and
-binds its method/prompt/runtime/schema surface into `solver_interface_digest`.
+This suite exercises the accepted `bsm_market_implied_greeks_v1` source-package
+boundary and its portable data-only delivery. Most tests build a distinct
+short-lived P/Q parent and complete package under `tmp_path`; tests do not
+require or modify a checked-in private parent. The maintained 100-task portable
+delivery uses the minimal four-source routing prompt and preserves the source
+`solver_interface_digest` identities.
 
 Run it from the repository root:
 
@@ -27,14 +28,15 @@ Coverage includes:
   limits, with the production OS/container boundary documented separately;
 - verified source package → self-contained nine-field JSONL export with no
   private oracle or sampling seed.
+- source batch → relocatable portable tasks with declarative static query tools,
+  schema-bound submission, strict visibility/digest manifests, and no reference,
+  private, dataset, view, absolute-path, or readable selector-seed leakage.
 
 The frozen method requires 80 bisection updates. Because 79/80/81 roots normally
 collapse to the same 8-decimal output, schedule changes are checked by source/runtime
 policy; semantic verification makes only observable exact-output claims.
 
-The suite contract-tests Phase F export with one temporary package. It does not
-execute a current-interface 100-task batch; that run is an explicit
-release-stage operation and must preserve its run summary and split provenance
-for review. A Git-ignored 2026-08-10 local run belongs to the predecessor
-verbose-prompt interface and is not evidence that the current package set is
-released.
+The suite contract-tests Phase F export and portable conversion with temporary
+packages, and checks the maintained 2026-08-13 delivery manifest. The full
+current-interface run remains in `runs/`; the delivery is
+`PORTABLE_VERIFIED`, not implicitly `RELEASED`.

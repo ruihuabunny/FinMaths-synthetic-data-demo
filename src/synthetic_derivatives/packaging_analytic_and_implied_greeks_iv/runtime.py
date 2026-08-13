@@ -455,7 +455,7 @@ def _solver_process(
     *,
     source: str,
     source_name: str,
-    tools: TrustedGreeksTools,
+    tools: Any,
     runtime_contract: Mapping[str, Any],
 ) -> None:
     try:
@@ -482,18 +482,14 @@ def _solver_process(
         connection.close()
 
 
-def replay_solver_source(
+def _replay_audited_solver_source(
     *,
-    source_path: str | Path,
-    database: str | Path,
+    source: str,
+    source_path: Path,
+    tools: Any,
     submission_directory: str | Path,
     runtime_contract: Mapping[str, Any],
 ) -> RuntimeReplayResult:
-    """Audit and execute the solver in a resource-limited trusted harness."""
-
-    source = Path(source_path).read_text(encoding="utf-8")
-    audit_solver_source(source, runtime_contract)
-    tools = TrustedGreeksTools(database, runtime_contract)
     context = multiprocessing.get_context("spawn")
     parent_connection, child_connection = context.Pipe(duplex=False)
     process = context.Process(
@@ -536,6 +532,49 @@ def replay_solver_source(
     return result
 
 
+def replay_solver_source_with_tools(
+    *,
+    source_path: str | Path,
+    tools: Any,
+    submission_directory: str | Path,
+    runtime_contract: Mapping[str, Any],
+) -> RuntimeReplayResult:
+    """Audit and execute a solver with a caller-supplied trusted tool adapter."""
+
+    resolved_source_path = Path(source_path)
+    source = resolved_source_path.read_text(encoding="utf-8")
+    audit_solver_source(source, runtime_contract)
+    return _replay_audited_solver_source(
+        source=source,
+        source_path=resolved_source_path,
+        tools=tools,
+        submission_directory=submission_directory,
+        runtime_contract=runtime_contract,
+    )
+
+
+def replay_solver_source(
+    *,
+    source_path: str | Path,
+    database: str | Path,
+    submission_directory: str | Path,
+    runtime_contract: Mapping[str, Any],
+) -> RuntimeReplayResult:
+    """Audit and execute the solver with the source-package database adapter."""
+
+    resolved_source_path = Path(source_path)
+    source = resolved_source_path.read_text(encoding="utf-8")
+    audit_solver_source(source, runtime_contract)
+    tools = TrustedGreeksTools(database, runtime_contract)
+    return _replay_audited_solver_source(
+        source=source,
+        source_path=resolved_source_path,
+        tools=tools,
+        submission_directory=submission_directory,
+        runtime_contract=runtime_contract,
+    )
+
+
 __all__ = [
     "CapabilityViolation",
     "RuntimeReplayResult",
@@ -543,4 +582,5 @@ __all__ = [
     "audit_solver_source",
     "compose_runtime_contract",
     "replay_solver_source",
+    "replay_solver_source_with_tools",
 ]
