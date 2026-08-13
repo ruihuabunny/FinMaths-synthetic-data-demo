@@ -19,6 +19,7 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.parent impor
 class PackagedGreeksFixture:
     repository_root: Path
     parent_database: Path
+    package_config_path: Path
     package: AgentTaskPackage
 
 
@@ -53,13 +54,39 @@ def packaged_bsm_greeks(
         frozen = pipeline.freeze()
     assert created["summary"]["underlying_count"] == 22
     assert frozen["status"] == "FROZEN"
-    package = build_bsm_greeks_package(
-        repository_root=repository,
-        parent_database=parent,
-        output_root=root / "packages",
-        package_config_path=(
+    base_package_config = json.loads(
+        (
             repository
             / "configs/task_packages/bsm_market_implied_greeks_v1.json"
-        ),
+        ).read_text(encoding="utf-8")
     )
-    return PackagedGreeksFixture(repository, parent, package)
+    package = None
+    selected_package_config_path = None
+    for sampling_seed in range(100):
+        package_config = json.loads(json.dumps(base_package_config))
+        package_config["private_selection"]["sampling_seed"] = sampling_seed
+        package_config_path = root / f"package-config-{sampling_seed}.json"
+        package_config_path.write_text(json.dumps(package_config), encoding="utf-8")
+        try:
+            package = build_bsm_greeks_package(
+                repository_root=repository,
+                parent_database=parent,
+                output_root=root / "packages",
+                package_config_path=package_config_path,
+            )
+        except ValueError as error:
+            if str(error) == (
+                "selected row is too close to a decimal rounding boundary"
+            ):
+                continue
+            raise
+        selected_package_config_path = package_config_path
+        break
+    assert package is not None
+    assert selected_package_config_path is not None
+    return PackagedGreeksFixture(
+        repository,
+        parent,
+        selected_package_config_path,
+        package,
+    )

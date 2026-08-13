@@ -16,7 +16,7 @@ from llm_solutions import run_bsm_market_implied_greeks as runner
 PORTABLE_DELIVERY_ROOT = (
     REPOSITORY_ROOT
     / "task_packages/deliveries/bsm_market_implied_greeks_v1"
-    / "20260813_current_interface_100"
+    / "20260813_prompt_v2_100"
 )
 
 
@@ -28,6 +28,7 @@ def _portable_package() -> runner.TaskPackage:
     assert package is not None
     assert package.is_portable
     assert package.database_path is None
+    assert package.prompt_path.parent == package.root / "evaluation_view/public"
     return package
 
 
@@ -46,7 +47,7 @@ def _source_package(tmp_path: Path) -> runner.TaskPackage:
     manifest.write_text(
         json.dumps(
             {
-                "task_id": "bsm-mig-v1-000000000000000000000000",
+                "task_id": "bsm-mig-v2-000000000000000000000000",
                 "variant_id": runner.VARIANT_ID,
             }
         ),
@@ -75,8 +76,8 @@ def test_source_package_format_remains_supported(
         submission={"rows": []},
         submission_bytes=b'{"rows":[]}\n',
         tool_calls={},
-        contract_digest="contract",
-        input_digest="inputs",
+        underlying_market_digest="underlyings",
+        option_quotes_digest="options",
         submission_digest="submission",
     )
 
@@ -213,9 +214,9 @@ def test_portable_solver_runs_static_tools_without_database_fallback(
 
     assert len(result.submission["rows"]) == 160
     assert result.tool_calls == {
-        "query_greeks_task_contract_v1": 1,
-        "query_greeks_task_inputs_v1": 1,
-        "submit_greeks_submission_v1": 1,
+        "query_greeks_underlying_market_v2": 1,
+        "query_greeks_option_quotes_v2": 1,
+        "submit_greeks_submission_v2": 1,
     }
 
 

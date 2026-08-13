@@ -123,34 +123,33 @@ standardized-normal 中间量仍不进入 schema、配置或输出。
 
 ## Market-implied Greeks portable agent-task delivery
 
-当前 100 题交付位于
-[`task_packages/deliveries/bsm_market_implied_greeks_v1/20260813_current_interface_100`](task_packages/deliveries/bsm_market_implied_greeks_v1/20260813_current_interface_100)。
+当前 v2 100 题交付位于
+[`task_packages/deliveries/bsm_market_implied_greeks_v1/20260813_prompt_v2_100`](task_packages/deliveries/bsm_market_implied_greeks_v1/20260813_prompt_v2_100)；旧
+`20260813_current_interface_100` 保持为不可变基线。
 每题从同一 frozen 22-asset P/Q parent 确定性选择 8 个 underlyings，并对每个 underlying
 保留两个最近 live expiries、每个 expiry 按 $|\log(K/F)|$ 最近 ATM 的五个 strikes 及完整
-call/put pairs，共 160 rows。Agent-visible DuckDB 只含：
+call/put pairs，共 160 rows。Host-only task DuckDB 只含：
 
 - `metadata.public_task`；
-- `solver_visible.greeks_task_inputs`；
-- `solver_visible.greeks_task_contract`。
+- `solver_visible.underlying_market_inputs`；
+- `solver_visible.option_quote_inputs`。
 
-Public prompt 刻意不复述 BSM 公式、IV pseudocode、Greek 单位、输出 schema 或权限清单；它只把
-Agent 路由到四个 authoritative sources：`query_greeks_task_contract_v1`、
-`query_greeks_task_inputs_v1`、`public/submission.schema.json` 和
-`public/runtime_contract.json`。概率测度、numeraire、定价 law、固定 IV schedule、Greek 定义、
-dtype/cast/rounding 与 canonical row order 的唯一数学合同位于 DuckDB
-`solver_visible.greeks_task_contract.contract_json`；schema 只定义输出形状，runtime contract
-只定义实际能力。
+Public prompt 直接说明任务、BSM/IV 约定、Greek 单位、join keys、权限和 canonical 输出；它不
+公开 BSM 或 Greeks closed-form formulas。Agent 各调用一次
+`query_greeks_underlying_market_v2` 与 `query_greeks_option_quotes_v2`，按四字段 public key
+匹配后调用一次 `submit_greeks_submission_v2`。Schema 只定义输出形状，runtime contract 只定义
+实际能力，query responses 只承载 public values 与 order。
 
-Agent 不获得 raw DuckDB handle；交付内的声明式 `trusted_tools/toolset.json` 把两个 query
-绑定到 canonical static JSON payload，并只允许一次 schema-validated submission。接收平台
-只需实现通用 `static-json-query-schema-submit-v1` host；sandbox 本身不在交付内。Effective
+Agent 不获得 raw DuckDB handle；每题的四文件 `evaluation_view/` 与 root-level host DB、
+`trusted_tools/`、`verifier/` 物理分离。接收平台只需 mount `evaluation_view/` 并实现通用
+`static-json-query-schema-submit-v2` host。Effective
 runtime 禁用网络、动态安装、子进程、QuantLib/现成 IV/Greek packages 和私有路径。Reference
 solver 已经仅通过 static tools 对 100 题 replay，提交与源 run 逐字节一致；独立 QuantLib
 verifier 再从 solver-visible inputs 重做 80-step inversion 和五个 unit Greeks。
 Repo 内用于 authoring/package QA 的同合同组合实现位于
 [`bsm_market_greeks.py`](src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/bsm_market_greeks.py)；
-portable delivery 不包含 reference、trajectory、authoring-private、dataset 或 release views；
-Agent mount allowlist 只有 `public/`，`trusted_tools/` 与 `verifier/` 均为 host-only。
+portable delivery 不包含 reference、trajectory、authoring-private 或 dataset；solver mount 的
+精确 allowlist 只有 manifest、prompt、runtime contract 和 submission schema。
 该输入仍标为 `D4`：任务载体是 DuckDB market snapshot，并要求读取冻结的 contract/input
 relations、保持跨关系 identity 与 canonical row workflow；`D1` 只表示直接给一张结构化表。
 是否把 raw SQL connection 暴露给 Agent 是 runtime security 选择，不会把 market-snapshot

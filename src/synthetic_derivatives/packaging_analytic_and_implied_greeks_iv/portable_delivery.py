@@ -1,9 +1,9 @@
 """Build a portable delivery from a completed BSM Greeks batch run.
 
-The delivery is an agent-task artifact, not an authoring package.  It contains
-only the four public task files, static trusted-tool payloads, and the
-package-local verifier.  Authoring, reference, view, and dataset artifacts are
-intentionally outside the copy allowlist.
+The delivery is an agent-task artifact, not an authoring package.  Every task
+contains a four-file physical evaluation view plus separate tool-host and
+verifier bundles.  Authoring, reference, and dataset artifacts are outside the
+copy allowlist.
 """
 
 from __future__ import annotations
@@ -23,29 +23,41 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts im
     load_json_object,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.database import (
-    load_bsm_greeks_contract,
-    load_bsm_greeks_inputs,
+    join_bsm_greeks_query_rows,
+    load_bsm_greeks_option_quotes,
+    load_bsm_greeks_underlying_market,
+)
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.leakage import (
+    scan_evaluation_view,
+    scan_solver_observable_content,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.portable_tools import (
     validate_portable_toolset,
 )
 
 
-PORTABLE_BATCH_SCHEMA_VERSION = "bsm-greeks-portable-delivery-batch-v1.0.0"
-PORTABLE_TASK_SCHEMA_VERSION = "bsm-greeks-portable-delivery-task-v1.0.0"
-PORTABLE_SOURCE_SCHEMA_VERSION = "bsm-greeks-portable-source-manifest-v1.0.0"
+PORTABLE_BATCH_SCHEMA_VERSION = "bsm-greeks-portable-delivery-batch-v2.0.0"
+PORTABLE_TASK_SCHEMA_VERSION = "bsm-greeks-portable-delivery-task-v2.0.0"
+PORTABLE_SOURCE_SCHEMA_VERSION = "bsm-greeks-portable-source-manifest-v2.0.0"
 PORTABLE_DELIVERY_STATUS = "PORTABLE_VERIFIED"
 
 _EXPECTED_FAMILY = "bsm_greeks"
 _EXPECTED_VARIANT = "bsm_market_implied_greeks_v1"
-_EXPECTED_RUN_SCHEMA = "bsm-market-implied-greeks-batch-run-v1.0.0"
+_EXPECTED_RUN_SCHEMA = "bsm-market-implied-greeks-batch-run-v2.0.0"
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
-_PUBLIC_FILES = (
+_SOLVER_PUBLIC_FILES = (
     "prompt.md",
     "runtime_contract.json",
     "submission.schema.json",
+)
+_SOURCE_PUBLIC_FILES = (
+    *_SOLVER_PUBLIC_FILES,
     "task.duckdb",
+)
+_EVALUATION_VIEW_FILES = (
+    "manifest.json",
+    *(f"public/{name}" for name in _SOLVER_PUBLIC_FILES),
 )
 _VERIFIER_FILES = (
     "README.md",
@@ -60,15 +72,14 @@ _VERIFIER_FILES = (
 )
 _TOOL_FILES = (
     "toolset.json",
-    "payloads/contract.json",
-    "payloads/inputs.json",
+    "payloads/underlyings.json",
+    "payloads/options.json",
 )
 _FORBIDDEN_DELIVERY_PARTS = {
     "authoring_private",
     "dataset",
     "private",
     "reference",
-    "views",
 }
 
 
@@ -122,21 +133,44 @@ def _copy_allowed_file(source: Path, destination: Path) -> None:
 
 
 def _adapt_portable_verifier(task_root: Path) -> None:
-    """Point the otherwise unchanged verifier at the portable task manifest."""
+    """Point the source-package verifier at the portable host-side files."""
 
-    path = task_root / "verifier/test_data_identity.py"
-    source = path.read_text(encoding="utf-8")
-    old = 'package_root / "manifest.json"'
-    new = 'package_root / "delivery_manifest.json"'
-    if source.count(old) != 1:
+    identity_path = task_root / "verifier/test_data_identity.py"
+    identity = identity_path.read_text(encoding="utf-8")
+    replacements = {
+        'package_root / "manifest.json"': 'package_root / "delivery_manifest.json"',
+        'package_root / "public/task.duckdb"': 'package_root / "task.duckdb"',
+        'manifest["artifacts"]["public/task.duckdb"]': (
+            'manifest["artifacts"]["task.duckdb"]'
+        ),
+    }
+    if any(identity.count(old) != 1 for old in replacements):
         raise ValueError("source verifier manifest lookup changed")
-    path.write_text(source.replace(old, new), encoding="utf-8")
+    for old, new in replacements.items():
+        identity = identity.replace(old, new)
+    identity_path.write_text(identity, encoding="utf-8")
+
+    semantics_path = task_root / "verifier/test_semantics.py"
+    semantics = semantics_path.read_text(encoding="utf-8")
+    old_database = 'package_root / "public/task.duckdb"'
+    if semantics.count(old_database) != 1:
+        raise ValueError("source verifier database lookup changed")
+    semantics_path.write_text(
+        semantics.replace(old_database, 'package_root / "task.duckdb"'),
+        encoding="utf-8",
+    )
+    readme_path = task_root / "verifier/README.md"
+    readme = readme_path.read_text(encoding="utf-8")
+    readme_path.write_text(
+        readme.replace("public/task.duckdb", "task.duckdb"),
+        encoding="utf-8",
+    )
 
 
 def _artifact_visibility(relative: str) -> str:
-    if relative.startswith("public/"):
-        return "agent_visible"
-    if relative.startswith("trusted_tools/"):
+    if relative.startswith("evaluation_view/"):
+        return "solver_evaluation_view"
+    if relative == "task.duckdb" or relative.startswith("trusted_tools/"):
         return "tool_host_only"
     if relative.startswith("verifier/"):
         return "verifier_only"
@@ -253,7 +287,7 @@ def _source_manifest(
     source_package_manifest: Mapping[str, Any],
 ) -> dict[str, Any]:
     public_artifacts = source_package_manifest.get("artifacts")
-    expected_public = {f"public/{name}" for name in _PUBLIC_FILES}
+    expected_public = {f"public/{name}" for name in _SOURCE_PUBLIC_FILES}
     if not isinstance(public_artifacts, Mapping) or set(public_artifacts) != expected_public:
         raise ValueError("source package public artifact manifest changed")
     payload = {
@@ -317,17 +351,25 @@ def _build_task(
 
     source_public = source_package / "public"
     source_verifier = source_package / "verifier"
-    _require_exact_files(source_public, _PUBLIC_FILES)
+    source_evaluation = source_package / "views/evaluation"
+    _require_exact_files(source_public, _SOURCE_PUBLIC_FILES)
+    _require_exact_files(source_evaluation, _EVALUATION_VIEW_FILES)
     _require_exact_files(source_verifier, _VERIFIER_FILES)
 
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, Mapping):
         raise ValueError("source package artifacts must be an object")
-    for name in _PUBLIC_FILES:
+    for name in _SOURCE_PUBLIC_FILES:
         relative = f"public/{name}"
         if artifacts.get(relative) != digest_file(source_package / relative):
             raise ValueError(f"source public artifact digest mismatch: {relative}")
-        _copy_allowed_file(source_package / relative, task_root / relative)
+    _copy_allowed_file(source_public / "task.duckdb", task_root / "task.duckdb")
+    for relative in _EVALUATION_VIEW_FILES:
+        _copy_allowed_file(
+            source_evaluation / relative,
+            task_root / "evaluation_view" / relative,
+        )
+    scan_evaluation_view(task_root / "evaluation_view")
     for name in _VERIFIER_FILES:
         _copy_allowed_file(source_verifier / name, task_root / "verifier" / name)
     _adapt_portable_verifier(task_root)
@@ -335,19 +377,39 @@ def _build_task(
     _write_trusted_tools(source_package, task_root)
     _require_exact_files(task_root / "trusted_tools", _TOOL_FILES)
 
-    database = task_root / "public/task.duckdb"
-    contract_payload = load_json_object(task_root / "trusted_tools/payloads/contract.json")
-    inputs_payload = json.loads(
-        (task_root / "trusted_tools/payloads/inputs.json").read_text(encoding="utf-8")
+    database = task_root / "task.duckdb"
+    underlyings_payload = json.loads(
+        (task_root / "trusted_tools/payloads/underlyings.json").read_text(
+            encoding="utf-8"
+        )
     )
-    expected_contract = load_bsm_greeks_contract(database)
-    expected_inputs = [row.to_tool_mapping() for row in load_bsm_greeks_inputs(database)]
-    if contract_payload != expected_contract or inputs_payload != expected_inputs:
+    options_payload = json.loads(
+        (task_root / "trusted_tools/payloads/options.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    expected_underlyings = list(load_bsm_greeks_underlying_market(database))
+    expected_options = list(load_bsm_greeks_option_quotes(database))
+    if (
+        underlyings_payload != expected_underlyings
+        or options_payload != expected_options
+    ):
         raise ValueError("portable trusted-tool payload differs from task.duckdb")
-    if len(expected_inputs) != expected_option_rows:
+    joined = join_bsm_greeks_query_rows(expected_underlyings, expected_options)
+    if len(joined) != expected_option_rows:
         raise ValueError("portable input row count differs from the source run")
-    if any(row.get("task_id") != task_id for row in expected_inputs):
+    if any(row.task_id != task_id for row in joined):
         raise ValueError("portable inputs contain a different task ID")
+    scan_solver_observable_content(
+        underlyings_payload,
+        "portable underlying query response",
+        forbid_answer_fields=True,
+    )
+    scan_solver_observable_content(
+        options_payload,
+        "portable option query response",
+        forbid_answer_fields=True,
+    )
 
     source_payload = _source_manifest(
         run_summary_path=run_summary_path,
@@ -362,7 +424,8 @@ def _build_task(
         if path.is_file()
     )
     expected_paths = sorted(
-        [f"public/{name}" for name in _PUBLIC_FILES]
+        [f"evaluation_view/{name}" for name in _EVALUATION_VIEW_FILES]
+        + ["task.duckdb"]
         + [f"verifier/{name}" for name in _VERIFIER_FILES]
         + [f"trusted_tools/{name}" for name in _TOOL_FILES]
         + ["source_manifest.json"]
@@ -389,6 +452,10 @@ def _build_task(
             "path": "trusted_tools/toolset.json",
             "digest": artifact_digests["trusted_tools/toolset.json"],
         },
+        "evaluation_view": {
+            "path": "evaluation_view",
+            "manifest_digest": artifact_digests["evaluation_view/manifest.json"],
+        },
         "verifier": manifest["verifier"],
         "artifacts": artifact_digests,
         "artifact_visibility": artifact_visibility,
@@ -407,7 +474,10 @@ def _assert_delivery_tree(delivery_root: Path, manifest: Mapping[str, Any]) -> N
         prefix = f"tasks/{task_id}/"
         expected_files.add(prefix + "delivery_manifest.json")
         expected_files.add(prefix + "source_manifest.json")
-        expected_files.update(prefix + f"public/{name}" for name in _PUBLIC_FILES)
+        expected_files.add(prefix + "task.duckdb")
+        expected_files.update(
+            prefix + f"evaluation_view/{name}" for name in _EVALUATION_VIEW_FILES
+        )
         expected_files.update(prefix + f"verifier/{name}" for name in _VERIFIER_FILES)
         expected_files.update(prefix + f"trusted_tools/{name}" for name in _TOOL_FILES)
     actual_files: set[str] = set()
@@ -506,6 +576,15 @@ def verify_portable_bsm_greeks_delivery(
             or task_manifest.get("parent_snapshot") != common_parent
         ):
             raise ValueError(f"portable task manifest identity changed: {task_id}")
+        evaluation = task_manifest.get("evaluation_view")
+        if evaluation != {
+            "path": "evaluation_view",
+            "manifest_digest": digest_file(
+                task_root / "evaluation_view/manifest.json"
+            ),
+        }:
+            raise ValueError(f"portable evaluation view identity changed: {task_id}")
+        scan_evaluation_view(task_root / "evaluation_view")
         _assert_portable_json(task_manifest, f"{task_id}/delivery_manifest.json")
         artifacts = task_manifest.get("artifacts")
         visibility = task_manifest.get("artifact_visibility")
@@ -533,23 +612,35 @@ def verify_portable_bsm_greeks_delivery(
         public_artifacts = source.get("public_artifacts")
         if not isinstance(public_artifacts, dict):
             raise ValueError("portable source public artifacts are invalid")
-        for name in _PUBLIC_FILES:
+        for name in _SOURCE_PUBLIC_FILES:
             relative = f"public/{name}"
-            if public_artifacts.get(relative) != digest_file(task_root / relative):
+            if name == "task.duckdb":
+                delivered = task_root / "task.duckdb"
+            else:
+                delivered = task_root / "evaluation_view/public" / name
+            if public_artifacts.get(relative) != digest_file(delivered):
                 raise ValueError(f"copied public artifact differs from source: {task_id}/{relative}")
 
-        contract = load_json_object(task_root / "trusted_tools/payloads/contract.json")
-        inputs = json.loads(
-            (task_root / "trusted_tools/payloads/inputs.json").read_text(encoding="utf-8")
+        underlyings = json.loads(
+            (task_root / "trusted_tools/payloads/underlyings.json").read_text(
+                encoding="utf-8"
+            )
         )
-        expected_contract = load_bsm_greeks_contract(task_root / "public/task.duckdb")
-        expected_inputs = [
-            row.to_tool_mapping()
-            for row in load_bsm_greeks_inputs(task_root / "public/task.duckdb")
-        ]
-        if contract != expected_contract or inputs != expected_inputs:
+        options = json.loads(
+            (task_root / "trusted_tools/payloads/options.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        expected_underlyings = list(
+            load_bsm_greeks_underlying_market(task_root / "task.duckdb")
+        )
+        expected_options = list(
+            load_bsm_greeks_option_quotes(task_root / "task.duckdb")
+        )
+        if underlyings != expected_underlyings or options != expected_options:
             raise ValueError(f"portable tool payload identity changed: {task_id}")
-        if not inputs or any(row.get("task_id") != task_id for row in inputs):
+        joined = join_bsm_greeks_query_rows(underlyings, options)
+        if not joined or any(row.task_id != task_id for row in joined):
             raise ValueError(f"portable input task identity changed: {task_id}")
 
         entry = task_entries[task_id]

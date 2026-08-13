@@ -206,10 +206,10 @@ def test_registered_bsm_variants_use_f0_and_their_actual_data_interfaces(
         scalar_iv, "bsm_vanilla"
     ).rule_id == "bsm-vanilla-f0"
     assert variants["bsm_market_implied_greeks_v1"]["input_interface"] == (
-        "trusted_query_adapter_over_public_duckdb_market_snapshot"
+        "two_data_only_trusted_queries_over_hidden_task_duckdb"
     )
     assert variants["bsm_market_implied_greeks_v1"]["status"] == (
-        "ACCEPTED_GOLDEN_PACKAGE"
+        "PROMPT_V2_PORTABLE_DELIVERY"
     )
 
     incompatible = registry.evaluate(replace(market, F="F1"), "bsm_greeks")

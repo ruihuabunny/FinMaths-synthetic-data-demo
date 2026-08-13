@@ -6,7 +6,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_FLOOR
 from hashlib import sha256
 import json
 import math
@@ -34,7 +34,6 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts im
     SELECTION_POLICY_ID,
     BSM_MARKET_GREEKS_TASK_VERSION,
     canonical_json_text,
-    market_greeks_method_contract,
 )
 from synthetic_derivatives.solver.analytic_and_implied_greeks_iv.bsm import (
     bsm_analytic_values,
@@ -45,8 +44,10 @@ from synthetic_derivatives.solver.analytic_and_implied_greeks_iv.bsm_market_gree
 )
 from synthetic_derivatives.tasks.bsm_market_greeks import BSMMarketGreeksInput
 from synthetic_derivatives.verifier.bsm_market_greeks import (
+    trusted_market_implied_root,
     trusted_market_greeks_submission,
 )
+from synthetic_derivatives.verifier.bsm_greeks import trusted_quantlib_values
 
 
 @dataclass(frozen=True)
@@ -94,7 +95,26 @@ BSM_GREEKS_PUBLIC_TABLES = (
         ("task_id",),
     ),
     _Table(
-        "solver_visible.greeks_task_inputs",
+        "solver_visible.underlying_market_inputs",
+        (
+            _Column("task_id", "VARCHAR"),
+            _Column("snapshot_id", "VARCHAR"),
+            _Column("valuation_date", "DATE"),
+            _Column("underlying_id", "VARCHAR"),
+            _Column("spot", "DECIMAL(24,8)"),
+            _Column("currency", "VARCHAR"),
+            _Column("risk_free_rate", "DOUBLE"),
+            _Column("dividend_yield", "DOUBLE"),
+            _Column("calendar", "VARCHAR"),
+            _Column("day_count", "VARCHAR"),
+        ),
+        (
+            "valuation_date",
+            "underlying_id",
+        ),
+    ),
+    _Table(
+        "solver_visible.option_quote_inputs",
         (
             _Column("row_id", "VARCHAR"),
             _Column("task_id", "VARCHAR"),
@@ -103,18 +123,12 @@ BSM_GREEKS_PUBLIC_TABLES = (
             _Column("underlying_id", "VARCHAR"),
             _Column("option_id", "VARCHAR"),
             _Column("call_put", "VARCHAR"),
-            _Column("spot", "DECIMAL(24,8)"),
             _Column("strike", "DECIMAL(24,8)"),
             _Column("expiry", "DATE"),
             _Column("time_to_expiry_actual365", "DOUBLE"),
             _Column("bid", "DECIMAL(24,8)"),
             _Column("ask", "DECIMAL(24,8)"),
             _Column("contract_multiplier", "DECIMAL(24,8)"),
-            _Column("currency", "VARCHAR"),
-            _Column("risk_free_rate", "DOUBLE"),
-            _Column("dividend_yield", "DOUBLE"),
-            _Column("calendar", "VARCHAR"),
-            _Column("day_count", "VARCHAR"),
             _Column("exercise_style", "VARCHAR"),
             _Column("settlement_type", "VARCHAR"),
         ),
@@ -127,15 +141,15 @@ BSM_GREEKS_PUBLIC_TABLES = (
             "option_id",
         ),
     ),
-    _Table(
-        "solver_visible.greeks_task_contract",
-        (
-            _Column("task_id", "VARCHAR"),
-            _Column("method_id", "VARCHAR"),
-            _Column("contract_json", "JSON"),
-        ),
-        ("task_id",),
-    ),
+)
+
+UNDERLYING_MARKET_FIELDS = BSM_GREEKS_PUBLIC_TABLES[1].column_names
+OPTION_QUOTE_FIELDS = BSM_GREEKS_PUBLIC_TABLES[2].column_names
+PUBLIC_JOIN_FIELDS = (
+    "task_id",
+    "snapshot_id",
+    "valuation_date",
+    "underlying_id",
 )
 
 
@@ -210,7 +224,7 @@ def stable_package_task_id(
             PACKAGE_SCHEMA_VERSION,
         )
     )
-    return "bsm-mig-v1-" + sha256(payload.encode("utf-8")).hexdigest()[:24]
+    return "bsm-mig-v2-" + sha256(payload.encode("utf-8")).hexdigest()[:24]
 
 
 def _json(value: Any) -> Any:
@@ -445,9 +459,87 @@ def _fetch_task_inputs(
     return tuple(rows)
 
 
-def _is_rounding_tie(value: float) -> bool:
-    scaled = abs(Decimal(str(value)) * Decimal("100000000"))
-    return scaled - int(scaled) == Decimal("0.5")
+def split_bsm_greeks_query_rows(
+    rows: Sequence[BSMMarketGreeksInput],
+) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
+    """Project internal joined rows into the two solver-visible query payloads."""
+
+    underlying_by_key: dict[tuple[Any, ...], dict[str, Any]] = {}
+    options: list[dict[str, Any]] = []
+    for row in rows:
+        mapping = row.to_tool_mapping()
+        key = tuple(mapping[field] for field in PUBLIC_JOIN_FIELDS)
+        underlying = {field: mapping[field] for field in UNDERLYING_MARKET_FIELDS}
+        existing = underlying_by_key.setdefault(key, underlying)
+        if existing != underlying:
+            raise ValueError("option rows disagree on one underlying pricing context")
+        options.append({field: mapping[field] for field in OPTION_QUOTE_FIELDS})
+    underlyings = tuple(
+        sorted(
+            underlying_by_key.values(),
+            key=lambda item: (
+                item["valuation_date"],
+                item["underlying_id"],
+            ),
+        )
+    )
+    if len(underlyings) != 8 or len(options) != 160:
+        raise ValueError("public query projections require 8 underlying and 160 option rows")
+    return underlyings, tuple(options)
+
+
+def join_bsm_greeks_query_rows(
+    underlying_rows: Sequence[Mapping[str, Any]],
+    option_rows: Sequence[Mapping[str, Any]],
+) -> tuple[BSMMarketGreeksInput, ...]:
+    """Join the two public query results with the declared four-field key."""
+
+    by_key: dict[tuple[Any, ...], Mapping[str, Any]] = {}
+    for row in underlying_rows:
+        if set(row) != set(UNDERLYING_MARKET_FIELDS):
+            raise ValueError("underlying-market row has missing or extra fields")
+        key = tuple(row[field] for field in PUBLIC_JOIN_FIELDS)
+        if key in by_key:
+            raise ValueError("underlying-market join key is duplicated")
+        by_key[key] = row
+    if len(by_key) != 8:
+        raise ValueError("underlying-market query must contain exactly eight rows")
+    joined: list[BSMMarketGreeksInput] = []
+    for option in option_rows:
+        if set(option) != set(OPTION_QUOTE_FIELDS):
+            raise ValueError("option-quote row has missing or extra fields")
+        key = tuple(option[field] for field in PUBLIC_JOIN_FIELDS)
+        underlying = by_key.get(key)
+        if underlying is None:
+            raise ValueError("option row has no unique underlying-market match")
+        combined = dict(underlying)
+        combined.update(option)
+        for field in ("spot", "strike", "bid", "ask", "contract_multiplier"):
+            combined[field] = Decimal(str(combined[field]))
+        joined.append(BSMMarketGreeksInput.from_mapping(combined))
+    if len(joined) != 160:
+        raise ValueError("option-quote query must contain exactly 160 rows")
+    expected_ids = tuple(f"row_{index:06d}" for index in range(1, 161))
+    if tuple(row.row_id for row in joined) != expected_ids:
+        raise ValueError("option-query row order is not canonical")
+    if tuple(row.canonical_order_key for row in joined) != tuple(
+        sorted(row.canonical_order_key for row in joined)
+    ):
+        raise ValueError("option-query rows are not in canonical submission order")
+    return tuple(joined)
+
+
+_ROUNDING_QUANTUM = Decimal("0.00000001")
+_ROUNDING_BOUNDARY_GUARD = Decimal("0.00000000001")
+
+
+def _near_rounding_half_boundary(value: float) -> bool:
+    absolute = abs(Decimal(str(value)))
+    quantum_index = (absolute / _ROUNDING_QUANTUM).to_integral_value(
+        rounding=ROUND_FLOOR
+    )
+    half_boundary = (quantum_index + Decimal("0.5")) * _ROUNDING_QUANTUM
+    return abs(absolute - half_boundary) <= _ROUNDING_BOUNDARY_GUARD
 
 
 def _run_publication_gates(rows: Sequence[BSMMarketGreeksInput]) -> None:
@@ -456,20 +548,30 @@ def _run_publication_gates(rows: Sequence[BSMMarketGreeksInput]) -> None:
     if solver.to_dict() != trusted.to_dict():
         raise ValueError("stdlib and QuantLib canonical answers differ")
     for row in rows:
-        sigma = solve_market_implied_root(row)
-        values = bsm_analytic_values(row.as_greeks_input(sigma))
+        solver_sigma = solve_market_implied_root(row)
+        solver_values = bsm_analytic_values(row.as_greeks_input(solver_sigma))
+        trusted_sigma = trusted_market_implied_root(row)
+        trusted_values = trusted_quantlib_values(
+            row.as_greeks_input(trusted_sigma)
+        )
         if any(
-            _is_rounding_tie(value)
+            _near_rounding_half_boundary(value)
             for value in (
-                sigma,
-                values.delta,
-                values.gamma,
-                values.vega,
-                values.theta,
-                values.rho,
+                solver_sigma,
+                solver_values.delta,
+                solver_values.gamma,
+                solver_values.vega,
+                solver_values.theta,
+                solver_values.rho,
+                trusted_sigma,
+                trusted_values.delta,
+                trusted_values.gamma,
+                trusted_values.vega,
+                trusted_values.theta,
+                trusted_values.rho,
             )
         ):
-            raise ValueError("selected row lies exactly on a decimal rounding tie")
+            raise ValueError("selected row is too close to a decimal rounding boundary")
 
 
 def _create_tables(connection: duckdb.DuckDBPyConnection) -> None:
@@ -570,9 +672,13 @@ def _validate_public_connection(connection: duckdb.DuckDBPyConnection) -> None:
         raise ValueError("BSM Greeks grid does not have two expiries per underlying")
     if len(groups) != 80:
         raise ValueError("BSM Greeks grid does not have five strikes per expiry")
-    method = load_bsm_greeks_contract_from_connection(connection)
-    if method != market_greeks_method_contract():
-        raise ValueError("BSM Greeks method contract drifted")
+    if any(
+        row.task_id != meta[1]
+        or row.snapshot_id != meta[5]
+        or row.valuation_date != meta[8]
+        for row in rows
+    ):
+        raise ValueError("BSM Greeks public inputs differ from metadata identity")
     for table in BSM_GREEKS_PUBLIC_TABLES:
         order = ",".join(table.order_by)
         for index, row in enumerate(
@@ -625,45 +731,25 @@ def bsm_greeks_logical_checksum(database: str | Path) -> str:
         connection.close()
 
 
-def load_bsm_greeks_contract_from_connection(
+def _load_table_mappings(
     connection: duckdb.DuckDBPyConnection,
-) -> dict[str, Any]:
-    rows = connection.execute(
-        "SELECT method_id, contract_json FROM solver_visible.greeks_task_contract"
-    ).fetchall()
-    if len(rows) != 1 or rows[0][0] != BSM_MARKET_GREEKS_METHOD_ID:
-        raise ValueError("database has an invalid market-Greeks method row")
-    contract = _json(rows[0][1])
-    if not isinstance(contract, dict):
-        raise ValueError("market-Greeks contract must be a JSON object")
-    return contract
-
-
-def load_bsm_greeks_contract(database: str | Path) -> dict[str, Any]:
-    connection = duckdb.connect(str(database), read_only=True)
-    try:
-        return load_bsm_greeks_contract_from_connection(connection)
-    finally:
-        connection.close()
+    table: _Table,
+) -> tuple[dict[str, Any], ...]:
+    order = ",".join(table.order_by)
+    return tuple(
+        dict(zip(table.column_names, row, strict=True))
+        for row in connection.execute(
+            f"SELECT * FROM {table.name} ORDER BY {order}"
+        ).fetchall()
+    )
 
 
 def load_bsm_greeks_inputs_from_connection(
     connection: duckdb.DuckDBPyConnection,
 ) -> tuple[BSMMarketGreeksInput, ...]:
-    table = next(
-        item
-        for item in BSM_GREEKS_PUBLIC_TABLES
-        if item.name == "solver_visible.greeks_task_inputs"
-    )
-    order = ",".join(table.order_by)
-    rows = connection.execute(
-        f"SELECT * FROM {table.name} ORDER BY {order}"
-    ).fetchall()
-    return tuple(
-        BSMMarketGreeksInput.from_mapping(
-            dict(zip(table.column_names, row, strict=True))
-        )
-        for row in rows
+    return join_bsm_greeks_query_rows(
+        _load_table_mappings(connection, BSM_GREEKS_PUBLIC_TABLES[1]),
+        _load_table_mappings(connection, BSM_GREEKS_PUBLIC_TABLES[2]),
     )
 
 
@@ -675,6 +761,24 @@ def load_bsm_greeks_inputs(
         return load_bsm_greeks_inputs_from_connection(connection)
     finally:
         connection.close()
+
+
+def load_bsm_greeks_underlying_market(
+    database: str | Path,
+) -> tuple[dict[str, Any], ...]:
+    """Return exactly the canonical eight-row underlying query payload."""
+
+    underlyings, _ = split_bsm_greeks_query_rows(load_bsm_greeks_inputs(database))
+    return underlyings
+
+
+def load_bsm_greeks_option_quotes(
+    database: str | Path,
+) -> tuple[dict[str, Any], ...]:
+    """Return exactly the canonical 160-row option query payload."""
+
+    _, options = split_bsm_greeks_query_rows(load_bsm_greeks_inputs(database))
+    return options
 
 
 def materialize_bsm_greeks_database(
@@ -743,23 +847,18 @@ def materialize_bsm_greeks_database(
             rate_path,
             SELECTION_POLICY_ID,
         )
-        input_rows = []
-        for row in inputs:
-            mapping = row.to_tool_mapping()
-            input_rows.append(
-                tuple(
-                    mapping[column.name]
-                    for column in BSM_GREEKS_PUBLIC_TABLES[1].columns
-                )
-            )
-        contract_row = (
-            task_id,
-            BSM_MARKET_GREEKS_METHOD_ID,
-            canonical_json_text(market_greeks_method_contract()),
-        )
+        underlyings, options = split_bsm_greeks_query_rows(inputs)
+        underlying_rows = [
+            tuple(row[column.name] for column in BSM_GREEKS_PUBLIC_TABLES[1].columns)
+            for row in underlyings
+        ]
+        option_rows = [
+            tuple(row[column.name] for column in BSM_GREEKS_PUBLIC_TABLES[2].columns)
+            for row in options
+        ]
         _insert(connection, BSM_GREEKS_PUBLIC_TABLES[0], [metadata])
-        _insert(connection, BSM_GREEKS_PUBLIC_TABLES[1], input_rows)
-        _insert(connection, BSM_GREEKS_PUBLIC_TABLES[2], [contract_row])
+        _insert(connection, BSM_GREEKS_PUBLIC_TABLES[1], underlying_rows)
+        _insert(connection, BSM_GREEKS_PUBLIC_TABLES[2], option_rows)
         connection.close()
         connection = None
         assert_bsm_greeks_database_safe(temporary)
@@ -796,8 +895,14 @@ __all__ = [
     "BSMGreeksDatabaseManifest",
     "assert_bsm_greeks_database_safe",
     "bsm_greeks_logical_checksum",
-    "load_bsm_greeks_contract",
     "load_bsm_greeks_inputs",
+    "load_bsm_greeks_option_quotes",
+    "load_bsm_greeks_underlying_market",
+    "join_bsm_greeks_query_rows",
     "materialize_bsm_greeks_database",
+    "OPTION_QUOTE_FIELDS",
+    "PUBLIC_JOIN_FIELDS",
+    "split_bsm_greeks_query_rows",
     "stable_package_task_id",
+    "UNDERLYING_MARKET_FIELDS",
 ]

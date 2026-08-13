@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-task-runtime-contract-v2.schema.json",
+  "title": "Effective solver runtime capability contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "runtime_contract_schema_version",
+    "environment_id",
+    "profile_id",
+    "global_profile_id",
+    "task_overlay_id",
+    "python_version",
+    "allowed_direct_imports",
+    "trusted_tools",
+    "filesystem",
+    "network",
+    "dynamic_installation",
+    "process_spawning",
+    "resource_budget",
+    "denied_imports",
+    "denied_operations"
+  ],
+  "properties": {
+    "runtime_contract_schema_version": {"const": "agent-task-runtime-contract-v2.0.0"},
+    "environment_id": {"const": "solver-bsm-greeks-py312-v1"},
+    "profile_id": {"const": "bsm-greeks-effective-v2"},
+    "global_profile_id": {"const": "solver-global-v2"},
+    "task_overlay_id": {"const": "bsm-greeks-overlay-v2"},
+    "python_version": {"const": "3.12"},
+    "allowed_direct_imports": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "trusted_tools": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "max_calls"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "max_calls": {"type": "integer", "const": 1}
+        }
+      }
+    },
+    "filesystem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["read", "write"],
+      "properties": {
+        "read": {"const": ["public/*"]},
+        "write": {"const": ["submission/*"]}
+      }
+    },
+    "network": {"const": false},
+    "dynamic_installation": {"const": false},
+    "process_spawning": {"const": false},
+    "resource_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vcpu", "memory_mib", "wall_clock_seconds", "trusted_query_calls", "submission_calls", "submission_bytes"],
+      "properties": {
+        "vcpu": {"const": 1},
+        "memory_mib": {"const": 1024},
+        "wall_clock_seconds": {"const": 600},
+        "trusted_query_calls": {"const": 2},
+        "submission_calls": {"const": 1},
+        "submission_bytes": {"const": 5242880}
+      }
+    },
+    "denied_imports": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "denied_operations": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+  }
+}

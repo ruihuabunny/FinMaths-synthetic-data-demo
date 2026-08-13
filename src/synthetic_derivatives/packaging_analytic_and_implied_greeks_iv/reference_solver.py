@@ -74,15 +74,15 @@ def _price(row, sigma):
     return discounted_strike * _cdf(-d2) - discounted_spot * _cdf(-d1)
 
 
-def _solve_row(row, inversion):
+def _solve_row(row):
     observed_decimal = (
         Decimal(str(row["bid"])) + Decimal(str(row["ask"]))
     ) / Decimal(2)
     observed = float(observed_decimal)
-    low, high = (float(item) for item in inversion["volatility_bracket"])
+    low, high = 0.000001, 5.0
     if not _price(row, low) <= observed <= _price(row, high):
         raise ValueError("published row has no root in the frozen bracket")
-    for _ in range(inversion["iterations"]):
+    for _ in range(80):
         midpoint = (low + high) / 2.0
         if _price(row, midpoint) < observed:
             low = midpoint
@@ -140,30 +140,36 @@ def _solve_row(row, inversion):
 
 
 def solve(tools):
-    contract = tools.query_greeks_task_contract_v1()
-    rows = tools.query_greeks_task_inputs_v1()
-    if contract["contract_id"] != "bsm-mid-iv-bisection80-analytic-greeks-v1":
-        raise ValueError("unexpected method contract")
-    inversion = contract["iv_inversion"]
-    if (
-        inversion["iterations"] != 80
-        or inversion["early_stop"] is not False
-        or inversion["fallback_method"] is not None
-    ):
-        raise ValueError("unexpected inversion schedule")
+    underlyings = tools.query_greeks_underlying_market_v2()
+    options = tools.query_greeks_option_quotes_v2()
+    join_fields = ("task_id", "snapshot_id", "valuation_date", "underlying_id")
+    underlying_by_key = {}
+    for underlying in underlyings:
+        key = tuple(underlying[field] for field in join_fields)
+        if key in underlying_by_key:
+            raise ValueError("underlying join key is duplicated")
+        underlying_by_key[key] = underlying
+    rows = []
+    for option in options:
+        key = tuple(option[field] for field in join_fields)
+        if key not in underlying_by_key:
+            raise ValueError("option row has no underlying match")
+        row = dict(underlying_by_key[key])
+        row.update(option)
+        rows.append(row)
     expected_ids = [f"row_{index:06d}" for index in range(1, len(rows) + 1)]
     if [row["row_id"] for row in rows] != expected_ids:
         raise ValueError("input rows are not in canonical order")
     payload = {
         "task_id": rows[0]["task_id"],
         "submission_schema_version": (
-            "bsm-market-implied-greeks-submission-v1.0.0"
+            "bsm-market-implied-greeks-submission-v2.0.0"
         ),
         "method_id": "bsm-mid-iv-bisection80-analytic-greeks-v1",
         "status": "completed",
-        "rows": [_solve_row(row, inversion) for row in rows],
+        "rows": [_solve_row(row) for row in rows],
     }
-    tools.submit_greeks_submission_v1(payload)
+    tools.submit_greeks_submission_v2(payload)
     return payload
 
 

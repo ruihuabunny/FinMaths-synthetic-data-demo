@@ -13,8 +13,9 @@ import pytest
 
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts import load_json_object
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.database import load_bsm_greeks_inputs
-from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.portable_delivery import (
-    verify_portable_bsm_greeks_delivery,
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.leakage import (
+    scan_evaluation_view,
+    scan_solver_observable_content,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.runtime import replay_solver_source
 from synthetic_derivatives.verifier.bsm_market_greeks import (
@@ -75,7 +76,6 @@ def test_release_views_match_exact_allowlists(packaged_bsm_greeks) -> None:
         "public/prompt.md",
         "public/runtime_contract.json",
         "public/submission.schema.json",
-        "public/task.duckdb",
     }
     assert not any(
         path.startswith(("verifier/", "reference/", "authoring_private/"))
@@ -112,9 +112,11 @@ def test_release_views_match_exact_allowlists(packaged_bsm_greeks) -> None:
 
     for view_name, files in manifest["views"].items():
         for relative in files:
-            assert (root / "views" / view_name / relative).read_bytes() == (
-                root / relative
-            ).read_bytes()
+            if relative != "manifest.json" or view_name == "authoring":
+                assert (root / "views" / view_name / relative).read_bytes() == (
+                    root / relative
+                ).read_bytes()
+    assert scan_evaluation_view(root / "views/evaluation")["status"] == "clean"
 
 
 def test_packaged_verifier_has_no_project_runtime_dependency(
@@ -194,9 +196,9 @@ def test_reference_trajectory_contains_only_observable_events(
     path = packaged_bsm_greeks.package.package_root / "reference/trajectory.jsonl"
     events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
-    assert [event["step_id"] for event in events] == list(range(1, 11))
+    assert [event["step_id"] for event in events] == list(range(1, 12))
     assert events[-1]["event_type"] == "submission"
-    assert events[-1]["tool_name"] == "submit_greeks_submission_v1"
+    assert events[-1]["tool_name"] == "submit_greeks_submission_v2"
     serialized = json.dumps(events, sort_keys=True).casefold()
     assert "chain-of-thought" not in serialized
     assert "hidden reasoning" not in serialized
@@ -211,7 +213,7 @@ def test_clean_evaluation_view_is_solvable_through_trusted_tools(
     runtime = load_json_object(evaluation / "public/runtime_contract.json")
     result = replay_solver_source(
         source_path=root / "reference/artifacts/solver.py",
-        database=evaluation / "public/task.duckdb",
+        database=root / "public/task.duckdb",
         submission_directory=tmp_path / "evaluation-submission",
         runtime_contract=runtime,
     )
@@ -220,12 +222,65 @@ def test_clean_evaluation_view_is_solvable_through_trusted_tools(
         root / "reference/final_submission.json"
     ).read_bytes()
     verify_market_greeks_submission(
-        load_bsm_greeks_inputs(evaluation / "public/task.duckdb"),
+        load_bsm_greeks_inputs(root / "public/task.duckdb"),
         result.submission,
     )
+    assert not (evaluation / "public/task.duckdb").exists()
 
 
-def test_checked_in_portable_delivery_is_self_consistent(
+def test_label_only_pseudo_evaluation_view_is_rejected(
+    packaged_bsm_greeks,
+    tmp_path: Path,
+) -> None:
+    source = packaged_bsm_greeks.package.package_root / "views/evaluation"
+    pseudo = tmp_path / "pseudo-evaluation"
+    shutil.copytree(source, pseudo)
+    hidden = pseudo / "verifier/runtime.py"
+    hidden.parent.mkdir(parents=True)
+    hidden.write_text("# mislabeled but physically present\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="allowlist"):
+        scan_evaluation_view(pseudo)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "analytic_operation_formulas",
+        "analytic_operation_sequence",
+        "operation_order",
+        "d1 = leaked",
+        "d2 = leaked",
+        "cdf_d1",
+        "cdf_minus_d2",
+        "discounted_spot * leaked",
+        "diffusion_theta",
+        "normal_cdf formula",
+        "reference_solver",
+        "latent_iv",
+        "generator_sigma",
+        "private_diffusion",
+    ],
+)
+def test_semantic_leakage_scanner_rejects_formula_mutations(mutation: str) -> None:
+    with pytest.raises(ValueError, match="solution-leakage"):
+        scan_solver_observable_content({"description": mutation}, "mutated tool")
+
+
+def test_semantic_leakage_scanner_distinguishes_output_names_from_answers() -> None:
+    scan_solver_observable_content(
+        {"properties": {"unit_delta": {"type": "string"}}},
+        "submission schema",
+    )
+    with pytest.raises(ValueError, match="answer-bearing"):
+        scan_solver_observable_content(
+            [{"unit_delta": "0.12345678"}],
+            "query response",
+            forbid_answer_fields=True,
+        )
+
+
+def test_checked_in_legacy_delivery_remains_an_untouched_baseline(
     repository_root,
 ) -> None:
     delivery = (
@@ -233,12 +288,10 @@ def test_checked_in_portable_delivery_is_self_consistent(
         / "task_packages/deliveries/bsm_market_implied_greeks_v1"
         / "20260813_current_interface_100"
     )
-    manifest = verify_portable_bsm_greeks_delivery(delivery)
+    manifest = load_json_object(delivery / "batch_manifest.json")
     assert manifest["delivery_status"] == "PORTABLE_VERIFIED"
     assert manifest["task_count"] == 100
     assert len(set(manifest["task_ids"])) == 100
     first_task = delivery / "tasks" / manifest["task_ids"][0]
-    assert (first_task / "verifier/runtime.py").is_file()
-    assert (first_task / "verifier/requirements.lock").read_bytes() == (
-        repository_root / "environments/verifier/requirements.lock"
-    ).read_bytes()
+    assert (first_task / "trusted_tools/payloads/contract.json").is_file()
+    assert manifest["delivery_id"] == "20260813_current_interface_100"

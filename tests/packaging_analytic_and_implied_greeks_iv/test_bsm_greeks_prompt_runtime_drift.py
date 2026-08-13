@@ -9,7 +9,6 @@ import pytest
 
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts import (
     bsm_market_greeks_solver_interface_digest,
-    market_greeks_method_contract,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.database import stable_package_task_id
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.prompt_renderer import (
@@ -26,7 +25,7 @@ def _profiles(repository_root: Path) -> tuple[dict, dict]:
     global_profile = json.loads(
         (
             repository_root
-            / "environments/solver/capabilities.global_v1.json"
+            / "environments/solver/capabilities.global_v2.json"
         ).read_text(encoding="utf-8")
     )
     overlay = json.loads(
@@ -43,8 +42,7 @@ def test_effective_contract_is_a_strict_intersection_and_renders_prompt(
 ) -> None:
     global_profile, overlay = _profiles(repository_root)
     runtime = compose_runtime_contract(global_profile, overlay)
-    method_contract = market_greeks_method_contract()
-    prompt = render_bsm_greeks_prompt(method_contract, runtime)
+    prompt = render_bsm_greeks_prompt(runtime)
     prompt_casefold = prompt.casefold()
 
     assert runtime["network"] is False
@@ -52,56 +50,49 @@ def test_effective_contract_is_a_strict_intersection_and_renders_prompt(
     assert runtime["process_spawning"] is False
     assert runtime["resource_budget"]["trusted_query_calls"] == 2
     assert [tool["max_calls"] for tool in runtime["trusted_tools"]] == [1, 1, 1]
-    assert "every public input row" in prompt_casefold
-    assert "complete authoritative specification" in prompt_casefold
-    assert "query_greeks_task_contract_v1" in prompt
-    assert "query_greeks_task_inputs_v1" in prompt
+    assert "every public option quote" in prompt_casefold
+    assert "query_greeks_underlying_market_v2" in prompt
+    assert "query_greeks_option_quotes_v2" in prompt
     assert "public/submission.schema.json" in prompt
-    assert "public/runtime_contract.json" in prompt
-    assert "submit_greeks_submission_v1" in prompt
-    for teaching_detail in (
-        "Raw DuckDB access is not granted",
-        "exactly 80",
-        "unrounded final binary64 root",
-        "Cross-asset correlation is provenance only",
-        "ROUND_HALF_EVEN",
-        "observed_decimal",
+    assert "submit_greeks_submission_v2" in prompt
+    for required in (
+        "market_implied_volatility",
+        "unit_delta",
+        "unit_gamma",
+        "unit_vega_1volpt",
+        "unit_theta_1calendar_day",
+        "unit_rho_1pct",
+        "task_id`, `snapshot_id`, `valuation_date`, and `underlying_id",
+        "european black–scholes–merton",
+        "bid/ask midpoint using decimal arithmetic",
+        "quote-level q-measure",
+        "exactly 80 bisection updates",
+        "[1e-6, 5.0]",
+        "unrounded implied volatility",
+        "do not apply the contract multiplier",
+        "allowed direct imports",
+        "forbidden imports and shortcuts",
+        "round_half_even",
+        "0.00000000",
+        "preserve the option-query row order",
+    ):
+        assert required.casefold() in prompt_casefold
+    for forbidden in (
         "d1 =",
         "d2 =",
-        "N(x)",
-        "n(x)",
-        "Allowed direct imports:",
-        "Trusted tools:",
-        "Filesystem reads are limited",
-        "Denied imports include",
-        "Budget:",
-        "Preserve the queried row order",
-        "Do not substitute undeclared conventions",
+        "cdf_d1",
+        "cdf_minus_d1",
+        "diffusion_theta",
+        "analytic_operation_sequence",
+        "analytic_operation_formulas",
+        "query_greeks_task_contract_v1",
+        "query_greeks_task_inputs_v1",
+        "submit_greeks_submission_v1",
+        "reference_solver",
     ):
-        assert teaching_detail.casefold() not in prompt_casefold
+        assert forbidden.casefold() not in prompt_casefold
     assert "sampling_seed" not in prompt
     assert "oracle_answer" not in prompt
-
-    assert method_contract["rate_curve"] == "flat_continuously_compounded"
-    assert method_contract["dividend_curve"] == "flat_continuously_compounded"
-    assert method_contract["analytic_operation_order_id"] == (
-        "bsm-analytic-float64-operation-order-v1"
-    )
-    assert method_contract["analytic_operation_sequence"] == [
-        "sqrt_tau",
-        "variance",
-        "root_variance",
-        "carry",
-        "log_moneyness",
-        "standardized_drift",
-        "standardized_normal_arguments",
-        "discount_factors",
-        "discounted_spot_and_strike",
-        "normal_density",
-        "unscaled_price_and_greeks",
-        "vega_rho_0.01_scaling",
-        "theta_365_scaling",
-    ]
 
 
 def test_solver_interface_bytes_are_bound_into_the_task_identity(
@@ -109,9 +100,9 @@ def test_solver_interface_bytes_are_bound_into_the_task_identity(
 ) -> None:
     global_profile, overlay = _profiles(repository_root)
     runtime = compose_runtime_contract(global_profile, overlay)
-    prompt = render_bsm_greeks_prompt(market_greeks_method_contract(), runtime)
+    prompt = render_bsm_greeks_prompt(runtime)
     schema_bytes = (
-        repository_root / "schemas/bsm-greeks-submission-v1.schema.json"
+        repository_root / "schemas/bsm-greeks-submission-v2.schema.json"
     ).read_bytes()
     baseline = bsm_market_greeks_solver_interface_digest(
         prompt=prompt,
@@ -119,7 +110,7 @@ def test_solver_interface_bytes_are_bound_into_the_task_identity(
         submission_schema_bytes=schema_bytes,
     )
     changed = bsm_market_greeks_solver_interface_digest(
-        prompt=prompt.replace("a complete submission", "one complete submission"),
+        prompt=prompt.replace("complete submission", "single complete submission"),
         runtime_contract=runtime,
         submission_schema_bytes=schema_bytes,
     )

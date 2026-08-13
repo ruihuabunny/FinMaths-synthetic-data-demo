@@ -139,11 +139,11 @@ def test_verifier_rejects_outputs_from_wrong_rate_dividend_or_day_count(
     inputs, _ = _fixture(packaged_bsm_greeks)
     changed_input_sets = [
         (
-            replace(inputs[0], risk_free_rate=inputs[0].risk_free_rate + 0.01),
+            replace(inputs[0], risk_free_rate=inputs[0].risk_free_rate + 0.001),
             *inputs[1:],
         ),
         (
-            replace(inputs[0], dividend_yield=inputs[0].dividend_yield + 0.01),
+            replace(inputs[0], dividend_yield=inputs[0].dividend_yield + 0.001),
             *inputs[1:],
         ),
         tuple(

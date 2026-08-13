@@ -23,17 +23,17 @@ def test_five_package_interfaces_have_frozen_ids_and_strict_shapes(
     schemas = {
         path.name: json.loads(path.read_text(encoding="utf-8"))
         for path in (
-            repository_root / "schemas/agent-task-package-v1.schema.json",
+            repository_root / "schemas/agent-task-package-v2.schema.json",
             repository_root
-            / "schemas/agent-task-runtime-contract-v1.schema.json",
+            / "schemas/agent-task-runtime-contract-v2.schema.json",
             repository_root / "schemas/agent-task-trajectory-v1.schema.json",
-            repository_root / "schemas/bsm-greeks-submission-v1.schema.json",
+            repository_root / "schemas/bsm-greeks-submission-v2.schema.json",
             repository_root / "schemas/bsm-greeks-oracle-config-v1.schema.json",
         )
     }
 
     assert all(schema["additionalProperties"] is False for schema in schemas.values())
-    submission = schemas["bsm-greeks-submission-v1.schema.json"]
+    submission = schemas["bsm-greeks-submission-v2.schema.json"]
     assert submission["x-schema-version"] == (
         BSM_MARKET_GREEKS_SUBMISSION_SCHEMA_VERSION
     )

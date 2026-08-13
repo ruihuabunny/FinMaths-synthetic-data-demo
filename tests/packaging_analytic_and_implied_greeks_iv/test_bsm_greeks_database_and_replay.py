@@ -10,7 +10,10 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts im
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.database import (
     assert_bsm_greeks_database_safe,
     bsm_greeks_logical_checksum,
+    join_bsm_greeks_query_rows,
     load_bsm_greeks_inputs,
+    load_bsm_greeks_option_quotes,
+    load_bsm_greeks_underlying_market,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.package import (
     build_bsm_greeks_package,
@@ -56,7 +59,7 @@ def test_temp_directory_e2e_build_has_only_three_public_relations(
         grids = connection.execute(
             """
             SELECT underlying_id, count(*), count(DISTINCT expiry)
-            FROM solver_visible.greeks_task_inputs
+            FROM solver_visible.option_quote_inputs
             GROUP BY underlying_id ORDER BY underlying_id
             """
         ).fetchall()
@@ -65,8 +68,8 @@ def test_temp_directory_e2e_build_has_only_three_public_relations(
 
     assert relations == [
         ("metadata.public_task",),
-        ("solver_visible.greeks_task_contract",),
-        ("solver_visible.greeks_task_inputs",),
+        ("solver_visible.option_quote_inputs",),
+        ("solver_visible.underlying_market_inputs",),
     ]
     assert metadata[:2] == (8, 160)
     assert metadata[2].startswith("PUBLIC-P-DEPENDENCE-")
@@ -74,6 +77,14 @@ def test_temp_directory_e2e_build_has_only_three_public_relations(
     assert metadata[4] == "girsanov_drift_only_same_brownian_covariance"
     assert len(grids) == 8
     assert all(row[1:] == (20, 2) for row in grids)
+    underlyings = load_bsm_greeks_underlying_market(database)
+    options = load_bsm_greeks_option_quotes(database)
+    joined = join_bsm_greeks_query_rows(underlyings, options)
+    assert len(underlyings) == 8
+    assert len(options) == len(joined) == 160
+    assert [row.row_id for row in joined] == [
+        f"row_{index:06d}" for index in range(1, 161)
+    ]
 
 
 def test_two_independent_package_builds_are_byte_identical(
@@ -84,10 +95,7 @@ def test_two_independent_package_builds_are_byte_identical(
         repository_root=packaged_bsm_greeks.repository_root,
         parent_database=packaged_bsm_greeks.parent_database,
         output_root=tmp_path / "replay",
-        package_config_path=(
-            packaged_bsm_greeks.repository_root
-            / "configs/task_packages/bsm_market_implied_greeks_v1.json"
-        ),
+        package_config_path=packaged_bsm_greeks.package_config_path,
     )
 
     assert first.database_manifest.task_id == second.database_manifest.task_id
@@ -129,9 +137,9 @@ def test_reference_solver_replay_uses_exact_tool_budget_and_verifies(
 
     assert result.submission_bytes == expected
     assert result.tool_calls == {
-        "query_greeks_task_contract_v1": 1,
-        "query_greeks_task_inputs_v1": 1,
-        "submit_greeks_submission_v1": 1,
+        "query_greeks_underlying_market_v2": 1,
+        "query_greeks_option_quotes_v2": 1,
+        "submit_greeks_submission_v2": 1,
     }
     inputs = load_bsm_greeks_inputs(package_root / "public/task.duckdb")
     verify_market_greeks_submission(inputs, result.submission)

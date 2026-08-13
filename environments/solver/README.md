@@ -11,7 +11,7 @@ Allowed runtime:
 `duckdb==1.5.5` exists in the trusted query-adapter image, but the
 `bsm_market_implied_greeks_v1` task overlay does not grant the Agent a raw
 DuckDB connection. Effective capabilities are computed as the intersection of
-`capabilities.global_v1.json` and `capabilities.bsm_greeks_v1.json`; the overlay
+`capabilities.global_v2.json` and `capabilities.bsm_greeks_v1.json`; the overlay
 can only remove capabilities or reduce budgets.
 
 Not allowed in the solver image:
@@ -21,10 +21,11 @@ Not allowed in the solver image:
 - dynamic package installation, network access, or undeclared filesystem reads.
 - raw database connections, `ATTACH/COPY/INSTALL/LOAD`, and process spawning.
 
-QuantLib remains available only to trusted authoring and verifier code. The task
-contract must freeze formulas, conventions, dtype, operation order and canonical
-serialization so the solver implementation and independent verifier can be
-compared exactly.
+QuantLib remains available only to trusted authoring and verifier code. The
+private verifier contract freezes conventions and canonicalization. Pricing and
+Greek formulas and operation order are deliberately absent from every
+solver-visible artifact; a private publication gate instead requires independent
+standard-library and QuantLib implementations to canonicalize identically.
 
 ## Repository source versus Agent runtime
 

@@ -23,13 +23,13 @@ BSM_MARKET_GREEKS_VARIANT_ID = "bsm_market_implied_greeks_v1"
 BSM_MARKET_GREEKS_METHOD_ID = "bsm-mid-iv-bisection80-analytic-greeks-v1"
 BSM_MARKET_GREEKS_OUTPUT_CONTRACT_ID = "bsm-market-implied-greeks-output-v1"
 BSM_MARKET_GREEKS_SUBMISSION_SCHEMA_VERSION = (
-    "bsm-market-implied-greeks-submission-v1.0.0"
+    "bsm-market-implied-greeks-submission-v2.0.0"
 )
 BSM_MARKET_GREEKS_SUCCESS_STATUS = "CONVERGED_FIXED_ITERATIONS"
 
 
 _ROW_ID_PATTERN = re.compile(r"^row_[0-9]{6}$")
-_TASK_ID_PATTERN = re.compile(r"^bsm-mig-v1-[0-9a-f]{24}$")
+_TASK_ID_PATTERN = re.compile(r"^bsm-mig-v2-[0-9a-f]{24}$")
 _DECIMAL_PATTERN = re.compile(r"^-?(?:0|[1-9][0-9]*)\.[0-9]{8}$")
 _NONNEGATIVE_DECIMAL_PATTERN = re.compile(r"^(?:0|[1-9][0-9]*)\.[0-9]{8}$")
 _INPUT_FIELDS = (

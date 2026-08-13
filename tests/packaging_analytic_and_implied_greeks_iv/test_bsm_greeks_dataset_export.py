@@ -36,6 +36,7 @@ def test_verified_package_exports_one_self_contained_nine_field_record(
         "Skills",
         "Verification",
     )
-    assert len(records[0]["Evidence"]["public_inputs"]) == 160
+    assert len(records[0]["Evidence"]["underlying_market"]) == 8
+    assert len(records[0]["Evidence"]["option_quotes"]) == 160
     assert len(records[0]["Outcome"]["rows"]) == 160
     assert records[0]["Verification"]["status"] == "passed"

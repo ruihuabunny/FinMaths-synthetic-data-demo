@@ -25,23 +25,24 @@ from synthetic_derivatives.tasks.bsm_market_greeks import (
 )
 
 
-PACKAGE_SCHEMA_VERSION = "agent-task-package-v1.0.0"
-BSM_MARKET_GREEKS_TASK_VERSION = "1.0.0"
+PACKAGE_SCHEMA_VERSION = "agent-task-package-v2.0.0"
+BSM_MARKET_GREEKS_TASK_VERSION = "2.0.0"
 BSM_MARKET_GREEKS_PACKAGE_CONFIG_VERSION = (
-    "bsm-market-implied-greeks-package-config-v1.1.0"
+    "bsm-market-implied-greeks-package-config-v2.0.0"
 )
 BSM_MARKET_GREEKS_SOLVER_INTERFACE_CONTRACT_VERSION = (
-    "bsm-market-implied-greeks-solver-interface-v1"
+    "bsm-market-implied-greeks-solver-interface-v2"
 )
-RUNTIME_CONTRACT_SCHEMA_VERSION = "agent-task-runtime-contract-v1.0.0"
+RUNTIME_CONTRACT_SCHEMA_VERSION = "agent-task-runtime-contract-v2.0.0"
 TRAJECTORY_SCHEMA_VERSION = "agent-task-trajectory-v1.0.0"
-BSM_MARKET_GREEKS_DATABASE_SCHEMA_VERSION = "bsm-greeks-task-duckdb-v1.0.0"
+BSM_MARKET_GREEKS_DATABASE_SCHEMA_VERSION = "bsm-greeks-task-duckdb-v2.0.0"
 BSM_MARKET_GREEKS_VERIFIER_ID = (
     "quantlib-bsm-market-implied-greeks-verifier-v1"
 )
 ORACLE_CONFIG_SCHEMA_VERSION = "bsm-greeks-oracle-config-v1.0.0"
 SELECTION_POLICY_ID = "two-nearest-expiries-five-abs-log-forward-moneyness-pairs-v1"
-LOGICAL_CHECKSUM_ID = "sha256-bsm-greeks-canonical-logical-rows-v1"
+LOGICAL_CHECKSUM_ID = "sha256-bsm-greeks-canonical-logical-rows-v2"
+EVALUATION_VIEW_SCHEMA_VERSION = "bsm-greeks-evaluation-view-v2.0.0"
 EXPECTED_COORDINATES = {"L": 5, "P": 0, "M": 0, "A": 1, "D": 4, "R": 1, "F": "F0"}
 
 
@@ -182,9 +183,6 @@ def bsm_market_greeks_solver_interface_digest(
             "interface_contract_version": (
                 BSM_MARKET_GREEKS_SOLVER_INTERFACE_CONTRACT_VERSION
             ),
-            "method_contract_digest": digest_json(
-                market_greeks_method_contract()
-            ),
             "prompt_digest": sha256(prompt.encode("utf-8")).hexdigest(),
             "runtime_contract_digest": sha256(
                 canonical_json_bytes(dict(runtime_contract))
@@ -257,7 +255,7 @@ def validate_package_config(raw: Mapping[str, Any]) -> None:
         "public_database_schema_version": (
             BSM_MARKET_GREEKS_DATABASE_SCHEMA_VERSION
         ),
-        "release_profile": "golden-single-task-v1",
+        "release_profile": "golden-single-task-v2",
     }
     if any(raw[field] != value for field, value in fixed.items()):
         raise ValueError("package config changes a frozen identity")
@@ -291,6 +289,7 @@ __all__ = [
     "BSM_MARKET_GREEKS_VARIANT_ID",
     "BSM_MARKET_GREEKS_VERIFIER_ID",
     "EXPECTED_COORDINATES",
+    "EVALUATION_VIEW_SCHEMA_VERSION",
     "LOGICAL_CHECKSUM_ID",
     "ORACLE_CONFIG_SCHEMA_VERSION",
     "PACKAGE_SCHEMA_VERSION",

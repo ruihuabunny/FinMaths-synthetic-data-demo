@@ -14,10 +14,11 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts im
     BSM_MARKET_GREEKS_VARIANT_ID,
     canonical_json_bytes,
     load_json_object,
+    market_greeks_method_contract,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.database import (
-    load_bsm_greeks_contract,
-    load_bsm_greeks_inputs,
+    load_bsm_greeks_option_quotes,
+    load_bsm_greeks_underlying_market,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.package import verify_bsm_greeks_package
 from synthetic_derivatives.tasks.bsm_market_greeks import MarketGreeksSubmission
@@ -71,15 +72,20 @@ def _record(package_root: Path) -> dict[str, Any]:
         raise ValueError("dataset export requires an accepted BSM Greeks package")
     task_id = str(manifest["task_id"])
     database = package_root / "public/task.duckdb"
-    inputs = [row.to_tool_mapping() for row in load_bsm_greeks_inputs(database)]
-    if len(inputs) != 160 or {row["task_id"] for row in inputs} != {task_id}:
-        raise ValueError("dataset evidence must contain exactly 160 task rows")
-    method_contract = load_bsm_greeks_contract(database)
+    underlyings = list(load_bsm_greeks_underlying_market(database))
+    options = list(load_bsm_greeks_option_quotes(database))
+    if (
+        len(underlyings) != 8
+        or len(options) != 160
+        or {row["task_id"] for row in (*underlyings, *options)} != {task_id}
+    ):
+        raise ValueError("dataset evidence must contain the complete public queries")
+    method_contract = market_greeks_method_contract()
     trajectory = _load_json_lines(package_root / "reference/trajectory.jsonl")
     submission = load_json_object(package_root / "reference/final_submission.json")
     if MarketGreeksSubmission.from_mapping(submission).to_dict() != submission:
         raise ValueError("dataset outcome must be a canonical submission")
-    if submission["task_id"] != task_id or len(submission["rows"]) != len(inputs):
+    if submission["task_id"] != task_id or len(submission["rows"]) != len(options):
         raise ValueError("dataset outcome differs from its public evidence identity")
 
     record = {
@@ -126,7 +132,7 @@ def _record(package_root: Path) -> dict[str, Any]:
             ],
         },
         "Skills": [
-            "query the frozen public task contract and ordered inputs",
+            "query public underlying-market and ordered option rows",
             "construct the visible Decimal bid/ask midpoint",
             "solve implied volatility with exactly 80 bisection updates",
             "compute analytic unit BSM Delta/Gamma/Vega/Theta/Rho",
@@ -135,7 +141,8 @@ def _record(package_root: Path) -> dict[str, Any]:
         ],
         "Evidence": {
             "method_contract": method_contract,
-            "public_inputs": inputs,
+            "underlying_market": underlyings,
+            "option_quotes": options,
         },
         "Intermediate Reasoning": trajectory,
         "Verification": {

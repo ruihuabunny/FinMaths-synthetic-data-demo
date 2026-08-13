@@ -185,14 +185,15 @@ recursive leakage scan 的 public-only child，并只以 read-only mode 交付�
 
 `synthetic_derivatives.packaging_analytic_and_implied_greeks_iv` 消费单一 `FROZEN`、config `1.7.0` P/Q parent，不回写或
 原地迁移它。当前 golden selector 先生成 generic 8-underlying public child，再将任务输入
-物化为只含 `metadata.public_task`、`solver_visible.greeks_task_inputs` 和
-`solver_visible.greeks_task_contract` 的独立 D4 DuckDB。P/Q joint-market identities 保留在
+物化为只含 `metadata.public_task`、`solver_visible.underlying_market_inputs` 和
+`solver_visible.option_quote_inputs` 的独立 D4 DuckDB。P/Q joint-market identities 保留在
 public provenance 中，factor matrices 与 seed/private lineage 不进入 Agent-visible rows。
 
 Packaging 随后冻结 prompt、effective runtime、submission schema、hidden QuantLib verifier、
 stdlib reference solver 和 observable trajectory，并导出严格 allowlisted 的 authoring、
-train/dev、evaluation views。Authoring private artifact manifest 校验全部源制品 hash；package
-verifier 再比较每个 view copy 与源文件字节。Checked-in artifact 目前仍是一条
+train/dev、evaluation views。Evaluation view 物理上只含 manifest、prompt、runtime contract
+与 submission schema；raw DB 由 trusted host 持有。Authoring private artifact manifest 校验
+全部源制品 hash。Checked-in artifact 目前仍是一条
 `ACCEPTED` golden task；Phase F 已参数化 private selector seed，并提供 verified nine-field
 dataset exporter。Valuation date 仍由 package contract 固定。2026-08-10 的 Git-ignored
 100-task 本地 run 使用前一版 verbose prompt/interface；当前最小 prompt/interface 尚未完成

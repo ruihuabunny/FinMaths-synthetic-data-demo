@@ -31,16 +31,15 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.runtime impo
 
 
 _VARIANT = "bsm_market_implied_greeks_v1"
-_PUBLIC_FILES = {
+_EVALUATION_PUBLIC_FILES = {
     "prompt.md",
     "runtime_contract.json",
     "submission.schema.json",
-    "task.duckdb",
 }
 _TRUSTED_TOOL_FILES = {
     "toolset.json",
-    "payloads/contract.json",
-    "payloads/inputs.json",
+    "payloads/underlyings.json",
+    "payloads/options.json",
 }
 _VERIFIER_FILES = {
     "README.md",
@@ -85,15 +84,26 @@ def portable_bsm_greeks_delivery(
             / "configs/task_packages/bsm_market_implied_greeks_v1.json"
         ).read_text(encoding="utf-8")
     )
-    config["private_selection"]["sampling_seed"] = 18
-    second_config = root / "second-task-config.json"
-    second_config.write_bytes(canonical_json_bytes(config))
-    second = build_bsm_greeks_package(
-        repository_root=packaged_bsm_greeks.repository_root,
-        parent_database=packaged_bsm_greeks.parent_database,
-        output_root=source_run / "packages",
-        package_config_path=second_config,
-    ).package_root
+    second = None
+    for sampling_seed in range(27, 100):
+        config["private_selection"]["sampling_seed"] = sampling_seed
+        second_config = root / f"second-task-config-{sampling_seed}.json"
+        second_config.write_bytes(canonical_json_bytes(config))
+        try:
+            second = build_bsm_greeks_package(
+                repository_root=packaged_bsm_greeks.repository_root,
+                parent_database=packaged_bsm_greeks.parent_database,
+                output_root=source_run / "packages",
+                package_config_path=second_config,
+            ).package_root
+        except ValueError as error:
+            if str(error) == (
+                "selected row is too close to a decimal rounding boundary"
+            ):
+                continue
+            raise
+        break
+    assert second is not None
 
     source_packages = {path.name: path for path in (packages_root / first.name, second)}
     assert len(source_packages) == 2
@@ -106,7 +116,7 @@ def portable_bsm_greeks_delivery(
         for index, task_id in enumerate(sorted(source_packages), start=1)
     ]
     summary = {
-        "run_schema_version": "bsm-market-implied-greeks-batch-run-v1.0.0",
+        "run_schema_version": "bsm-market-implied-greeks-batch-run-v2.0.0",
         "status": "completed",
         "task_family": "bsm_greeks",
         "variant_id": _VARIANT,
@@ -192,10 +202,19 @@ def test_converter_smoke_builds_two_sorted_verified_tasks(
     for task_id in delivery.task_ids:
         root = _task_root(fixture, task_id)
         assert {
-            path.relative_to(root / "public").as_posix()
-            for path in (root / "public").rglob("*")
+            path.relative_to(root / "evaluation_view/public").as_posix()
+            for path in (root / "evaluation_view/public").rglob("*")
             if path.is_file()
-        } == _PUBLIC_FILES
+        } == _EVALUATION_PUBLIC_FILES
+        assert (root / "task.duckdb").is_file()
+        assert {
+            path.relative_to(root / "evaluation_view").as_posix()
+            for path in (root / "evaluation_view").rglob("*")
+            if path.is_file()
+        } == {
+            "manifest.json",
+            *(f"public/{name}" for name in _EVALUATION_PUBLIC_FILES),
+        }
         assert {
             path.relative_to(root / "trusted_tools").as_posix()
             for path in (root / "trusted_tools").rglob("*")
@@ -215,7 +234,7 @@ def test_declarative_toolsets_match_their_published_json_schema(
     jsonschema = pytest.importorskip("jsonschema")
     schema = json.loads(
         (
-            repository_root / "schemas/agent-task-portable-toolset-v1.schema.json"
+            repository_root / "schemas/agent-task-portable-toolset-v2.schema.json"
         ).read_text(encoding="utf-8")
     )
     validator = jsonschema.Draft202012Validator(schema)
@@ -240,11 +259,11 @@ def test_task_and_batch_can_be_loaded_after_relocation(
     shutil.copytree(_task_root(fixture, task_id), relocated_task)
 
     tools = PortableGreeksTools(relocated_task)
-    contract = tools.query_greeks_task_contract_v1()
-    inputs = tools.query_greeks_task_inputs_v1()
-    assert contract
-    assert len(inputs) == 160
-    assert {row["task_id"] for row in inputs} == {task_id}
+    underlyings = tools.query_greeks_underlying_market_v2()
+    options = tools.query_greeks_option_quotes_v2()
+    assert len(underlyings) == 8
+    assert len(options) == 160
+    assert {row["task_id"] for row in (*underlyings, *options)} == {task_id}
 
     relocated_batch = tmp_path / "another-parent" / fixture.delivery.delivery_root.name
     shutil.copytree(fixture.delivery.delivery_root, relocated_batch)
@@ -260,32 +279,32 @@ def test_portable_payloads_and_result_are_exactly_equivalent_to_database_tools(
     task_id = fixture.delivery.task_ids[0]
     root = _task_root(fixture, task_id)
     runtime = json.loads(
-        (root / "public/runtime_contract.json").read_text(encoding="utf-8")
+        (root / "evaluation_view/public/runtime_contract.json").read_text(encoding="utf-8")
     )
-    database_tools = TrustedGreeksTools(root / "public/task.duckdb", runtime)
+    database_tools = TrustedGreeksTools(root / "task.duckdb", runtime)
     portable_tools = PortableGreeksTools(root)
 
-    assert portable_tools.query_greeks_task_contract_v1() == (
-        database_tools.query_greeks_task_contract_v1()
+    assert portable_tools.query_greeks_underlying_market_v2() == (
+        database_tools.query_greeks_underlying_market_v2()
     )
-    assert portable_tools.query_greeks_task_inputs_v1() == (
-        database_tools.query_greeks_task_inputs_v1()
+    assert portable_tools.query_greeks_option_quotes_v2() == (
+        database_tools.query_greeks_option_quotes_v2()
     )
     submission = fixture.submissions[task_id]
-    portable_tools.submit_greeks_submission_v1(submission)
-    database_tools.submit_greeks_submission_v1(submission)
+    portable_tools.submit_greeks_submission_v2(submission)
+    database_tools.submit_greeks_submission_v2(submission)
 
     assert portable_tools.result() == database_tools.result()
     assert portable_tools.result().tool_calls == {
-        "query_greeks_task_contract_v1": 1,
-        "query_greeks_task_inputs_v1": 1,
-        "submit_greeks_submission_v1": 1,
+        "query_greeks_underlying_market_v2": 1,
+        "query_greeks_option_quotes_v2": 1,
+        "submit_greeks_submission_v2": 1,
     }
 
 
 @pytest.mark.parametrize(
     "query_name",
-    ["query_greeks_task_contract_v1", "query_greeks_task_inputs_v1"],
+    ["query_greeks_underlying_market_v2", "query_greeks_option_quotes_v2"],
 )
 def test_portable_query_tools_enforce_exact_one_call_budgets(
     portable_bsm_greeks_delivery: PortableDeliveryFixture,
@@ -305,15 +324,15 @@ def test_portable_result_requires_the_frozen_complete_schedule(
     fixture = portable_bsm_greeks_delivery
     task_id = fixture.delivery.task_ids[0]
     tools = PortableGreeksTools(_task_root(fixture, task_id))
-    tools.query_greeks_task_contract_v1()
-    tools.query_greeks_task_inputs_v1()
+    tools.query_greeks_underlying_market_v2()
+    tools.query_greeks_option_quotes_v2()
 
     with pytest.raises(CapabilityViolation, match="did not submit"):
         tools.result()
 
-    tools.submit_greeks_submission_v1(fixture.submissions[task_id])
+    tools.submit_greeks_submission_v2(fixture.submissions[task_id])
     with pytest.raises(CapabilityViolation, match="call budget exceeded"):
-        tools.submit_greeks_submission_v1(fixture.submissions[task_id])
+        tools.submit_greeks_submission_v2(fixture.submissions[task_id])
 
 
 def test_portable_submission_rejects_schema_task_id_and_size_violations(
@@ -327,12 +346,12 @@ def test_portable_submission_rejects_schema_task_id_and_size_violations(
     malformed = deepcopy(submission)
     malformed["unexpected"] = True
     with pytest.raises(CapabilityViolation, match="public schema"):
-        PortableGreeksTools(root).submit_greeks_submission_v1(malformed)
+        PortableGreeksTools(root).submit_greeks_submission_v2(malformed)
 
     wrong_task = deepcopy(submission)
     wrong_task["task_id"] = other_task_id
     with pytest.raises(CapabilityViolation, match="task ID differs"):
-        PortableGreeksTools(root).submit_greeks_submission_v1(wrong_task)
+        PortableGreeksTools(root).submit_greeks_submission_v2(wrong_task)
 
     oversized = deepcopy(submission)
     template = oversized["rows"][0]
@@ -342,7 +361,7 @@ def test_portable_submission_rejects_schema_task_id_and_size_violations(
     ]
     assert len(canonical_json_bytes(oversized)) > 5_242_880
     with pytest.raises(CapabilityViolation, match="byte budget"):
-        PortableGreeksTools(root).submit_greeks_submission_v1(oversized)
+        PortableGreeksTools(root).submit_greeks_submission_v2(oversized)
 
 
 def test_manifests_freeze_visibility_and_do_not_leak_local_paths_or_hidden_data(
@@ -379,12 +398,19 @@ def test_manifests_freeze_visibility_and_do_not_leak_local_paths_or_hidden_data(
             ]
         )
         visibility = task_manifest["artifact_visibility"]
-        assert {path for path, scope in visibility.items() if scope == "agent_visible"} == {
-            f"public/{name}" for name in _PUBLIC_FILES
+        assert {
+            path for path, scope in visibility.items()
+            if scope == "solver_evaluation_view"
+        } == {
+            "evaluation_view/manifest.json",
+            *(f"evaluation_view/public/{name}" for name in _EVALUATION_PUBLIC_FILES),
         }
         assert {
             path for path, scope in visibility.items() if scope == "tool_host_only"
-        } == {f"trusted_tools/{name}" for name in _TRUSTED_TOOL_FILES}
+        } == {
+            "task.duckdb",
+            *(f"trusted_tools/{name}" for name in _TRUSTED_TOOL_FILES),
+        }
         assert {
             path for path, scope in visibility.items() if scope == "verifier_only"
         } == {f"verifier/{name}" for name in _VERIFIER_FILES}
@@ -412,10 +438,10 @@ def test_payload_tampering_is_rejected_by_task_host_and_batch_verifier(
     copied = tmp_path / fixture.delivery.delivery_root.name
     shutil.copytree(fixture.delivery.delivery_root, copied)
     task_id = fixture.delivery.task_ids[0]
-    contract_path = copied / "tasks" / task_id / "trusted_tools/payloads/contract.json"
-    contract = json.loads(contract_path.read_text(encoding="utf-8"))
-    contract["tampered"] = True
-    contract_path.write_bytes(canonical_json_bytes(contract))
+    options_path = copied / "tasks" / task_id / "trusted_tools/payloads/options.json"
+    options = json.loads(options_path.read_text(encoding="utf-8"))
+    options[0]["bid"] = "0.00000001"
+    options_path.write_bytes(canonical_json_bytes(options))
 
     with pytest.raises(ValueError, match="static query binding changed"):
         PortableGreeksTools(copied / "tasks" / task_id)
@@ -442,7 +468,7 @@ def test_converter_rejects_unknown_counts_and_overwrite(
             source_run=fixture.source_run,
             output_root=tmp_path / "unknown-task",
             delivery_id="unknown-task",
-            task_ids=("bsm-mig-v1-000000000000000000000000",),
+            task_ids=("bsm-mig-v2-000000000000000000000000",),
         )
     with pytest.raises(FileExistsError, match="already exists"):
         build_portable_bsm_greeks_delivery(

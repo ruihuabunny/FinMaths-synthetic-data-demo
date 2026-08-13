@@ -45,6 +45,7 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.database imp
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.leakage import (
     assert_view_allowlist,
+    scan_evaluation_view,
     scan_public_artifacts,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.prompt_renderer import (
@@ -59,6 +60,7 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.trajectory i
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.views import (
     export_release_views,
     release_view_files,
+    release_view_manifest,
 )
 from synthetic_derivatives.tasks.bsm_market_greeks import MarketGreeksSubmission
 from synthetic_derivatives.verifier.bsm_market_greeks import (
@@ -247,7 +249,7 @@ def _public_manifest(
         "variant_id": BSM_MARKET_GREEKS_VARIANT_ID,
         "coordinates": EXPECTED_COORDINATES,
         "build_status": build_status,
-        "release_profile": "golden-single-task-v1",
+        "release_profile": "golden-single-task-v2",
         "parent_snapshot": {
             "snapshot_id": database.parent_snapshot_id,
             "revision": database.parent_snapshot_revision,
@@ -355,7 +357,7 @@ def build_bsm_greeks_package(
     global_profile = load_json_object(repository / config["global_capability_profile"])
     overlay = load_json_object(repository / config["task_capability_overlay"])
     runtime = compose_runtime_contract(global_profile, overlay)
-    prompt = render_bsm_greeks_prompt(market_greeks_method_contract(), runtime)
+    prompt = render_bsm_greeks_prompt(runtime)
     submission_schema_bytes = (repository / config["submission_schema"]).read_bytes()
     solver_interface_digest = bsm_market_greeks_solver_interface_digest(
         prompt=prompt,
@@ -429,7 +431,11 @@ def build_bsm_greeks_package(
         )
         _write_json(
             staging / "reference/artifacts/input_digest.json",
-            {"task_id": database_manifest.task_id, "input_digest": first.input_digest},
+            {
+                "task_id": database_manifest.task_id,
+                "underlying_market_digest": first.underlying_market_digest,
+                "option_quotes_digest": first.option_quotes_digest,
+            },
         )
         _write_json(
             staging / "reference/artifacts/self_check.json",
@@ -467,8 +473,8 @@ def build_bsm_greeks_package(
                 "reference_replay_byte_identical": True,
                 "trusted_quantlib_exact_match": True,
                 "runtime_policy_valid": True,
-                "contract_digest": first.contract_digest,
-                "input_digest": first.input_digest,
+                "underlying_market_digest": first.underlying_market_digest,
+                "option_quotes_digest": first.option_quotes_digest,
                 "submission_digest": first.submission_digest,
             },
         )
@@ -487,6 +493,7 @@ def build_bsm_greeks_package(
         _validate_manifest_shape(manifest)
         _write_json(staging / "manifest.json", manifest)
         export_release_views(staging, views)
+        scan_evaluation_view(staging / "views/evaluation")
         final = output / BSM_MARKET_GREEKS_VARIANT_ID / database_manifest.task_id
         if final.exists():
             raise FileExistsError(f"refusing to overwrite task package: {final}")
@@ -530,9 +537,7 @@ def verify_bsm_greeks_package(
     )
     if runtime != expected_runtime:
         raise ValueError("effective runtime contract drifted")
-    expected_prompt = render_bsm_greeks_prompt(
-        market_greeks_method_contract(), runtime
-    )
+    expected_prompt = render_bsm_greeks_prompt(runtime)
     if (root / "public/prompt.md").read_text(encoding="utf-8") != expected_prompt:
         raise ValueError("prompt drifted from method/runtime contracts")
     expected_solver_interface_digest = bsm_market_greeks_solver_interface_digest(
@@ -560,10 +565,17 @@ def verify_bsm_greeks_package(
         view_root = root / "views" / view_name
         assert_view_allowlist(view_root, files)
         for relative in files:
-            if (view_root / relative).read_bytes() != (root / relative).read_bytes():
+            if relative == "manifest.json" and view_name != "authoring":
+                expected_bytes = canonical_json_bytes(
+                    release_view_manifest(root, view_name, files)
+                )
+            else:
+                expected_bytes = (root / relative).read_bytes()
+            if (view_root / relative).read_bytes() != expected_bytes:
                 raise ValueError(
                     f"release view artifact differs from source: {view_name}/{relative}"
                 )
+    scan_evaluation_view(root / "views/evaluation")
     evaluation_files = set(manifest["views"]["evaluation"])
     if any(
         item.startswith(("verifier/", "reference/", "authoring_private/"))

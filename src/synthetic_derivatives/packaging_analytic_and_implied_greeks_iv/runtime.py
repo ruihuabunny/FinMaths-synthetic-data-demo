@@ -241,7 +241,7 @@ def compose_runtime_contract(
     return {
         "runtime_contract_schema_version": RUNTIME_CONTRACT_SCHEMA_VERSION,
         "environment_id": global_profile["environment_id"],
-        "profile_id": "bsm-greeks-effective-v1",
+        "profile_id": "bsm-greeks-effective-v2",
         "global_profile_id": global_profile["profile_id"],
         "task_overlay_id": task_overlay["profile_id"],
         "python_version": global_profile["python_version"],
@@ -332,8 +332,8 @@ class RuntimeReplayResult:
     submission: dict[str, Any]
     submission_bytes: bytes
     tool_calls: dict[str, int]
-    contract_digest: str
-    input_digest: str
+    underlying_market_digest: str
+    option_quotes_digest: str
     submission_digest: str
 
 
@@ -342,12 +342,17 @@ class TrustedGreeksTools:
 
     def __init__(self, database: str | Path, runtime_contract: Mapping[str, Any]):
         from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.database import (
-            load_bsm_greeks_contract,
-            load_bsm_greeks_inputs,
+            join_bsm_greeks_query_rows,
+            load_bsm_greeks_option_quotes,
+            load_bsm_greeks_underlying_market,
         )
 
-        self._contract = load_bsm_greeks_contract(database)
-        self._inputs = tuple(load_bsm_greeks_inputs(database))
+        self._underlyings = tuple(load_bsm_greeks_underlying_market(database))
+        self._options = tuple(load_bsm_greeks_option_quotes(database))
+        self._inputs = join_bsm_greeks_query_rows(
+            self._underlyings,
+            self._options,
+        )
         self._runtime = dict(runtime_contract)
         self._limits = {
             str(item["name"]): int(item["max_calls"])
@@ -371,16 +376,16 @@ class TrustedGreeksTools:
                 raise CapabilityViolation("total trusted query budget exceeded")
         self._calls[name] += 1
 
-    def query_greeks_task_contract_v1(self) -> dict[str, Any]:
-        self._count("query_greeks_task_contract_v1", query=True)
-        return dict(self._contract)
+    def query_greeks_underlying_market_v2(self) -> list[dict[str, Any]]:
+        self._count("query_greeks_underlying_market_v2", query=True)
+        return [dict(row) for row in self._underlyings]
 
-    def query_greeks_task_inputs_v1(self) -> list[dict[str, Any]]:
-        self._count("query_greeks_task_inputs_v1", query=True)
-        return [row.to_tool_mapping() for row in self._inputs]
+    def query_greeks_option_quotes_v2(self) -> list[dict[str, Any]]:
+        self._count("query_greeks_option_quotes_v2", query=True)
+        return [dict(row) for row in self._options]
 
-    def submit_greeks_submission_v1(self, payload: Mapping[str, Any]) -> None:
-        self._count("submit_greeks_submission_v1")
+    def submit_greeks_submission_v2(self, payload: Mapping[str, Any]) -> None:
+        self._count("submit_greeks_submission_v2")
         if self._submission is not None:
             raise CapabilityViolation("a submission was already recorded")
         try:
@@ -399,19 +404,18 @@ class TrustedGreeksTools:
         if self._submission is None or self._submission_bytes is None:
             raise CapabilityViolation("solver did not submit a result")
         required = {
-            "query_greeks_task_contract_v1": 1,
-            "query_greeks_task_inputs_v1": 1,
-            "submit_greeks_submission_v1": 1,
+            "query_greeks_underlying_market_v2": 1,
+            "query_greeks_option_quotes_v2": 1,
+            "submit_greeks_submission_v2": 1,
         }
         if self._calls != required:
             raise CapabilityViolation("solver did not use the frozen tool schedule")
-        input_payload = [row.to_tool_mapping() for row in self._inputs]
         return RuntimeReplayResult(
             submission=self._submission,
             submission_bytes=self._submission_bytes,
             tool_calls=dict(self._calls),
-            contract_digest=digest_json(self._contract),
-            input_digest=digest_json(input_payload),
+            underlying_market_digest=digest_json(self._underlyings),
+            option_quotes_digest=digest_json(self._options),
             submission_digest=sha256(self._submission_bytes).hexdigest(),
         )
 

@@ -38,7 +38,7 @@ _EXPECTED_CANDIDATE_REJECTIONS = {
     "published market-Greeks row is outside BSM price bounds",
     "published market-Greeks row has no root in the bracket",
     "stdlib and QuantLib canonical answers differ",
-    "selected row lies exactly on a decimal rounding tie",
+    "selected row is too close to a decimal rounding boundary",
 }
 
 
@@ -198,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     shutil.copytree(run_dataset.dataset_root, dataset_copy)
 
     summary = {
-        "run_schema_version": "bsm-market-implied-greeks-batch-run-v1.0.0",
+        "run_schema_version": "bsm-market-implied-greeks-batch-run-v2.0.0",
         "status": "completed",
         "task_family": "bsm_greeks",
         "variant_id": "bsm_market_implied_greeks_v1",

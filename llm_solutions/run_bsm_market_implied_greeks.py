@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal
 import json
 import os
 from pathlib import Path
@@ -27,6 +26,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.database import (  # noqa: E402
+    join_bsm_greeks_query_rows,
     load_bsm_greeks_inputs,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.portable_tools import (  # noqa: E402
@@ -38,9 +38,6 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.runtime impo
     RuntimeReplayResult,
     replay_solver_source,
     replay_solver_source_with_tools,
-)
-from synthetic_derivatives.tasks.bsm_market_greeks import (  # noqa: E402
-    BSMMarketGreeksInput,
 )
 from synthetic_derivatives.verifier.bsm_market_greeks import (  # noqa: E402
     verify_market_greeks_submission,
@@ -64,7 +61,7 @@ content.
 
 The source must define solve(tools). Inside solve, call each public query tool
 exactly once, compute every row using the frozen numerical method, call
-submit_greeks_submission_v1 exactly once, and return the identical submission
+submit_greeks_submission_v2 exactly once, and return the identical submission
 object. The restricted harness supplies only the imports and trusted tools in
 the public runtime contract. It has no raw database, network, subprocess,
 verifier, reference answer, or private resource access.
@@ -138,20 +135,22 @@ def _package_from_manifest(manifest_path: Path) -> TaskPackage | None:
         return None
 
     root = manifest_path.parent
-    public = root / "public"
+    is_portable = manifest_path.name == "delivery_manifest.json"
+    public = root / ("evaluation_view/public" if is_portable else "public")
     prompt_path = public / "prompt.md"
     runtime_path = public / "runtime_contract.json"
     schema_path = public / "submission.schema.json"
-    database_path = public / "task.duckdb"
-    public_files = (prompt_path, runtime_path, schema_path, database_path)
-    is_portable = manifest_path.name == "delivery_manifest.json"
+    database_path = None if is_portable else public / "task.duckdb"
+    public_files = (prompt_path, runtime_path, schema_path)
     portable_files = (
         root / "trusted_tools/toolset.json",
-        root / "trusted_tools/payloads/contract.json",
-        root / "trusted_tools/payloads/inputs.json",
+        root / "trusted_tools/payloads/underlyings.json",
+        root / "trusted_tools/payloads/options.json",
     )
     if any(not path.is_file() for path in public_files) or (
         is_portable and any(not path.is_file() for path in portable_files)
+    ) or (
+        database_path is not None and not database_path.is_file()
     ):
         return None
     return TaskPackage(
@@ -160,7 +159,7 @@ def _package_from_manifest(manifest_path: Path) -> TaskPackage | None:
         prompt_path=prompt_path,
         runtime_path=runtime_path,
         schema_path=schema_path,
-        database_path=None if is_portable else database_path,
+        database_path=database_path,
         is_portable=is_portable,
     )
 
@@ -419,19 +418,8 @@ def _verify_submission(
 ) -> None:
     if trusted_verification:
         if package.is_portable:
-            _, _, raw_inputs = load_portable_greeks_task(package.root)
-            inputs = []
-            for item in raw_inputs:
-                typed = dict(item)
-                for field in (
-                    "spot",
-                    "strike",
-                    "bid",
-                    "ask",
-                    "contract_multiplier",
-                ):
-                    typed[field] = Decimal(typed[field])
-                inputs.append(BSMMarketGreeksInput.from_mapping(typed))
+            _, underlyings, options = load_portable_greeks_task(package.root)
+            inputs = join_bsm_greeks_query_rows(underlyings, options)
         else:
             if package.database_path is None:
                 raise RunnerError("source package database path is missing")
