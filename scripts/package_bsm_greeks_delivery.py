@@ -15,6 +15,9 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.portable_delivery import (  # noqa: E402
     build_portable_bsm_greeks_delivery,
 )
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.portable_metric_suite import (  # noqa: E402
+    build_portable_bsm_metric_suite,
+)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -35,11 +38,80 @@ def _parser() -> argparse.ArgumentParser:
         help="package only this accepted task; repeat to select a subset",
     )
     parser.add_argument("--expected-task-count", type=int)
+    parser.add_argument(
+        "--profile",
+        type=Path,
+        help="build one atomic single-metric suite using this frozen profile",
+    )
+    parser.add_argument(
+        "--allocation-id",
+        help="public deterministic allocation identity for metric-suite mode",
+    )
+    parser.add_argument(
+        "--assignment-file",
+        type=Path,
+        help="optional explicit target/source assignment in metric-suite mode",
+    )
+    parser.add_argument(
+        "--expected-source-task-count",
+        type=int,
+        default=24,
+        help="required completed source-run size in metric-suite mode",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    arguments = _parser().parse_args(argv)
+    parser = _parser()
+    arguments = parser.parse_args(argv)
+    metric_mode = arguments.profile is not None or arguments.allocation_id is not None
+    if metric_mode:
+        if arguments.profile is None or arguments.allocation_id is None:
+            parser.error("metric-suite mode requires both --profile and --allocation-id")
+        if arguments.task_ids or arguments.expected_task_count is not None:
+            parser.error(
+                "--task-id/--expected-task-count belong to legacy combined mode"
+            )
+        delivery = build_portable_bsm_metric_suite(
+            source_run=arguments.run_root,
+            output_root=arguments.output_root,
+            delivery_id=arguments.delivery_id,
+            profile=arguments.profile,
+            allocation_id=arguments.allocation_id,
+            assignment_file=arguments.assignment_file,
+            expected_source_task_count=arguments.expected_source_task_count,
+        )
+        manifest = delivery.manifest
+        print(
+            json.dumps(
+                {
+                    "status": manifest["delivery_status"],
+                    "target_count": len(manifest["target_order"]),
+                    "tasks_per_target": manifest["tasks_per_target"],
+                    "total_task_count": manifest["total_task_count"],
+                    "unique_source_task_count": manifest[
+                        "unique_source_task_count"
+                    ],
+                    "unique_source_database_count": manifest[
+                        "unique_source_database_count"
+                    ],
+                    "unique_market_content_count": manifest[
+                        "unique_market_content_count"
+                    ],
+                    "unique_derived_task_count": manifest[
+                        "unique_derived_task_count"
+                    ],
+                    "unique_derived_database_count": manifest[
+                        "unique_derived_database_count"
+                    ],
+                    "delivery_root": str(delivery.delivery_root),
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    if arguments.assignment_file is not None:
+        parser.error("--assignment-file requires metric-suite mode")
     delivery = build_portable_bsm_greeks_delivery(
         source_run=arguments.run_root,
         output_root=arguments.output_root,

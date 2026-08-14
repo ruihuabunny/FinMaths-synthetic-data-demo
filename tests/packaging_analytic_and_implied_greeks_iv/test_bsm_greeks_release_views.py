@@ -286,12 +286,13 @@ def test_checked_in_legacy_delivery_remains_an_untouched_baseline(
     delivery = (
         repository_root
         / "task_packages/deliveries/bsm_market_implied_greeks_v1"
-        / "20260813_current_interface_100"
+        / "20260813_prompt_v2_100"
     )
     manifest = load_json_object(delivery / "batch_manifest.json")
     assert manifest["delivery_status"] == "PORTABLE_VERIFIED"
     assert manifest["task_count"] == 100
     assert len(set(manifest["task_ids"])) == 100
     first_task = delivery / "tasks" / manifest["task_ids"][0]
-    assert (first_task / "trusted_tools/payloads/contract.json").is_file()
-    assert manifest["delivery_id"] == "20260813_current_interface_100"
+    assert (first_task / "trusted_tools/payloads/underlyings.json").is_file()
+    assert (first_task / "trusted_tools/payloads/options.json").is_file()
+    assert manifest["delivery_id"] == "20260813_prompt_v2_100"

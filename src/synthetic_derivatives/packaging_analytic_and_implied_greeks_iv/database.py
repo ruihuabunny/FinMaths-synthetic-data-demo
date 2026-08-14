@@ -12,6 +12,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -33,7 +34,13 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts im
     PACKAGE_SCHEMA_VERSION,
     SELECTION_POLICY_ID,
     BSM_MARKET_GREEKS_TASK_VERSION,
+    canonical_json_bytes,
     canonical_json_text,
+    digest_file,
+)
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_specs import (
+    MetricSpec,
+    get_metric_spec,
 )
 from synthetic_derivatives.solver.analytic_and_implied_greeks_iv.bsm import (
     bsm_analytic_values,
@@ -43,6 +50,10 @@ from synthetic_derivatives.solver.analytic_and_implied_greeks_iv.bsm_market_gree
     solve_market_implied_root,
 )
 from synthetic_derivatives.tasks.bsm_market_greeks import BSMMarketGreeksInput
+from synthetic_derivatives.tasks.bsm_greeks import (
+    NUMERAIRE_ID,
+    RISK_NEUTRAL_MEASURE_ID,
+)
 from synthetic_derivatives.verifier.bsm_market_greeks import (
     trusted_market_implied_root,
     trusted_market_greeks_submission,
@@ -193,6 +204,20 @@ class BSMGreeksDatabaseManifest:
             "numeraire_id": self.numeraire_id,
             "rate_path_id": self.rate_path_id,
         }
+
+
+@dataclass(frozen=True)
+class BSMMetricDatabaseProjection:
+    """Frozen identities produced by one metric-specific DB projection."""
+
+    target: str
+    derived_task_id: str
+    derived_snapshot_id: str
+    source_database_file_digest: str
+    derived_database_file_digest: str
+    source_market_content_digest: str
+    derived_market_content_digest: str
+    derived_logical_checksum: str
 
 
 def stable_package_task_id(
@@ -638,25 +663,48 @@ def _validate_schema(connection: duckdb.DuckDBPyConnection) -> None:
             raise ValueError(f"{table.name} column contract changed")
 
 
-def _validate_public_connection(connection: duckdb.DuckDBPyConnection) -> None:
-    _validate_schema(connection)
+def _load_single_metadata_row(
+    connection: duckdb.DuckDBPyConnection,
+) -> tuple[Any, ...]:
     metadata = connection.execute("SELECT * FROM metadata.public_task").fetchall()
     if len(metadata) != 1:
         raise ValueError("BSM Greeks database requires one metadata row")
-    meta = metadata[0]
-    if (
-        meta[0] != BSM_MARKET_GREEKS_DATABASE_SCHEMA_VERSION
-        or meta[2:5] != (
-            "bsm_greeks",
-            BSM_MARKET_GREEKS_TASK_VERSION,
-            BSM_MARKET_GREEKS_VARIANT_ID,
+    return metadata[0]
+
+
+def _validate_market_grid(
+    connection: duckdb.DuckDBPyConnection,
+    meta: Sequence[Any],
+    *,
+    metric_identity: bool = False,
+) -> None:
+    if metric_identity:
+        underlying_rows = _load_table_mappings(
+            connection, BSM_GREEKS_PUBLIC_TABLES[1]
         )
-        or meta[7] != "FROZEN"
-        or meta[9:12] != ("USD", 8, 160)
-        or meta[19] != SELECTION_POLICY_ID
-    ):
-        raise ValueError("BSM Greeks metadata identity is invalid")
-    rows = load_bsm_greeks_inputs_from_connection(connection)
+        option_rows = _load_table_mappings(connection, BSM_GREEKS_PUBLIC_TABLES[2])
+        for table_rows in (underlying_rows, option_rows):
+            if any(
+                row["task_id"] != meta[1]
+                or row["snapshot_id"] != meta[5]
+                or row["valuation_date"] != meta[8]
+                for row in table_rows
+            ):
+                raise ValueError(
+                    "BSM Greeks public inputs differ from metadata identity"
+                )
+        validation_task_id = "bsm-mig-v2-" + "0" * 24
+        normalized_underlyings = tuple(
+            {**row, "task_id": validation_task_id} for row in underlying_rows
+        )
+        normalized_options = tuple(
+            {**row, "task_id": validation_task_id} for row in option_rows
+        )
+        rows = join_bsm_greeks_query_rows(
+            normalized_underlyings, normalized_options
+        )
+    else:
+        rows = load_bsm_greeks_inputs_from_connection(connection)
     if len(rows) != 160 or len({row.underlying_id for row in rows}) != 8:
         raise ValueError("BSM Greeks database does not contain the golden grid")
     groups: dict[tuple[str, date, Decimal], set[str]] = defaultdict(set)
@@ -672,7 +720,7 @@ def _validate_public_connection(connection: duckdb.DuckDBPyConnection) -> None:
         raise ValueError("BSM Greeks grid does not have two expiries per underlying")
     if len(groups) != 80:
         raise ValueError("BSM Greeks grid does not have five strikes per expiry")
-    if any(
+    if not metric_identity and any(
         row.task_id != meta[1]
         or row.snapshot_id != meta[5]
         or row.valuation_date != meta[8]
@@ -690,6 +738,74 @@ def _validate_public_connection(connection: duckdb.DuckDBPyConnection) -> None:
             )
 
 
+def _validate_public_connection(connection: duckdb.DuckDBPyConnection) -> None:
+    _validate_schema(connection)
+    meta = _load_single_metadata_row(connection)
+    if (
+        meta[0] != BSM_MARKET_GREEKS_DATABASE_SCHEMA_VERSION
+        or meta[2:5] != (
+            "bsm_greeks",
+            BSM_MARKET_GREEKS_TASK_VERSION,
+            BSM_MARKET_GREEKS_VARIANT_ID,
+        )
+        or meta[7] != "FROZEN"
+        or meta[9:12] != ("USD", 8, 160)
+        or meta[19] != SELECTION_POLICY_ID
+    ):
+        raise ValueError("BSM Greeks metadata identity is invalid")
+    _validate_market_grid(connection, meta)
+
+
+def _validate_metric_connection(
+    connection: duckdb.DuckDBPyConnection,
+    metric_spec: MetricSpec,
+    *,
+    expected_task_id: str | None = None,
+    expected_snapshot_id: str | None = None,
+) -> None:
+    if not isinstance(metric_spec, MetricSpec) or (
+        get_metric_spec(metric_spec.target) != metric_spec
+    ):
+        raise ValueError("metric spec must be an exact frozen registry entry")
+    _validate_schema(connection)
+    meta = _load_single_metadata_row(connection)
+    task_id = str(meta[1])
+    snapshot_id = str(meta[5])
+    if (
+        meta[0] != metric_spec.database_schema_version
+        or meta[2:5]
+        != (
+            "bsm_greeks",
+            metric_spec.task_version,
+            metric_spec.variant_id,
+        )
+        or re.fullmatch(metric_spec.task_id_pattern, task_id) is None
+        or not snapshot_id
+        or meta[6] != 1
+        or meta[7] != "FROZEN"
+        or type(meta[8]) is not date
+        or meta[9:12] != ("USD", 8, 160)
+        or any(
+            not isinstance(value, str) or not value for value in meta[12:16]
+        )
+        or meta[16] != RISK_NEUTRAL_MEASURE_ID
+        or meta[17] != NUMERAIRE_ID
+        or not isinstance(meta[18], str)
+        or not meta[18]
+        or meta[19] != SELECTION_POLICY_ID
+    ):
+        raise ValueError(
+            f"BSM {metric_spec.target} metric metadata identity is invalid"
+        )
+    if expected_task_id is not None and task_id != expected_task_id:
+        raise ValueError("BSM metric task identity differs from the expected task")
+    if expected_snapshot_id is not None and snapshot_id != expected_snapshot_id:
+        raise ValueError(
+            "BSM metric snapshot identity differs from the expected snapshot"
+        )
+    _validate_market_grid(connection, meta, metric_identity=True)
+
+
 def assert_bsm_greeks_database_safe(database: str | Path) -> None:
     path = Path(database)
     if not path.is_file():
@@ -701,34 +817,180 @@ def assert_bsm_greeks_database_safe(database: str | Path) -> None:
         connection.close()
 
 
+def assert_bsm_metric_database_safe(
+    database: str | Path,
+    metric_spec: MetricSpec,
+    *,
+    expected_task_id: str | None = None,
+    expected_snapshot_id: str | None = None,
+) -> None:
+    """Validate one derived DB against its frozen target-specific identity."""
+
+    path = Path(database)
+    if not path.is_file():
+        raise FileNotFoundError(f"BSM metric database is missing: {path}")
+    connection = duckdb.connect(str(path), read_only=True)
+    try:
+        _validate_metric_connection(
+            connection,
+            metric_spec,
+            expected_task_id=expected_task_id,
+            expected_snapshot_id=expected_snapshot_id,
+        )
+    finally:
+        connection.close()
+
+
+def _logical_checksum_from_connection(
+    connection: duckdb.DuckDBPyConnection,
+    checksum_identity: str,
+) -> str:
+    hasher = sha256()
+    hasher.update(f"{checksum_identity}\n".encode("utf-8"))
+    for table in BSM_GREEKS_PUBLIC_TABLES:
+        header = {
+            "table": table.name,
+            "columns": [
+                f"{column.name}:{column.duckdb_type}" for column in table.columns
+            ],
+        }
+        hasher.update(canonical_json_text(header).encode("utf-8") + b"\n")
+        order = ",".join(table.order_by)
+        for row in connection.execute(
+            f"SELECT * FROM {table.name} ORDER BY {order}"
+        ).fetchall():
+            hasher.update(
+                canonical_json_text([_hash_value(value) for value in row]).encode(
+                    "utf-8"
+                )
+                + b"\n"
+            )
+    return hasher.hexdigest()
+
+
 def bsm_greeks_logical_checksum(database: str | Path) -> str:
     path = Path(database)
     connection = duckdb.connect(str(path), read_only=True)
     try:
         _validate_public_connection(connection)
-        hasher = sha256()
-        hasher.update(f"{LOGICAL_CHECKSUM_ID}\n".encode("utf-8"))
-        for table in BSM_GREEKS_PUBLIC_TABLES:
-            header = {
-                "table": table.name,
-                "columns": [
-                    f"{column.name}:{column.duckdb_type}" for column in table.columns
-                ],
-            }
-            hasher.update(canonical_json_text(header).encode("utf-8") + b"\n")
-            order = ",".join(table.order_by)
-            for row in connection.execute(
-                f"SELECT * FROM {table.name} ORDER BY {order}"
-            ).fetchall():
-                hasher.update(
-                    canonical_json_text([_hash_value(value) for value in row]).encode(
-                        "utf-8"
-                    )
-                    + b"\n"
-                )
-        return hasher.hexdigest()
+        return _logical_checksum_from_connection(connection, LOGICAL_CHECKSUM_ID)
     finally:
         connection.close()
+
+
+def bsm_metric_logical_checksum(
+    database: str | Path,
+    metric_spec: MetricSpec,
+    *,
+    expected_task_id: str | None = None,
+    expected_snapshot_id: str | None = None,
+) -> str:
+    """Validate and hash canonical rows using the metric-specific contract."""
+
+    path = Path(database)
+    if not path.is_file():
+        raise FileNotFoundError(f"BSM metric database is missing: {path}")
+    connection = duckdb.connect(str(path), read_only=True)
+    try:
+        _validate_metric_connection(
+            connection,
+            metric_spec,
+            expected_task_id=expected_task_id,
+            expected_snapshot_id=expected_snapshot_id,
+        )
+        return _logical_checksum_from_connection(connection, LOGICAL_CHECKSUM_ID)
+    finally:
+        connection.close()
+
+
+def market_content_projection(
+    database: str | Path,
+) -> dict[str, list[dict[str, Any]]]:
+    """Return canonical solver-visible market rows without pure identities.
+
+    Task, snapshot, and row-position identities are deliberately excluded.  All
+    remaining values use the same tagged scalar representation as the logical
+    checksum.  The frozen natural keys make the projection independent of
+    physical table row order.
+    """
+
+    path = Path(database)
+    if path.is_symlink() or not path.is_file():
+        raise FileNotFoundError(f"BSM market database is missing: {path}")
+    connection = duckdb.connect(str(path), read_only=True)
+    try:
+        projections = (
+            (
+                BSM_GREEKS_PUBLIC_TABLES[1],
+                frozenset(("task_id", "snapshot_id")),
+                ("valuation_date", "underlying_id"),
+            ),
+            (
+                BSM_GREEKS_PUBLIC_TABLES[2],
+                frozenset(("row_id", "task_id", "snapshot_id")),
+                (
+                    "valuation_date",
+                    "underlying_id",
+                    "expiry",
+                    "strike",
+                    "call_put",
+                    "option_id",
+                ),
+            ),
+        )
+        normalized: list[list[dict[str, Any]]] = []
+        for table, excluded, natural_key in projections:
+            actual_columns = tuple(
+                (str(row[0]), str(row[1]))
+                for row in connection.execute(f"DESCRIBE {table.name}").fetchall()
+            )
+            expected_columns = tuple(
+                (column.name, column.duckdb_type) for column in table.columns
+            )
+            if actual_columns != expected_columns:
+                raise ValueError(f"{table.name} column contract changed")
+
+            projected_columns = tuple(
+                column.name for column in table.columns if column.name not in excluded
+            )
+            rows = connection.execute(
+                f"SELECT {','.join(projected_columns)} "
+                f"FROM {table.name} ORDER BY {','.join(natural_key)}"
+            ).fetchall()
+            if not rows:
+                raise ValueError(f"{table.name} must not be empty")
+            natural_key_indexes = tuple(
+                projected_columns.index(field) for field in natural_key
+            )
+            natural_keys = {
+                canonical_json_text(
+                    [_hash_value(row[index]) for index in natural_key_indexes]
+                )
+                for row in rows
+            }
+            if len(natural_keys) != len(rows):
+                raise ValueError(f"{table.name} natural key is duplicated")
+            normalized.append(
+                [
+                    {
+                        name: _hash_value(value)
+                        for name, value in zip(projected_columns, row, strict=True)
+                    }
+                    for row in rows
+                ]
+            )
+        return {
+            "underlying_market": normalized[0],
+            "option_quotes": normalized[1],
+        }
+    finally:
+        connection.close()
+
+
+def market_content_digest(database: str | Path) -> str:
+    """Hash only canonical solver-visible economic and contract content."""
+
+    return sha256(canonical_json_bytes(market_content_projection(database))).hexdigest()
 
 
 def _load_table_mappings(
@@ -779,6 +1041,172 @@ def load_bsm_greeks_option_quotes(
 
     _, options = split_bsm_greeks_query_rows(load_bsm_greeks_inputs(database))
     return options
+
+
+def _query_payload_rows(
+    connection: duckdb.DuckDBPyConnection,
+    table: _Table,
+) -> tuple[dict[str, Any], ...]:
+    rows = _load_table_mappings(connection, table)
+    return tuple(
+        {
+            name: (
+                value.isoformat()
+                if type(value) is date
+                else format(value, "f")
+                if isinstance(value, Decimal)
+                else value
+            )
+            for name, value in row.items()
+        }
+        for row in rows
+    )
+
+
+def load_bsm_metric_query_payloads(
+    database: str | Path,
+    metric_spec: MetricSpec,
+) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
+    """Load validated derived-DB query payloads with their metric task identity."""
+
+    path = Path(database)
+    if not path.is_file():
+        raise FileNotFoundError(f"BSM metric database is missing: {path}")
+    connection = duckdb.connect(str(path), read_only=True)
+    try:
+        _validate_metric_connection(connection, metric_spec)
+        return (
+            _query_payload_rows(connection, BSM_GREEKS_PUBLIC_TABLES[1]),
+            _query_payload_rows(connection, BSM_GREEKS_PUBLIC_TABLES[2]),
+        )
+    finally:
+        connection.close()
+
+
+def project_bsm_metric_database(
+    source_database: str | Path,
+    output_database: str | Path,
+    metric_spec: MetricSpec,
+    derived_task_id: str,
+    derived_snapshot_id: str,
+) -> BSMMetricDatabaseProjection:
+    """Create one metric-specific DB by changing only allowlisted identities."""
+
+    if duckdb.__version__ != PINNED_DUCKDB_VERSION:
+        raise RuntimeError(f"packaging requires duckdb=={PINNED_DUCKDB_VERSION}")
+    if not isinstance(metric_spec, MetricSpec) or (
+        get_metric_spec(metric_spec.target) != metric_spec
+    ):
+        raise ValueError("metric spec must be an exact frozen registry entry")
+    if (
+        not isinstance(derived_task_id, str)
+        or re.fullmatch(metric_spec.task_id_pattern, derived_task_id) is None
+    ):
+        raise ValueError(
+            f"derived task ID is invalid for the {metric_spec.target} target"
+        )
+    if not isinstance(derived_snapshot_id, str) or not derived_snapshot_id:
+        raise ValueError("derived snapshot ID must be a non-empty string")
+
+    source_path = Path(source_database)
+    output_path = Path(output_database)
+    assert_bsm_greeks_database_safe(source_path)
+    if output_path.exists():
+        raise FileExistsError(f"refusing to overwrite metric database: {output_path}")
+
+    source_file_digest = digest_file(source_path)
+    source_content_digest = market_content_digest(source_path)
+    source = duckdb.connect(str(source_path), read_only=True)
+    try:
+        metadata = _load_table_mappings(source, BSM_GREEKS_PUBLIC_TABLES[0])[0]
+        underlyings = _load_table_mappings(source, BSM_GREEKS_PUBLIC_TABLES[1])
+        options = _load_table_mappings(source, BSM_GREEKS_PUBLIC_TABLES[2])
+    finally:
+        source.close()
+
+    derived_metadata = dict(metadata)
+    derived_metadata.update(
+        {
+            "schema_version": metric_spec.database_schema_version,
+            "task_id": derived_task_id,
+            "task_version": metric_spec.task_version,
+            "variant_id": metric_spec.variant_id,
+            "snapshot_id": derived_snapshot_id,
+        }
+    )
+    derived_underlyings = []
+    for row in underlyings:
+        derived = dict(row)
+        derived.update(
+            {"task_id": derived_task_id, "snapshot_id": derived_snapshot_id}
+        )
+        derived_underlyings.append(derived)
+    derived_options = []
+    for row in options:
+        derived = dict(row)
+        derived.update(
+            {"task_id": derived_task_id, "snapshot_id": derived_snapshot_id}
+        )
+        derived_options.append(derived)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = output_path.with_name(f".{output_path.name}.{uuid4().hex}.tmp")
+    connection: duckdb.DuckDBPyConnection | None = None
+    try:
+        connection = duckdb.connect(str(temporary))
+        _create_tables(connection)
+        projected_rows: tuple[Sequence[Mapping[str, Any]], ...] = (
+            (derived_metadata,),
+            tuple(derived_underlyings),
+            tuple(derived_options),
+        )
+        for table, rows in zip(
+            BSM_GREEKS_PUBLIC_TABLES, projected_rows, strict=True
+        ):
+            _insert(
+                connection,
+                table,
+                [
+                    tuple(row[column.name] for column in table.columns)
+                    for row in rows
+                ],
+            )
+        connection.close()
+        connection = None
+
+        assert_bsm_metric_database_safe(
+            temporary,
+            metric_spec,
+            expected_task_id=derived_task_id,
+            expected_snapshot_id=derived_snapshot_id,
+        )
+        derived_content_digest = market_content_digest(temporary)
+        if derived_content_digest != source_content_digest:
+            raise ValueError("metric projection changed solver-visible market content")
+        derived_logical_checksum = bsm_metric_logical_checksum(
+            temporary,
+            metric_spec,
+            expected_task_id=derived_task_id,
+            expected_snapshot_id=derived_snapshot_id,
+        )
+        derived_file_digest = digest_file(temporary)
+        result = BSMMetricDatabaseProjection(
+            target=metric_spec.target,
+            derived_task_id=derived_task_id,
+            derived_snapshot_id=derived_snapshot_id,
+            source_database_file_digest=source_file_digest,
+            derived_database_file_digest=derived_file_digest,
+            source_market_content_digest=source_content_digest,
+            derived_market_content_digest=derived_content_digest,
+            derived_logical_checksum=derived_logical_checksum,
+        )
+        os.replace(temporary, output_path)
+        return result
+    except Exception:
+        if connection is not None:
+            connection.close()
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def materialize_bsm_greeks_database(
@@ -893,14 +1321,21 @@ def materialize_bsm_greeks_database(
 __all__ = [
     "BSM_GREEKS_PUBLIC_TABLES",
     "BSMGreeksDatabaseManifest",
+    "BSMMetricDatabaseProjection",
     "assert_bsm_greeks_database_safe",
+    "assert_bsm_metric_database_safe",
     "bsm_greeks_logical_checksum",
+    "bsm_metric_logical_checksum",
     "load_bsm_greeks_inputs",
     "load_bsm_greeks_option_quotes",
     "load_bsm_greeks_underlying_market",
+    "load_bsm_metric_query_payloads",
     "join_bsm_greeks_query_rows",
+    "market_content_digest",
+    "market_content_projection",
     "materialize_bsm_greeks_database",
     "OPTION_QUOTE_FIELDS",
+    "project_bsm_metric_database",
     "PUBLIC_JOIN_FIELDS",
     "split_bsm_greeks_query_rows",
     "stable_package_task_id",

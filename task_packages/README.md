@@ -93,9 +93,8 @@ deliveries/bsm_market_implied_greeks_v1/20260813_prompt_v2_100
 ```
 
 It contains 100 unique `bsm-mig-v2-*` tasks in one
-`unsplit_shared_parent_snapshot` evaluation group. The prior immutable
-`20260813_current_interface_100` delivery remains in place as the v1-interface
-baseline and is not modified.
+`unsplit_shared_parent_snapshot` evaluation group and remains the immutable
+legacy combined IV-and-Greeks delivery.
 
 Convert a completed source run with:
 
@@ -106,3 +105,28 @@ Convert a completed source run with:
   --delivery-id 20260813_prompt_v2_100 \
   --expected-task-count 100
 ```
+
+## Single-metric 6×4 suite
+
+The single-metric delivery builder projects 24 distinct accepted v2 source
+databases into six targets (`iv`, `delta`, `gamma`, `vega_1volpt`,
+`theta_1calendar_day`, and `rho_1pct`), with four independent tasks per target.
+Each source database is used once across the whole suite. The projection changes
+only task/snapshot interface identity; the public market, contract, and quote
+content is preserved.
+
+Build the frozen suite with:
+
+```bash
+.venv/bin/python scripts/package_bsm_greeks_delivery.py \
+  --run-root runs/bsm_market_implied_greeks/20260814_24_tasks_prompt_v2_parent_seed_20260806_selector_seed_0 \
+  --output-root task_packages/deliveries \
+  --delivery-id 20260814_metric_6x4_unique_db \
+  --profile configs/deliveries/bsm_market_implied_metric_suite_6x4_v1.json \
+  --allocation-id 20260814_metric_6x4_v1 \
+  --expected-source-task-count 24
+```
+
+The builder validates all 24 leaves and all cross-target uniqueness constraints
+in a sibling staging directory, then publishes the complete suite with one
+non-overwriting rename.
