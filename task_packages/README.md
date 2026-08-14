@@ -130,3 +130,41 @@ Build the frozen suite with:
 The builder validates all 24 leaves and all cross-target uniqueness constraints
 in a sibling staging directory, then publishes the complete suite with one
 non-overwriting rename.
+
+### DuckDB-query v3 migration
+
+The breaking v3 solver protocol is published as a new delivery and does not
+modify the static-JSON suite above. Each v3 leaf keeps `task.duckdb` as its only
+market-input source, exposes it only through `query_public_duckdb_v3`, and
+contains only `trusted_tools/toolset.json` under `trusted_tools/`. The public
+submission is sent once through `submit_greeks_submission_v3`; row order has no
+meaning, while the verifier requires the exact public `row_id` set and compares
+rows after key alignment.
+
+Repackage the same frozen 24 source markets with:
+
+```bash
+.venv/bin/python scripts/package_bsm_greeks_delivery.py \
+  --run-root runs/bsm_market_implied_greeks/20260814_24_tasks_prompt_v2_parent_seed_20260806_selector_seed_0 \
+  --output-root task_packages/deliveries \
+  --delivery-id 20260814_metric_6x4_db_query_v3 \
+  --profile configs/deliveries/bsm_market_implied_metric_suite_6x4_v1.json \
+  --allocation-id 20260814_metric_6x4_v1 \
+  --expected-source-task-count 24 \
+  --metric-protocol v3-duckdb-query
+```
+
+The v3 builder validates all SQL-tool, runtime, database, submission, verifier,
+manifest, uniqueness, and no-payload bindings before the atomic publish.
+
+Generate one authoring-side reference trajectory for each metric without adding
+reference files to the portable leaves:
+
+```bash
+.venv/bin/python scripts/package_bsm_metric_v3_reference_trajectories.py \
+  --suite-root task_packages/deliveries/bsm_market_implied_metric_suite_v1/20260814_metric_6x4_db_query_v3 \
+  --output-directory examples/trajectories/bsm_market_implied_metric_db_query_v3
+```
+
+The frozen contract, provenance, validation evidence, and release digests are
+recorded in `reports/bsm_public_duckdb_query_v3_migration.md`.

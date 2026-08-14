@@ -130,4 +130,87 @@ def reference_trajectory(result: RuntimeReplayResult) -> tuple[TrajectoryEvent, 
     )
 
 
-__all__ = ["TrajectoryEvent", "reference_trajectory"]
+def reference_trajectory_v3(
+    result: RuntimeReplayResult,
+) -> tuple[TrajectoryEvent, ...]:
+    """Describe the observable three-query v3 metric replay."""
+
+    expected_calls = {
+        "query_public_duckdb_v3": 3,
+        "submit_greeks_submission_v3": 1,
+    }
+    if result.tool_calls != expected_calls:
+        raise ValueError("v3 reference replay used a different trusted-tool schedule")
+    return (
+        TrajectoryEvent(
+            1,
+            "observation",
+            "Read the public prompt, runtime contract, and submission schema.",
+            public_reference="public/",
+        ),
+        TrajectoryEvent(
+            2,
+            "action",
+            "Queried the public database relation inventory.",
+            tool_name="query_public_duckdb_v3",
+        ),
+        TrajectoryEvent(
+            3,
+            "tool_result",
+            "Received the public relation inventory without truncation.",
+            tool_name="query_public_duckdb_v3",
+        ),
+        TrajectoryEvent(
+            4,
+            "action",
+            "Queried public column metadata for the discovered relations.",
+            tool_name="query_public_duckdb_v3",
+        ),
+        TrajectoryEvent(
+            5,
+            "tool_result",
+            "Received the public column metadata without truncation.",
+            tool_name="query_public_duckdb_v3",
+        ),
+        TrajectoryEvent(
+            6,
+            "action",
+            "Queried the joined public market inputs with an explicit row ordering.",
+            tool_name="query_public_duckdb_v3",
+        ),
+        TrajectoryEvent(
+            7,
+            "tool_result",
+            "Received the complete joined public market inputs without truncation.",
+            tool_name="query_public_duckdb_v3",
+        ),
+        TrajectoryEvent(
+            8,
+            "action",
+            "Computed Decimal quote midpoints and fixed-schedule IV roots.",
+        ),
+        TrajectoryEvent(
+            9,
+            "action",
+            "Emitted only the declared metric output with frozen unit scaling.",
+        ),
+        TrajectoryEvent(
+            10,
+            "decision",
+            "Validated row identities and canonical strings without assigning row-order semantics.",
+        ),
+        TrajectoryEvent(
+            11,
+            "submission",
+            "Submitted the complete single-metric result once.",
+            tool_name="submit_greeks_submission_v3",
+            digest=result.submission_digest,
+        ),
+    )
+
+
+__all__ = [
+    "TrajectoryEvent",
+    "reference_trajectory",
+    "reference_trajectory_v3",
+]

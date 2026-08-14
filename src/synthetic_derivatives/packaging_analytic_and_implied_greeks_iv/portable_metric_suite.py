@@ -40,17 +40,25 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_alloc
     validate_metric_assignments,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_specs import (
-    METRIC_SPECS_BY_TARGET,
     TARGET_ORDER,
     MetricSpec,
     get_metric_spec,
+    get_metric_spec_db_query_v3,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.portable_tools import (
     export_portable_metric_toolset,
     validate_portable_metric_toolset,
 )
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.portable_tools_v3 import (
+    export_portable_metric_toolset_v3,
+    validate_portable_metric_toolset_v3,
+)
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.prompt_renderer import (
     render_bsm_metric_prompt,
+    render_bsm_metric_prompt_v3,
+)
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.runtime import (
+    compose_runtime_contract_v3,
 )
 
 
@@ -63,6 +71,23 @@ METRIC_INTERFACE_CONTRACT_VERSION = "bsm-market-metric-solver-interface-v1"
 METRIC_PROJECTION_SCHEMA_VERSION = "bsm-market-metric-projection-v1.0.0"
 PORTABLE_SUITE_STATUS = "PORTABLE_SUITE_VERIFIED"
 SUITE_VARIANT_ID = "bsm_market_implied_metric_suite_v1"
+
+SUITE_SCHEMA_VERSION_V3 = "bsm-market-metric-suite-v2.0.0"
+TARGET_BATCH_SCHEMA_VERSION_V3 = "bsm-market-metric-batch-v2.0.0"
+METRIC_PACKAGE_SCHEMA_VERSION_V3 = "agent-task-package-v3.0.0"
+METRIC_TASK_INTERFACE_VERSION_V3 = "bsm-market-metric-agent-task-v2.0.0"
+METRIC_SOURCE_SCHEMA_VERSION_V3 = (
+    "bsm-market-metric-source-manifest-v2.0.0"
+)
+METRIC_EVALUATION_SCHEMA_VERSION_V3 = (
+    "bsm-market-metric-evaluation-view-v2.0.0"
+)
+METRIC_INTERFACE_CONTRACT_VERSION_V3 = (
+    "bsm-market-metric-solver-interface-v2"
+)
+METRIC_PROJECTION_SCHEMA_VERSION_V3 = (
+    "bsm-market-metric-projection-v2.0.0"
+)
 
 _EXPECTED_RUN_SCHEMA = "bsm-market-implied-greeks-batch-run-v2.0.0"
 _EXPECTED_TASK_FAMILY = "bsm_greeks"
@@ -80,6 +105,7 @@ _TOOL_FILES = (
     "payloads/underlyings.json",
     "payloads/options.json",
 )
+_TOOL_FILES_V3 = ("toolset.json",)
 _VERIFIER_FILES = (
     "README.md",
     "__init__.py",
@@ -111,6 +137,7 @@ class PortableMetricSuite:
 
 @dataclass(frozen=True, slots=True)
 class _PreparedLeaf:
+    protocol_version: str
     assignment: MetricAssignment
     spec: MetricSpec
     source_package: Path
@@ -126,6 +153,46 @@ class _PreparedLeaf:
     identity_payload: dict[str, Any]
     derived_task_id: str
     derived_snapshot_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class _SuiteProtocol:
+    name: str
+    suite_schema_version: str
+    batch_schema_version: str
+    source_schema_version: str
+    evaluation_schema_version: str
+    interface_contract_version: str
+    projection_schema_version: str
+    tool_files: tuple[str, ...]
+    package_schema_version: str | None
+    task_interface_version: str | None
+
+
+_V2_PROTOCOL = _SuiteProtocol(
+    name="v2-static-json",
+    suite_schema_version=SUITE_SCHEMA_VERSION,
+    batch_schema_version=TARGET_BATCH_SCHEMA_VERSION,
+    source_schema_version=METRIC_SOURCE_SCHEMA_VERSION,
+    evaluation_schema_version=METRIC_EVALUATION_SCHEMA_VERSION,
+    interface_contract_version=METRIC_INTERFACE_CONTRACT_VERSION,
+    projection_schema_version=METRIC_PROJECTION_SCHEMA_VERSION,
+    tool_files=_TOOL_FILES,
+    package_schema_version=None,
+    task_interface_version=None,
+)
+_V3_PROTOCOL = _SuiteProtocol(
+    name="v3-duckdb-query",
+    suite_schema_version=SUITE_SCHEMA_VERSION_V3,
+    batch_schema_version=TARGET_BATCH_SCHEMA_VERSION_V3,
+    source_schema_version=METRIC_SOURCE_SCHEMA_VERSION_V3,
+    evaluation_schema_version=METRIC_EVALUATION_SCHEMA_VERSION_V3,
+    interface_contract_version=METRIC_INTERFACE_CONTRACT_VERSION_V3,
+    projection_schema_version=METRIC_PROJECTION_SCHEMA_VERSION_V3,
+    tool_files=_TOOL_FILES_V3,
+    package_schema_version=METRIC_PACKAGE_SCHEMA_VERSION_V3,
+    task_interface_version=METRIC_TASK_INTERFACE_VERSION_V3,
+)
 
 
 def _write_json(path: Path, payload: Any) -> None:
@@ -239,11 +306,15 @@ def _load_explicit_assignments(path: str | Path) -> list[Mapping[str, Any]]:
 
 
 def _interface_digest(
-    *, prompt_digest: str, runtime_digest: str, schema_digest: str
+    *,
+    prompt_digest: str,
+    runtime_digest: str,
+    schema_digest: str,
+    contract_version: str = METRIC_INTERFACE_CONTRACT_VERSION,
 ) -> str:
     return digest_json(
         {
-            "interface_contract_version": METRIC_INTERFACE_CONTRACT_VERSION,
+            "interface_contract_version": contract_version,
             "prompt_digest": prompt_digest,
             "runtime_contract_digest": runtime_digest,
             "submission_schema_digest": schema_digest,
@@ -251,8 +322,14 @@ def _interface_digest(
     )
 
 
-def _prepare_leaf(assignment: MetricAssignment) -> _PreparedLeaf:
-    spec = get_metric_spec(assignment.target)
+def _prepare_leaf(
+    assignment: MetricAssignment, protocol: _SuiteProtocol = _V2_PROTOCOL
+) -> _PreparedLeaf:
+    spec = (
+        get_metric_spec_db_query_v3(assignment.target)
+        if protocol is _V3_PROTOCOL
+        else get_metric_spec(assignment.target)
+    )
     source_database = assignment.source_database_path
     source_package = source_database.parent.parent
     source_manifest_path = source_package / "manifest.json"
@@ -279,12 +356,28 @@ def _prepare_leaf(assignment: MetricAssignment) -> _PreparedLeaf:
     ):
         if artifacts.get(relative) != digest_file(source_package / relative):
             raise ValueError("metric source interface digest is invalid")
-    runtime = load_json_object(runtime_path)
-    prompt = render_bsm_metric_prompt(spec, runtime)
+    if protocol is _V3_PROTOCOL:
+        global_profile = load_json_object(
+            _REPOSITORY_ROOT
+            / "environments/solver/capabilities.global_v3.json"
+        )
+        task_overlay = load_json_object(
+            _REPOSITORY_ROOT
+            / "environments/solver/capabilities.bsm_greeks_v3.json"
+        )
+        runtime = compose_runtime_contract_v3(global_profile, task_overlay)
+        prompt = render_bsm_metric_prompt_v3(spec, runtime)
+    else:
+        runtime = load_json_object(runtime_path)
+        prompt = render_bsm_metric_prompt(spec, runtime)
     schema_path = _REPOSITORY_ROOT / "schemas" / spec.schema_filename
     _require_plain_file(schema_path)
     prompt_digest = sha256(prompt.encode("utf-8")).hexdigest()
-    runtime_digest = digest_file(runtime_path)
+    runtime_digest = (
+        digest_json(runtime)
+        if protocol is _V3_PROTOCOL
+        else digest_file(runtime_path)
+    )
     schema_digest = digest_file(schema_path)
     source_interface_digest = digest_json(
         {
@@ -297,6 +390,7 @@ def _prepare_leaf(assignment: MetricAssignment) -> _PreparedLeaf:
         prompt_digest=prompt_digest,
         runtime_digest=runtime_digest,
         schema_digest=schema_digest,
+        contract_version=protocol.interface_contract_version,
     )
     parent = source_manifest.get("parent_snapshot")
     if not isinstance(parent, Mapping):
@@ -305,7 +399,7 @@ def _prepare_leaf(assignment: MetricAssignment) -> _PreparedLeaf:
         parent.get("logical_checksum"), "source parent logical checksum"
     )
     identity_payload = {
-        "metric_projection_schema_version": METRIC_PROJECTION_SCHEMA_VERSION,
+        "metric_projection_schema_version": protocol.projection_schema_version,
         "source_parent_logical_checksum": parent_logical_checksum,
         "source_market_content_digest": assignment.source_market_content_digest,
         "target": spec.target,
@@ -319,6 +413,7 @@ def _prepare_leaf(assignment: MetricAssignment) -> _PreparedLeaf:
     derived_task_id = spec.task_id_prefix + suffix
     derived_snapshot_id = "BSM-MARKET-METRIC-" + suffix.upper()
     return _PreparedLeaf(
+        protocol_version=protocol.name,
         assignment=assignment,
         spec=spec,
         source_package=source_package,
@@ -350,7 +445,16 @@ def _planned_assignment(prepared: _PreparedLeaf) -> dict[str, Any]:
     }
 
 
+def _protocol_for_prepared(prepared: _PreparedLeaf) -> _SuiteProtocol:
+    if prepared.protocol_version == _V2_PROTOCOL.name:
+        return _V2_PROTOCOL
+    if prepared.protocol_version == _V3_PROTOCOL.name:
+        return _V3_PROTOCOL
+    raise ValueError("prepared metric leaf has an unknown protocol")
+
+
 def _write_evaluation_view(prepared: _PreparedLeaf, task_root: Path) -> None:
+    protocol = _protocol_for_prepared(prepared)
     public = task_root / "evaluation_view/public"
     _write_text(public / "prompt.md", prepared.prompt)
     _write_json(public / "runtime_contract.json", prepared.runtime_contract)
@@ -371,8 +475,8 @@ def _write_evaluation_view(prepared: _PreparedLeaf, task_root: Path) -> None:
     ):
         raise ValueError("derived solver interface changed while materializing")
     manifest = {
-        "evaluation_view_schema_version": METRIC_EVALUATION_SCHEMA_VERSION,
-        "solver_interface_contract_version": METRIC_INTERFACE_CONTRACT_VERSION,
+        "evaluation_view_schema_version": protocol.evaluation_schema_version,
+        "solver_interface_contract_version": protocol.interface_contract_version,
         "view_kind": "evaluation",
         "task_family": _EXPECTED_TASK_FAMILY,
         "task_id": prepared.derived_task_id,
@@ -397,12 +501,13 @@ def _write_source_manifest(
     derived_logical_checksum: str,
     derived_market_content_digest: str,
 ) -> dict[str, Any]:
+    protocol = _protocol_for_prepared(prepared)
     source = prepared.source_manifest
     source_public = source.get("public_child_snapshot")
     if not isinstance(source_public, Mapping):
         raise ValueError("source public snapshot identity is invalid")
     payload = {
-        "source_manifest_schema_version": METRIC_SOURCE_SCHEMA_VERSION,
+        "source_manifest_schema_version": protocol.source_schema_version,
         "target_metric": prepared.spec.target,
         "source_run": {
             "run_schema_version": _EXPECTED_RUN_SCHEMA,
@@ -423,7 +528,7 @@ def _write_source_manifest(
             ),
         },
         "metric_projection": {
-            "projection_schema_version": METRIC_PROJECTION_SCHEMA_VERSION,
+            "projection_schema_version": protocol.projection_schema_version,
             "identity_payload": prepared.identity_payload,
             "identity_only_columns": [
                 "metadata.public_task.schema_version",
@@ -469,6 +574,7 @@ def _build_metric_leaf(
 ) -> dict[str, Any]:
     """Build one derived leaf without copying source reference/private artifacts."""
 
+    protocol = _protocol_for_prepared(prepared)
     task_root.mkdir(parents=True, exist_ok=False)
     database = task_root / "task.duckdb"
     project_bsm_metric_database(
@@ -493,18 +599,30 @@ def _build_metric_leaf(
         expected_snapshot_id=prepared.derived_snapshot_id,
     )
     _write_evaluation_view(prepared, task_root)
-    export_portable_metric_toolset(
+    exporter = (
+        export_portable_metric_toolset_v3
+        if protocol is _V3_PROTOCOL
+        else export_portable_metric_toolset
+    )
+    exporter(
         database=database,
         runtime_contract=task_root / "evaluation_view/public/runtime_contract.json",
         submission_schema=task_root / "evaluation_view/public/submission.schema.json",
         output_directory=task_root / "trusted_tools",
         metric_spec=prepared.spec,
     )
-    from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_verifier import (
-        write_metric_verifier,
-    )
+    if protocol is _V3_PROTOCOL:
+        from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_verifier import (
+            write_metric_verifier_v3,
+        )
 
-    write_metric_verifier(task_root / "verifier", prepared.spec)
+        write_metric_verifier_v3(task_root / "verifier", prepared.spec)
+    else:
+        from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_verifier import (
+            write_metric_verifier,
+        )
+
+        write_metric_verifier(task_root / "verifier", prepared.spec)
     _write_source_manifest(
         prepared=prepared,
         task_root=task_root,
@@ -521,7 +639,7 @@ def _build_metric_leaf(
     expected_paths = sorted(
         ["task.duckdb", "source_manifest.json"]
         + [f"evaluation_view/{name}" for name in _EVALUATION_FILES]
-        + [f"trusted_tools/{name}" for name in _TOOL_FILES]
+        + [f"trusted_tools/{name}" for name in protocol.tool_files]
         + [f"verifier/{name}" for name in _VERIFIER_FILES]
     )
     if artifact_paths != expected_paths:
@@ -533,7 +651,6 @@ def _build_metric_leaf(
         relative: _artifact_visibility(relative) for relative in artifact_paths
     }
     manifest = {
-        "task_delivery_schema_version": METRIC_TASK_SCHEMA_VERSION,
         "delivery_status": PORTABLE_SUITE_STATUS,
         "task_family": _EXPECTED_TASK_FAMILY,
         "task_id": prepared.derived_task_id,
@@ -572,6 +689,15 @@ def _build_metric_leaf(
         "artifacts": artifacts,
         "artifact_visibility": visibility,
     }
+    if protocol is _V3_PROTOCOL:
+        manifest.update(
+            {
+                "package_schema_version": protocol.package_schema_version,
+                "task_interface_version": protocol.task_interface_version,
+            }
+        )
+    else:
+        manifest["task_delivery_schema_version"] = METRIC_TASK_SCHEMA_VERSION
     _assert_portable_json(manifest, "delivery_manifest.json")
     _write_json(task_root / "delivery_manifest.json", manifest)
     return {
@@ -592,19 +718,23 @@ def _verify_metric_leaf(
     assignment: Mapping[str, Any],
     *,
     run_summary_identity: Mapping[str, Any],
+    protocol: _SuiteProtocol = _V2_PROTOCOL,
 ) -> dict[str, Any]:
     task_id = assignment.get("derived_task_id")
     target = assignment.get("target")
     if not isinstance(task_id, str) or not isinstance(target, str):
         raise ValueError("suite assignment identity is invalid")
-    spec = get_metric_spec(target)
+    spec = (
+        get_metric_spec_db_query_v3(target)
+        if protocol is _V3_PROTOCOL
+        else get_metric_spec(target)
+    )
     if task_root.name != task_id or re.fullmatch(spec.task_id_pattern, task_id) is None:
         raise ValueError("metric leaf path differs from its task identity")
     manifest_path = task_root / "delivery_manifest.json"
     _require_plain_file(manifest_path)
     manifest = load_json_object(manifest_path)
     expected_manifest_fields = {
-        "task_delivery_schema_version",
         "delivery_status",
         "task_family",
         "task_id",
@@ -622,8 +752,24 @@ def _verify_metric_leaf(
         "artifacts",
         "artifact_visibility",
     }
+    if protocol is _V3_PROTOCOL:
+        expected_manifest_fields.update(
+            {"package_schema_version", "task_interface_version"}
+        )
+        schema_identity_valid = (
+            manifest.get("package_schema_version")
+            == protocol.package_schema_version
+            and manifest.get("task_interface_version")
+            == protocol.task_interface_version
+        )
+    else:
+        expected_manifest_fields.add("task_delivery_schema_version")
+        schema_identity_valid = (
+            manifest.get("task_delivery_schema_version")
+            == METRIC_TASK_SCHEMA_VERSION
+        )
     if set(manifest) != expected_manifest_fields or (
-        manifest["task_delivery_schema_version"] != METRIC_TASK_SCHEMA_VERSION
+        not schema_identity_valid
         or manifest["delivery_status"] != PORTABLE_SUITE_STATUS
         or manifest["task_family"] != _EXPECTED_TASK_FAMILY
         or manifest["task_id"] != task_id
@@ -641,7 +787,7 @@ def _verify_metric_leaf(
     expected_artifacts = set(
         ["task.duckdb", "source_manifest.json"]
         + [f"evaluation_view/{name}" for name in _EVALUATION_FILES]
-        + [f"trusted_tools/{name}" for name in _TOOL_FILES]
+        + [f"trusted_tools/{name}" for name in protocol.tool_files]
         + [f"verifier/{name}" for name in _VERIFIER_FILES]
     )
     if set(artifacts) != expected_artifacts or set(visibility) != expected_artifacts:
@@ -670,7 +816,10 @@ def _verify_metric_leaf(
     ):
         raise ValueError("metric leaf evaluation binding changed")
     scan_evaluation_view(task_root / "evaluation_view")
-    validate_portable_metric_toolset(task_root, metric_spec=spec)
+    if protocol is _V3_PROTOCOL:
+        validate_portable_metric_toolset_v3(task_root, metric_spec=spec)
+    else:
+        validate_portable_metric_toolset(task_root, metric_spec=spec)
     database = task_root / "task.duckdb"
     snapshot_id = assignment.get("derived_snapshot_id")
     if not isinstance(snapshot_id, str):
@@ -707,21 +856,28 @@ def _verify_metric_leaf(
         or digest_file(database) != assignment.get("derived_database_digest")
     ):
         raise ValueError("metric leaf database differs from suite assignment")
-    underlyings = json.loads(
-        (task_root / "trusted_tools/payloads/underlyings.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    options = json.loads(
-        (task_root / "trusted_tools/payloads/options.json").read_text(
-            encoding="utf-8"
-        )
-    )
     raw_underlyings, raw_options = load_bsm_metric_query_payloads(database, spec)
     expected_underlyings = list(raw_underlyings)
     expected_options = list(raw_options)
-    if underlyings != expected_underlyings or options != expected_options:
-        raise ValueError("metric trusted-tool payload differs from task.duckdb")
+    if protocol is _V3_PROTOCOL:
+        underlyings = expected_underlyings
+        options = expected_options
+        payload_directory = task_root / "trusted_tools/payloads"
+        if payload_directory.exists() or payload_directory.is_symlink():
+            raise ValueError("v3 metric leaf contains a duplicate market payload")
+    else:
+        underlyings = json.loads(
+            (task_root / "trusted_tools/payloads/underlyings.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        options = json.loads(
+            (task_root / "trusted_tools/payloads/options.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        if underlyings != expected_underlyings or options != expected_options:
+            raise ValueError("metric trusted-tool payload differs from task.duckdb")
     if (
         len(underlyings) != 8
         or len(options) != 160
@@ -737,7 +893,8 @@ def _verify_metric_leaf(
     )
     source = load_json_object(task_root / "source_manifest.json")
     if (
-        source.get("source_manifest_schema_version") != METRIC_SOURCE_SCHEMA_VERSION
+        source.get("source_manifest_schema_version")
+        != protocol.source_schema_version
         or source.get("target_metric") != target
         or source.get("source_run") != dict(run_summary_identity)
         or source.get("market_content_equal") is not True
@@ -759,17 +916,24 @@ def _verify_metric_leaf(
         or derived.get("market_content_digest") != derived_content_digest
     ):
         raise ValueError("metric source manifest database binding changed")
-    from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_verifier import (
-        expected_metric_submission,
-        metric_oracle_config,
-        verify_market_metric_submission,
-    )
+    if protocol is _V3_PROTOCOL:
+        from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_verifier import (
+            expected_metric_submission_v3 as expected_submission,
+            metric_oracle_config_v3 as oracle_for_spec,
+            verify_market_metric_submission_v3 as verify_submission,
+        )
+    else:
+        from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_verifier import (
+            expected_metric_submission as expected_submission,
+            metric_oracle_config as oracle_for_spec,
+            verify_market_metric_submission as verify_submission,
+        )
 
-    expected_oracle = metric_oracle_config(spec)
+    expected_oracle = oracle_for_spec(spec)
     if load_json_object(task_root / "verifier/oracle_config.json") != expected_oracle:
         raise ValueError("metric verifier oracle config differs from registry")
-    canonical_submission = expected_metric_submission(task_root, expected_oracle)
-    verify_market_metric_submission(
+    canonical_submission = expected_submission(task_root, expected_oracle)
+    verify_submission(
         task_root,
         canonical_submission,
         expected_oracle,
@@ -779,7 +943,11 @@ def _verify_metric_leaf(
     return manifest
 
 
-def _assert_suite_tree(root: Path, manifest: Mapping[str, Any]) -> None:
+def _assert_suite_tree(
+    root: Path,
+    manifest: Mapping[str, Any],
+    protocol: _SuiteProtocol = _V2_PROTOCOL,
+) -> None:
     expected = {"suite_manifest.json"}
     assignments = manifest.get("assignments")
     if not isinstance(assignments, list):
@@ -796,7 +964,10 @@ def _assert_suite_tree(root: Path, manifest: Mapping[str, Any]) -> None:
         expected.add(f"{relative_root}/task.duckdb")
         expected.add(f"{relative_root}/source_manifest.json")
         expected.update(f"{relative_root}/evaluation_view/{name}" for name in _EVALUATION_FILES)
-        expected.update(f"{relative_root}/trusted_tools/{name}" for name in _TOOL_FILES)
+        expected.update(
+            f"{relative_root}/trusted_tools/{name}"
+            for name in protocol.tool_files
+        )
         expected.update(f"{relative_root}/verifier/{name}" for name in _VERIFIER_FILES)
     actual: set[str] = set()
     for path in root.rglob("*"):
@@ -817,7 +988,9 @@ def _assert_suite_tree(root: Path, manifest: Mapping[str, Any]) -> None:
         raise ValueError("portable metric suite tree differs from the allowlist")
 
 
-def verify_portable_bsm_metric_suite(root: str | Path) -> dict[str, Any]:
+def _verify_portable_bsm_metric_suite(
+    root: str | Path, protocol: _SuiteProtocol
+) -> dict[str, Any]:
     """Verify every leaf, target batch, global assignment, digest, and tree."""
 
     suite_root = Path(root)
@@ -846,7 +1019,7 @@ def verify_portable_bsm_metric_suite(root: str | Path) -> dict[str, Any]:
         "assignments",
     }
     if set(manifest) != expected_fields or (
-        manifest["suite_schema_version"] != SUITE_SCHEMA_VERSION
+        manifest["suite_schema_version"] != protocol.suite_schema_version
         or manifest["delivery_status"] != PORTABLE_SUITE_STATUS
         or manifest["source_variant_id"] != BSM_MARKET_GREEKS_VARIANT_ID
         or manifest["allocation_policy_id"] != ALLOCATION_POLICY_ID
@@ -910,7 +1083,11 @@ def verify_portable_bsm_metric_suite(root: str | Path) -> dict[str, Any]:
     if not isinstance(target_batches, Mapping) or set(target_batches) != set(TARGET_ORDER):
         raise ValueError("portable metric target batch index changed")
     for target in TARGET_ORDER:
-        spec = get_metric_spec(target)
+        spec = (
+            get_metric_spec_db_query_v3(target)
+            if protocol is _V3_PROTOCOL
+            else get_metric_spec(target)
+        )
         target_assignments = [item for item in assignments if item["target"] == target]
         batch_path = suite_root / f"targets/{target}/batch_manifest.json"
         batch = load_json_object(batch_path)
@@ -933,7 +1110,7 @@ def verify_portable_bsm_metric_suite(root: str | Path) -> dict[str, Any]:
         }
         task_ids = [item["derived_task_id"] for item in target_assignments]
         if set(batch) != expected_batch_fields or (
-            batch["batch_schema_version"] != TARGET_BATCH_SCHEMA_VERSION
+            batch["batch_schema_version"] != protocol.batch_schema_version
             or batch["suite_id"] != manifest["suite_id"]
             or batch["assignment_digest"] != manifest["assignment_digest"]
             or batch["delivery_status"] != PORTABLE_SUITE_STATUS
@@ -963,17 +1140,30 @@ def verify_portable_bsm_metric_suite(root: str | Path) -> dict[str, Any]:
                 task_root,
                 assignment,
                 run_summary_identity=source_run,
+                protocol=protocol,
             )
             if assignment["delivery_manifest_digest"] != digest_file(
                 task_root / "delivery_manifest.json"
             ):
                 raise ValueError("suite assignment leaf digest changed")
     _assert_portable_json(manifest, "suite_manifest.json")
-    _assert_suite_tree(suite_root, manifest)
+    _assert_suite_tree(suite_root, manifest, protocol)
     return manifest
 
 
-def build_portable_bsm_metric_suite(
+def verify_portable_bsm_metric_suite(root: str | Path) -> dict[str, Any]:
+    """Verify a legacy v2 static-JSON metric suite only."""
+
+    return _verify_portable_bsm_metric_suite(root, _V2_PROTOCOL)
+
+
+def verify_portable_bsm_metric_suite_v3(root: str | Path) -> dict[str, Any]:
+    """Verify every leaf and binding in one DuckDB-query v3 metric suite."""
+
+    return _verify_portable_bsm_metric_suite(root, _V3_PROTOCOL)
+
+
+def _build_portable_bsm_metric_suite(
     *,
     source_run: str | Path,
     output_root: str | Path,
@@ -982,6 +1172,7 @@ def build_portable_bsm_metric_suite(
     allocation_id: str,
     assignment_file: str | Path | None = None,
     expected_source_task_count: int = 24,
+    protocol: _SuiteProtocol,
 ) -> PortableMetricSuite:
     """Build all targets in one staging tree and publish with one rename."""
 
@@ -1011,10 +1202,17 @@ def build_portable_bsm_metric_suite(
             allocation_id=allocation_name,
             tasks_per_target=tasks_per_target,
         )
-    prepared = tuple(_prepare_leaf(assignment) for assignment in assignments)
+    prepared = tuple(
+        _prepare_leaf(assignment, protocol) for assignment in assignments
+    )
     planned = [_planned_assignment(item) for item in prepared]
     assignment_digest = digest_json(planned)
-    suite_id = "bsm-market-metric-suite-v1-" + digest_json(
+    suite_id_prefix = (
+        "bsm-market-metric-suite-v2-"
+        if protocol is _V3_PROTOCOL
+        else "bsm-market-metric-suite-v1-"
+    )
+    suite_id = suite_id_prefix + digest_json(
         {
             "delivery_id": delivery_name,
             "allocation_id": allocation_name,
@@ -1055,12 +1253,16 @@ def build_portable_bsm_metric_suite(
             )
         target_batches: dict[str, dict[str, str]] = {}
         for target in TARGET_ORDER:
-            spec = get_metric_spec(target)
+            spec = (
+                get_metric_spec_db_query_v3(target)
+                if protocol is _V3_PROTOCOL
+                else get_metric_spec(target)
+            )
             target_assignments = [
                 item for item in built_assignments if item["target"] == target
             ]
             batch = {
-                "batch_schema_version": TARGET_BATCH_SCHEMA_VERSION,
+                "batch_schema_version": protocol.batch_schema_version,
                 "suite_id": suite_id,
                 "assignment_digest": assignment_digest,
                 "delivery_status": PORTABLE_SUITE_STATUS,
@@ -1094,7 +1296,7 @@ def build_portable_bsm_metric_suite(
             }
         total = len(built_assignments)
         suite_manifest = {
-            "suite_schema_version": SUITE_SCHEMA_VERSION,
+            "suite_schema_version": protocol.suite_schema_version,
             "suite_id": suite_id,
             "delivery_id": delivery_name,
             "delivery_status": PORTABLE_SUITE_STATUS,
@@ -1129,7 +1331,7 @@ def build_portable_bsm_metric_suite(
         }
         _assert_portable_json(suite_manifest, "suite_manifest.json")
         _write_json(staging / "suite_manifest.json", suite_manifest)
-        verified = verify_portable_bsm_metric_suite(staging)
+        verified = _verify_portable_bsm_metric_suite(staging, protocol)
         if destination.exists() or destination.is_symlink():
             raise FileExistsError(f"portable metric suite already exists: {destination}")
         os.rename(staging, destination)
@@ -1145,12 +1347,63 @@ def build_portable_bsm_metric_suite(
         lock_path.unlink(missing_ok=True)
 
 
+def build_portable_bsm_metric_suite(
+    *,
+    source_run: str | Path,
+    output_root: str | Path,
+    delivery_id: str,
+    profile: str | Path,
+    allocation_id: str,
+    assignment_file: str | Path | None = None,
+    expected_source_task_count: int = 24,
+) -> PortableMetricSuite:
+    """Build a legacy v2 static-JSON suite without changing its contract."""
+
+    return _build_portable_bsm_metric_suite(
+        source_run=source_run,
+        output_root=output_root,
+        delivery_id=delivery_id,
+        profile=profile,
+        allocation_id=allocation_id,
+        assignment_file=assignment_file,
+        expected_source_task_count=expected_source_task_count,
+        protocol=_V2_PROTOCOL,
+    )
+
+
+def build_portable_bsm_metric_suite_v3(
+    *,
+    source_run: str | Path,
+    output_root: str | Path,
+    delivery_id: str,
+    profile: str | Path,
+    allocation_id: str,
+    assignment_file: str | Path | None = None,
+    expected_source_task_count: int = 24,
+) -> PortableMetricSuite:
+    """Build the breaking trusted-DuckDB v3 suite from frozen v2 markets."""
+
+    return _build_portable_bsm_metric_suite(
+        source_run=source_run,
+        output_root=output_root,
+        delivery_id=delivery_id,
+        profile=profile,
+        allocation_id=allocation_id,
+        assignment_file=assignment_file,
+        expected_source_task_count=expected_source_task_count,
+        protocol=_V3_PROTOCOL,
+    )
+
+
 __all__ = [
     "METRIC_PROJECTION_SCHEMA_VERSION",
     "PORTABLE_SUITE_STATUS",
     "PortableMetricSuite",
     "SUITE_SCHEMA_VERSION",
+    "SUITE_SCHEMA_VERSION_V3",
     "SUITE_VARIANT_ID",
     "build_portable_bsm_metric_suite",
+    "build_portable_bsm_metric_suite_v3",
     "verify_portable_bsm_metric_suite",
+    "verify_portable_bsm_metric_suite_v3",
 ]

@@ -13,6 +13,7 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.runtime impo
     CapabilityViolation,
     audit_solver_source,
     compose_runtime_contract,
+    compose_runtime_contract_v3,
 )
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     "audit_solver_source",
     "canonical_json_bytes",
     "compose_runtime_contract",
+    "compose_runtime_contract_v3",
     "digest_json",
     "market_greeks_method_contract",
 ]

@@ -11,6 +11,8 @@ import multiprocessing
 import os
 from pathlib import Path
 import resource
+from threading import Event, Thread
+import types
 from typing import Any
 
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts import (
@@ -52,14 +54,33 @@ _FORBIDDEN_CALL_NAMES = {
 _FORBIDDEN_ATTRIBUTE_NAMES = {
     "Popen",
     "attach",
+    "builtins",
     "connect",
     "copy",
+    "environ",
+    "getenv",
+    "glob",
+    "inspect",
     "install",
+    "iterdir",
+    "listdir",
     "load",
+    "modules",
+    "open",
+    "os",
     "popen",
+    "read_bytes",
+    "read_text",
+    "rglob",
     "run",
+    "scandir",
+    "socket",
     "system",
+    "sys",
     "urlopen",
+    "walk",
+    "write_bytes",
+    "write_text",
 }
 _FORBIDDEN_SOURCE_TOKENS = (
     "authoring_private",
@@ -124,6 +145,42 @@ _SAFE_BUILTINS = {
     "type",
     "zip",
 }
+
+
+class _TargetLoopBreakFinder(ast.NodeVisitor):
+    """Find a break targeting one loop without descending into nested loops."""
+
+    def __init__(self) -> None:
+        self.found = False
+
+    def visit_Break(self, node: ast.Break) -> None:  # noqa: N802
+        self.found = True
+
+    def visit_For(self, node: ast.For) -> None:  # noqa: N802
+        return
+
+    def visit_AsyncFor(self, node: ast.AsyncFor) -> None:  # noqa: N802
+        return
+
+    def visit_While(self, node: ast.While) -> None:  # noqa: N802
+        return
+
+
+def _fixed_schedule_loop_breaks(loop: ast.For) -> bool:
+    iterator = loop.iter
+    if not (
+        isinstance(iterator, ast.Call)
+        and isinstance(iterator.func, ast.Name)
+        and iterator.func.id == "range"
+        and len(iterator.args) == 1
+        and isinstance(iterator.args[0], ast.Constant)
+        and iterator.args[0].value == 80
+    ):
+        return False
+    finder = _TargetLoopBreakFinder()
+    for statement in loop.body:
+        finder.visit(statement)
+    return finder.found
 
 
 def _require_profile_shape(raw: Mapping[str, Any], *, overlay: bool) -> None:
@@ -255,6 +312,51 @@ def compose_runtime_contract(
     }
 
 
+def compose_runtime_contract_v3(
+    global_profile: Mapping[str, Any], task_overlay: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Compose the frozen trusted-DuckDB v3 solver capability contract."""
+
+    result = compose_runtime_contract(global_profile, task_overlay)
+    expected_tools = {
+        "query_public_duckdb_v3": 10,
+        "submit_greeks_submission_v3": 1,
+    }
+    actual_tools = {
+        str(item["name"]): int(item["max_calls"])
+        for item in result["trusted_tools"]
+    }
+    expected_budget = {
+        "duckdb_memory_mib": 256,
+        "memory_mib": 1024,
+        "query_result_bytes": 1_048_576,
+        "query_result_rows": 1_000,
+        "query_timeout_seconds": 5,
+        "submission_bytes": 5_242_880,
+        "submission_calls": 1,
+        "trusted_query_calls": 10,
+        "vcpu": 1,
+        "wall_clock_seconds": 600,
+    }
+    if (
+        global_profile.get("profile_id") != "solver-global-v3"
+        or task_overlay.get("profile_id") != "bsm-greeks-overlay-v3"
+        or actual_tools != expected_tools
+        or result["resource_budget"] != expected_budget
+    ):
+        raise CapabilityViolation("v3 DuckDB-query capability profile changed")
+    result.update(
+        {
+            "runtime_contract_schema_version": (
+                "agent-task-runtime-contract-v3.0.0"
+            ),
+            "host_protocol": "read-only-duckdb-query-schema-submit-v3",
+            "profile_id": "bsm-greeks-effective-v3",
+        }
+    )
+    return result
+
+
 def audit_solver_source(source: str, runtime_contract: Mapping[str, Any]) -> None:
     """Reject direct imports and operations outside the effective contract."""
 
@@ -268,29 +370,32 @@ def audit_solver_source(source: str, runtime_contract: Mapping[str, Any]) -> Non
     denied = {item.casefold() for item in runtime_contract["denied_imports"]}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            modules = [alias.name.split(".", 1)[0] for alias in node.names]
+            modules = [
+                (alias.name, alias.name.split(".", 1)[0])
+                for alias in node.names
+            ]
         elif isinstance(node, ast.ImportFrom):
             if node.level:
                 raise CapabilityViolation("relative imports are not allowed")
-            modules = [(node.module or "").split(".", 1)[0]]
+            if any(alias.name == "*" for alias in node.names):
+                raise CapabilityViolation("wildcard imports are not allowed")
+            full_module = node.module or ""
+            modules = [(full_module, full_module.split(".", 1)[0])]
         else:
             modules = []
-        for module in modules:
+        for full_module, module in modules:
             if module == "__future__":
                 continue
+            if full_module != module:
+                raise CapabilityViolation(
+                    f"solver submodule import is not allowed: {full_module}"
+                )
             if module.casefold() in denied or module not in allowed:
                 raise CapabilityViolation(f"solver import is not allowed: {module}")
         if isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name) and node.func.id in _FORBIDDEN_CALL_NAMES:
                 raise CapabilityViolation(
                     f"solver call is not allowed: {node.func.id}"
-                )
-            if (
-                isinstance(node.func, ast.Attribute)
-                and node.func.attr in _FORBIDDEN_ATTRIBUTE_NAMES
-            ):
-                raise CapabilityViolation(
-                    f"solver operation is not allowed: {node.func.attr}"
                 )
             if (
                 isinstance(node.func, ast.Name)
@@ -311,7 +416,16 @@ def audit_solver_source(source: str, runtime_contract: Mapping[str, Any]) -> Non
                 raise CapabilityViolation(
                     "solver must construct the Decimal quote midpoint before float"
                 )
-        if isinstance(node, ast.Break):
+        if isinstance(node, ast.Attribute):
+            if node.attr.startswith("_"):
+                raise CapabilityViolation(
+                    "solver cannot inspect private or dunder runtime attributes"
+                )
+            if node.attr in _FORBIDDEN_ATTRIBUTE_NAMES:
+                raise CapabilityViolation(
+                    f"solver operation is not allowed: {node.attr}"
+                )
+        if isinstance(node, ast.For) and _fixed_schedule_loop_breaks(node):
             raise CapabilityViolation("solver source cannot early-stop an iteration")
         if isinstance(node, ast.Name) and node.id.casefold() in (
             _FORBIDDEN_METHOD_IDENTIFIERS
@@ -319,7 +433,9 @@ def audit_solver_source(source: str, runtime_contract: Mapping[str, Any]) -> Non
             raise CapabilityViolation(
                 f"solver source uses a forbidden tolerance identifier: {node.id}"
             )
-    source_casefold = source.casefold()
+    source_casefold = source.casefold().replace(
+        "query_public_duckdb_v3", "query_public_database_v3"
+    )
     for token in _FORBIDDEN_SOURCE_TOKENS:
         if token in source_casefold:
             raise CapabilityViolation(f"solver source references denied resource: {token}")
@@ -420,9 +536,120 @@ class TrustedGreeksTools:
         )
 
 
+_TRUSTED_TOOL_PROXY_METHODS = frozenset(
+    {
+        "query_greeks_underlying_market_v2",
+        "query_greeks_option_quotes_v2",
+        "query_public_duckdb_v3",
+        "submit_greeks_submission_v2",
+        "submit_greeks_submission_v3",
+        "result",
+    }
+)
+
+
+class _TrustedToolsProxy:
+    """Expose only trusted calls while the host retains private task paths."""
+
+    __slots__ = ("_connection",)
+
+    def __init__(self, connection: Any) -> None:
+        self._connection = connection
+
+    def _call(self, method: str, *arguments: Any) -> Any:
+        try:
+            self._connection.send((method, arguments))
+            status, payload = self._connection.recv()
+        except (EOFError, OSError) as error:
+            raise CapabilityViolation("trusted tool host became unavailable") from error
+        if status == "ok":
+            return payload
+        error_type, message = payload
+        raise CapabilityViolation(f"trusted tool failed with {error_type}: {message}")
+
+    def query_greeks_underlying_market_v2(self) -> list[dict[str, Any]]:
+        return self._call("query_greeks_underlying_market_v2")
+
+    def query_greeks_option_quotes_v2(self) -> list[dict[str, Any]]:
+        return self._call("query_greeks_option_quotes_v2")
+
+    def query_public_duckdb_v3(self, sql: str) -> dict[str, Any]:
+        return self._call("query_public_duckdb_v3", sql)
+
+    def submit_greeks_submission_v2(self, payload: Mapping[str, Any]) -> None:
+        self._call("submit_greeks_submission_v2", payload)
+
+    def submit_greeks_submission_v3(self, payload: Mapping[str, Any]) -> None:
+        self._call("submit_greeks_submission_v3", payload)
+
+    def result(self) -> RuntimeReplayResult:
+        result = self._call("result")
+        if not isinstance(result, RuntimeReplayResult):
+            raise CapabilityViolation("trusted tool host returned an invalid result")
+        return result
+
+
+def _serve_trusted_tools(
+    connection: Any,
+    tools: Any,
+    stop: Event,
+) -> None:
+    """Serve a narrow RPC surface without giving solver code the host object."""
+
+    try:
+        while not stop.is_set():
+            if not connection.poll(0.05):
+                continue
+            try:
+                request = connection.recv()
+            except EOFError:
+                return
+            if (
+                not isinstance(request, tuple)
+                or len(request) != 2
+                or not isinstance(request[0], str)
+                or not isinstance(request[1], tuple)
+                or request[0] not in _TRUSTED_TOOL_PROXY_METHODS
+            ):
+                connection.send(
+                    (
+                        "error",
+                        ("CapabilityViolation", "trusted tool request is invalid"),
+                    )
+                )
+                continue
+            method_name, arguments = request
+            try:
+                method = getattr(tools, method_name)
+                result = method(*arguments)
+                connection.send(("ok", result))
+            except BaseException as error:
+                connection.send(("error", (type(error).__name__, str(error))))
+    except (EOFError, OSError):
+        return
+    finally:
+        connection.close()
+
+
 def _restricted_builtins(runtime_contract: Mapping[str, Any]) -> dict[str, Any]:
     allowed = set(runtime_contract["allowed_direct_imports"])
     denied = {item.casefold() for item in runtime_contract["denied_imports"]}
+    module_facades: dict[str, types.ModuleType] = {}
+
+    def safe_module(name: str) -> types.ModuleType:
+        facade = module_facades.get(name)
+        if facade is not None:
+            return facade
+        imported = builtins.__import__(name)
+        facade = types.ModuleType(name)
+        for attribute in dir(imported):
+            if attribute.startswith("_"):
+                continue
+            value = getattr(imported, attribute)
+            if not isinstance(value, types.ModuleType):
+                setattr(facade, attribute, value)
+        module_facades[name] = facade
+        return facade
 
     def restricted_import(
         name: str,
@@ -434,9 +661,14 @@ def _restricted_builtins(runtime_contract: Mapping[str, Any]) -> dict[str, Any]:
         top_level = name.split(".", 1)[0]
         if top_level == "__future__" and not level:
             return builtins.__import__(name, globals, locals, fromlist, level)
-        if level or top_level not in allowed or top_level.casefold() in denied:
+        if (
+            level
+            or name != top_level
+            or top_level not in allowed
+            or top_level.casefold() in denied
+        ):
             raise CapabilityViolation(f"runtime import is not allowed: {name}")
-        return builtins.__import__(name, globals, locals, fromlist, level)
+        return safe_module(name)
 
     result = {name: getattr(builtins, name) for name in _SAFE_BUILTINS}
     result["__import__"] = restricted_import
@@ -496,31 +728,45 @@ def _replay_audited_solver_source(
 ) -> RuntimeReplayResult:
     context = multiprocessing.get_context("spawn")
     parent_connection, child_connection = context.Pipe(duplex=False)
+    host_connection, solver_tool_connection = context.Pipe(duplex=True)
+    tool_proxy = _TrustedToolsProxy(solver_tool_connection)
+    host_stop = Event()
+    host_thread = Thread(
+        target=_serve_trusted_tools,
+        args=(host_connection, tools, host_stop),
+        name="trusted-tool-host",
+        daemon=True,
+    )
     process = context.Process(
         target=_solver_process,
         kwargs={
             "connection": child_connection,
             "source": source,
             "source_name": str(source_path),
-            "tools": tools,
+            "tools": tool_proxy,
             "runtime_contract": dict(runtime_contract),
         },
     )
-    process.start()
-    child_connection.close()
-    process.join(runtime_contract["resource_budget"]["wall_clock_seconds"])
-    if process.is_alive():
-        process.terminate()
-        process.join()
+    host_thread.start()
+    try:
+        process.start()
+        child_connection.close()
+        solver_tool_connection.close()
+        process.join(runtime_contract["resource_budget"]["wall_clock_seconds"])
+        if process.is_alive():
+            process.terminate()
+            process.join()
+            raise CapabilityViolation("solver exceeded the wall-clock budget")
+        if not parent_connection.poll():
+            raise CapabilityViolation(
+                "solver process exited without a result "
+                f"(exit code {process.exitcode})"
+            )
+        status, payload = parent_connection.recv()
+    finally:
         parent_connection.close()
-        raise CapabilityViolation("solver exceeded the wall-clock budget")
-    if not parent_connection.poll():
-        parent_connection.close()
-        raise CapabilityViolation(
-            f"solver process exited without a result (exit code {process.exitcode})"
-        )
-    status, payload = parent_connection.recv()
-    parent_connection.close()
+        host_stop.set()
+        host_thread.join(timeout=10)
     if status != "ok":
         error_type, message = payload
         raise CapabilityViolation(f"solver failed with {error_type}: {message}")
@@ -585,6 +831,7 @@ __all__ = [
     "TrustedGreeksTools",
     "audit_solver_source",
     "compose_runtime_contract",
+    "compose_runtime_contract_v3",
     "replay_solver_source",
     "replay_solver_source_with_tools",
 ]

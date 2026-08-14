@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Literal
 
@@ -195,6 +195,33 @@ METRIC_SPECS_BY_TARGET: Mapping[str, MetricSpec] = MappingProxyType(
 )
 
 
+def _db_query_v3_spec(spec: MetricSpec) -> MetricSpec:
+    """Version only the solver ABI while preserving the financial method."""
+
+    return replace(
+        spec,
+        submission_schema_version=spec.submission_schema_version.replace(
+            "-v1.0.0", "-v2.0.0"
+        ),
+        schema_filename=spec.schema_filename.replace(
+            "-v1.schema.json", "-v2.schema.json"
+        ),
+        verifier_id=spec.verifier_id.removesuffix("-v1") + "-v2",
+        task_version="2.0.0",
+        database_schema_version="bsm-market-metric-task-duckdb-v2.0.0",
+        task_id_prefix=spec.task_id_prefix.replace("-v1-", "-v2-"),
+        task_id_pattern=spec.task_id_pattern.replace("-v1-", "-v2-"),
+    )
+
+
+METRIC_SPECS_DB_QUERY_V3: tuple[MetricSpec, ...] = tuple(
+    _db_query_v3_spec(spec) for spec in METRIC_SPECS
+)
+METRIC_SPECS_DB_QUERY_V3_BY_TARGET: Mapping[str, MetricSpec] = MappingProxyType(
+    {spec.target: spec for spec in METRIC_SPECS_DB_QUERY_V3}
+)
+
+
 def get_metric_spec(target: str) -> MetricSpec:
     """Return the frozen specification for one supported target."""
 
@@ -204,12 +231,34 @@ def get_metric_spec(target: str) -> MetricSpec:
         raise ValueError(f"unsupported BSM metric target: {target!r}") from error
 
 
+def get_metric_spec_db_query_v3(target: str) -> MetricSpec:
+    """Return the v3 DuckDB-query ABI for one unchanged metric method."""
+
+    try:
+        return METRIC_SPECS_DB_QUERY_V3_BY_TARGET[target]
+    except KeyError as error:
+        raise ValueError(f"unsupported BSM metric target: {target!r}") from error
+
+
+def is_registered_metric_spec(spec: object) -> bool:
+    """Return whether *spec* is an exact v2-legacy or v3-query registry entry."""
+
+    return isinstance(spec, MetricSpec) and spec in {
+        METRIC_SPECS_BY_TARGET.get(spec.target),
+        METRIC_SPECS_DB_QUERY_V3_BY_TARGET.get(spec.target),
+    }
+
+
 __all__ = [
     "BSM_METRIC_TARGET_ORDER",
     "DecimalConstraint",
     "METRIC_SPECS",
     "METRIC_SPECS_BY_TARGET",
+    "METRIC_SPECS_DB_QUERY_V3",
+    "METRIC_SPECS_DB_QUERY_V3_BY_TARGET",
     "MetricSpec",
     "TARGET_ORDER",
     "get_metric_spec",
+    "get_metric_spec_db_query_v3",
+    "is_registered_metric_spec",
 ]

@@ -9,12 +9,16 @@ from typing import Any
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv import (
     bsm_market_metric_verifier_runtime as runtime,
 )
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv import (
+    bsm_market_metric_verifier_runtime_v3 as runtime_v3,
+)
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts import (
     canonical_json_bytes,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_specs import (
     MetricSpec,
     get_metric_spec,
+    get_metric_spec_db_query_v3,
 )
 
 
@@ -135,6 +139,18 @@ def _canonical_spec(spec: MetricSpec | str) -> MetricSpec:
     return canonical
 
 
+def _canonical_spec_v3(spec: MetricSpec | str) -> MetricSpec:
+    candidate = (
+        get_metric_spec_db_query_v3(spec) if isinstance(spec, str) else spec
+    )
+    if not isinstance(candidate, MetricSpec):
+        raise TypeError("spec must be a MetricSpec or supported target string")
+    canonical = get_metric_spec_db_query_v3(candidate.target)
+    if candidate != canonical:
+        raise ValueError("metric spec differs from the frozen v3 registry")
+    return canonical
+
+
 def metric_oracle_config(spec: MetricSpec | str) -> dict[str, Any]:
     """Return the exact allowlisted oracle config for one target."""
 
@@ -158,6 +174,29 @@ def metric_oracle_config(spec: MetricSpec | str) -> dict[str, Any]:
     return config
 
 
+def metric_oracle_config_v3(spec: MetricSpec | str) -> dict[str, Any]:
+    """Return the exact DuckDB-query v3 oracle config for one target."""
+
+    canonical = _canonical_spec_v3(spec)
+    internal = runtime_v3._METRIC_SPEC_BY_TARGET[canonical.target]
+    config = runtime_v3._oracle_config(internal)
+    registry_binding = {
+        "output_field": canonical.output_field,
+        "variant_id": canonical.variant_id,
+        "method_id": canonical.method_id,
+        "submission_schema_version": canonical.submission_schema_version,
+        "verifier_id": canonical.verifier_id,
+        "database_schema_version": canonical.database_schema_version,
+        "task_version": canonical.task_version,
+        "task_id_pattern": canonical.task_id_pattern,
+        "decimal_constraint": canonical.decimal_constraint,
+        "needs_iv_status": canonical.needs_iv_status,
+    }
+    if any(config[field] != value for field, value in registry_binding.items()):
+        raise ValueError("v3 metric registry and self-contained verifier drifted")
+    return config
+
+
 def _coerce_config(
     config_or_spec: Mapping[str, Any] | MetricSpec | str,
 ) -> dict[str, Any]:
@@ -168,6 +207,18 @@ def _coerce_config(
             raise ValueError("oracle config differs from the frozen target config")
         return config
     return metric_oracle_config(config_or_spec)
+
+
+def _coerce_config_v3(
+    config_or_spec: Mapping[str, Any] | MetricSpec | str,
+) -> dict[str, Any]:
+    if isinstance(config_or_spec, Mapping):
+        config = dict(config_or_spec)
+        target = config.get("target")
+        if not isinstance(target, str) or config != metric_oracle_config_v3(target):
+            raise ValueError("oracle config differs from the frozen v3 target config")
+        return config
+    return metric_oracle_config_v3(config_or_spec)
 
 
 def metric_verifier_files(spec: MetricSpec | str) -> dict[str, bytes]:
@@ -190,6 +241,25 @@ def metric_verifier_files(spec: MetricSpec | str) -> dict[str, bytes]:
     return {name: files[name] for name in METRIC_VERIFIER_FILENAMES}
 
 
+def metric_verifier_files_v3(spec: MetricSpec | str) -> dict[str, bytes]:
+    """Render the standalone order-insensitive v3 verifier bundle."""
+
+    config = metric_oracle_config_v3(spec)
+    files = {
+        name: source.encode("utf-8") for name, source in _VERIFIER_SOURCES.items()
+    }
+    files.update(
+        {
+            "oracle_config.json": canonical_json_bytes(config),
+            "requirements.lock": _REQUIREMENTS_LOCK.encode("utf-8"),
+            "runtime.py": runtime_v3.leaf_runtime_source().encode("utf-8"),
+        }
+    )
+    if set(files) != set(METRIC_VERIFIER_FILENAMES):
+        raise RuntimeError("v3 metric verifier template file allowlist changed")
+    return {name: files[name] for name in METRIC_VERIFIER_FILENAMES}
+
+
 def write_metric_verifier(directory: str | Path, spec: MetricSpec | str) -> None:
     """Write one new package-local verifier without source-string adaptation."""
 
@@ -202,6 +272,21 @@ def write_metric_verifier(directory: str | Path, spec: MetricSpec | str) -> None
         raise ValueError("metric verifier destination must be absent or empty")
     destination.mkdir(parents=True, exist_ok=True)
     for name, payload in metric_verifier_files(spec).items():
+        (destination / name).write_bytes(payload)
+
+
+def write_metric_verifier_v3(directory: str | Path, spec: MetricSpec | str) -> None:
+    """Write one standalone DuckDB-query v3 leaf verifier."""
+
+    destination = Path(directory)
+    if destination.exists() and (
+        destination.is_symlink()
+        or not destination.is_dir()
+        or any(destination.iterdir())
+    ):
+        raise ValueError("metric verifier destination must be absent or empty")
+    destination.mkdir(parents=True, exist_ok=True)
+    for name, payload in metric_verifier_files_v3(spec).items():
         (destination / name).write_bytes(payload)
 
 
@@ -223,6 +308,19 @@ def expected_metric_submission(
     return runtime.expected_market_metric_submission(inputs, config)
 
 
+def expected_metric_submission_v3(
+    task_root_or_database: str | Path,
+    oracle_config_or_spec: Mapping[str, Any] | MetricSpec | str,
+) -> dict[str, Any]:
+    """Recompute canonical v3 truth from one derived public database."""
+
+    config = _coerce_config_v3(oracle_config_or_spec)
+    inputs = runtime_v3.load_bsm_market_metric_inputs(
+        _database_path(task_root_or_database), config
+    )
+    return runtime_v3.expected_market_metric_submission(inputs, config)
+
+
 def verify_market_metric_submission(
     task_root_or_database: str | Path,
     submission: Mapping[str, Any],
@@ -237,11 +335,30 @@ def verify_market_metric_submission(
     runtime.verify_market_metric_submission(inputs, submission, config)
 
 
+def verify_market_metric_submission_v3(
+    task_root_or_database: str | Path,
+    submission: Mapping[str, Any],
+    oracle_config_or_spec: Mapping[str, Any] | MetricSpec | str,
+) -> None:
+    """Key-align v3 rows and require exact canonical-string equality."""
+
+    config = _coerce_config_v3(oracle_config_or_spec)
+    inputs = runtime_v3.load_bsm_market_metric_inputs(
+        _database_path(task_root_or_database), config
+    )
+    runtime_v3.verify_market_metric_submission(inputs, submission, config)
+
+
 __all__ = [
     "METRIC_VERIFIER_FILENAMES",
     "expected_metric_submission",
+    "expected_metric_submission_v3",
     "metric_oracle_config",
+    "metric_oracle_config_v3",
     "metric_verifier_files",
+    "metric_verifier_files_v3",
     "verify_market_metric_submission",
+    "verify_market_metric_submission_v3",
     "write_metric_verifier",
+    "write_metric_verifier_v3",
 ]

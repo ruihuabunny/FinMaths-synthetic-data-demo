@@ -163,6 +163,10 @@ def test_task_overlay_cannot_expand_global_capabilities(
         "tolerance = 1e-8\n",
         "observed = (float(row['bid']) + float(row['ask'])) / 2\n",
         "value = __import__('math')\n",
+        "import json.tool\n",
+        "import dataclasses\nvalue = dataclasses.sys\n",
+        "import typing\nvalue = typing.inspect\n",
+        "value = tools.__class__\n",
     ],
 )
 def test_solver_policy_blocks_shortcuts_and_method_changes(

@@ -40,7 +40,7 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts im
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_specs import (
     MetricSpec,
-    get_metric_spec,
+    is_registered_metric_spec,
 )
 from synthetic_derivatives.solver.analytic_and_implied_greeks_iv.bsm import (
     bsm_analytic_values,
@@ -763,9 +763,7 @@ def _validate_metric_connection(
     expected_task_id: str | None = None,
     expected_snapshot_id: str | None = None,
 ) -> None:
-    if not isinstance(metric_spec, MetricSpec) or (
-        get_metric_spec(metric_spec.target) != metric_spec
-    ):
+    if not is_registered_metric_spec(metric_spec):
         raise ValueError("metric spec must be an exact frozen registry entry")
     _validate_schema(connection)
     meta = _load_single_metadata_row(connection)
@@ -1094,9 +1092,7 @@ def project_bsm_metric_database(
 
     if duckdb.__version__ != PINNED_DUCKDB_VERSION:
         raise RuntimeError(f"packaging requires duckdb=={PINNED_DUCKDB_VERSION}")
-    if not isinstance(metric_spec, MetricSpec) or (
-        get_metric_spec(metric_spec.target) != metric_spec
-    ):
+    if not is_registered_metric_spec(metric_spec):
         raise ValueError("metric spec must be an exact frozen registry entry")
     if (
         not isinstance(derived_task_id, str)

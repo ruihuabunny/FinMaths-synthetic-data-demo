@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bsm-market-implied-rho-1pct-submission-v2.schema.json",
+  "x-schema-version": "bsm-market-implied-rho-1pct-submission-v2.0.0",
+  "title": "Canonical market-implied BSM one-percentage-point Rho submission",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "submission_schema_version",
+    "method_id",
+    "status",
+    "rows"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^bsm-market-rho-1pct-v2-[0-9a-f]{24}$"
+    },
+    "submission_schema_version": {
+      "const": "bsm-market-implied-rho-1pct-submission-v2.0.0"
+    },
+    "method_id": {
+      "const": "bsm-mid-iv-bisection80-analytic-rho-1pct-v1"
+    },
+    "status": {
+      "const": "completed"
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/resultRow"
+      }
+    }
+  },
+  "$defs": {
+    "decimal8": {
+      "type": "string",
+      "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{8}$",
+      "not": {
+        "const": "-0.00000000"
+      }
+    },
+    "resultRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "row_id",
+        "unit_rho_1pct"
+      ],
+      "properties": {
+        "row_id": {
+          "type": "string",
+          "pattern": "^row_[0-9]{6}$"
+        },
+        "unit_rho_1pct": {
+          "$ref": "#/$defs/decimal8"
+        }
+      }
+    }
+  }
+}

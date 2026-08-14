@@ -17,6 +17,7 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.portable_del
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.portable_metric_suite import (  # noqa: E402
     build_portable_bsm_metric_suite,
+    build_portable_bsm_metric_suite_v3,
 )
 
 
@@ -58,6 +59,12 @@ def _parser() -> argparse.ArgumentParser:
         default=24,
         help="required completed source-run size in metric-suite mode",
     )
+    parser.add_argument(
+        "--metric-protocol",
+        choices=("v2-static-json", "v3-duckdb-query"),
+        default="v2-static-json",
+        help="trusted-tool protocol used only in metric-suite mode",
+    )
     return parser
 
 
@@ -72,7 +79,12 @@ def main(argv: list[str] | None = None) -> int:
             parser.error(
                 "--task-id/--expected-task-count belong to legacy combined mode"
             )
-        delivery = build_portable_bsm_metric_suite(
+        builder = (
+            build_portable_bsm_metric_suite_v3
+            if arguments.metric_protocol == "v3-duckdb-query"
+            else build_portable_bsm_metric_suite
+        )
+        delivery = builder(
             source_run=arguments.run_root,
             output_root=arguments.output_root,
             delivery_id=arguments.delivery_id,
@@ -112,6 +124,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if arguments.assignment_file is not None:
         parser.error("--assignment-file requires metric-suite mode")
+    if arguments.metric_protocol != "v2-static-json":
+        parser.error("--metric-protocol v3-duckdb-query requires metric-suite mode")
     delivery = build_portable_bsm_greeks_delivery(
         source_run=arguments.run_root,
         output_root=arguments.output_root,

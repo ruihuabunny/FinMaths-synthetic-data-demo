@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Let Hy3 write and run a solver for BSM market-implied Greeks tasks.
+"""Let Hy3 write and run solvers for BSM market-implied metric tasks.
 
 Hy3 submits complete Python source to one agent-side execution tool.  The source
-is audited and replayed in the repository's restricted solver harness, where it
-must use exactly the three trusted tools declared by the public task.
+is audited and replayed in the repository's restricted solver harness using the
+trusted-tool protocol declared by the public task.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import time
 from typing import Any, Mapping, Sequence
@@ -30,8 +31,23 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.database imp
     load_bsm_greeks_inputs,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.portable_tools import (  # noqa: E402
+    PORTABLE_TOOL_HOST_PROTOCOL,
+    PORTABLE_TOOLSET_SCHEMA_VERSION,
     PortableGreeksTools,
     load_portable_greeks_task,
+)
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.portable_tools_v3 import (  # noqa: E402
+    PORTABLE_TOOL_HOST_PROTOCOL_V3,
+    PORTABLE_TOOLSET_SCHEMA_VERSION_V3,
+    QUERY_PUBLIC_DUCKDB_V3,
+    SUBMIT_GREEKS_SUBMISSION_V3,
+    PortableMetricToolsV3,
+)
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_specs import (  # noqa: E402
+    METRIC_SPECS_DB_QUERY_V3_BY_TARGET,
+)
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_verifier import (  # noqa: E402
+    verify_market_metric_submission_v3,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.runtime import (  # noqa: E402
     CapabilityViolation,
@@ -45,6 +61,13 @@ from synthetic_derivatives.verifier.bsm_market_greeks import (  # noqa: E402
 
 
 VARIANT_ID = "bsm_market_implied_greeks_v1"
+METRIC_VARIANT_IDS = frozenset(
+    spec.variant_id for spec in METRIC_SPECS_DB_QUERY_V3_BY_TARGET.values()
+)
+SUPPORTED_VARIANT_IDS = frozenset({VARIANT_ID, *METRIC_VARIANT_IDS})
+V3_PACKAGE_SCHEMA_VERSION = "agent-task-package-v3.0.0"
+V3_TASK_INTERFACE_VERSION = "bsm-market-metric-agent-task-v2.0.0"
+V3_RUNTIME_SCHEMA_VERSION = "agent-task-runtime-contract-v3.0.0"
 DEFAULT_RUN_ROOT = REPOSITORY_ROOT / "runs/bsm_market_implied_greeks"
 DEFAULT_API_URL = "https://tokenhub.tencentmaas.com/v1/chat/completions"
 DEFAULT_MODEL = "hy3"
@@ -65,6 +88,26 @@ submit_greeks_submission_v2 exactly once, and return the identical submission
 object. The restricted harness supplies only the imports and trusted tools in
 the public runtime contract. It has no raw database, network, subprocess,
 verifier, reference answer, or private resource access.
+
+If the execution tool returns an error, correct the source and call it again.
+Never use precomputed answers, hidden resources, or task-specific constants.
+"""
+
+SYSTEM_PROMPT_V3 = """\
+You are a coding agent for one public market-implied BSM metric task. Follow the
+public prompt literally and call run_python_solver_v1 with a complete Python
+3.12 solver. Do not return source, Markdown, prose, or JSON in ordinary response
+content.
+
+The source must define solve(tools). Inside solve, call
+tools.query_public_duckdb_v3(sql_string) to discover and retrieve the public
+inputs, compute every required row using the frozen numerical method, call
+tools.submit_greeks_submission_v3(submission_object) exactly once, and return
+the identical submission object. The query result is an object with columns,
+rows, row_count, and truncated fields. Use at least one and at most ten queries;
+do not query after submitting. The restricted harness supplies only the imports
+and trusted tools in the public runtime contract. It has no raw database,
+network, subprocess, verifier, reference answer, or private resource access.
 
 If the execution tool returns an error, correct the source and call it again.
 Never use precomputed answers, hidden resources, or task-specific constants.
@@ -92,6 +135,9 @@ class TaskPackage:
     schema_path: Path
     database_path: Path | None
     is_portable: bool = False
+    variant_id: str = VARIANT_ID
+    target_metric: str | None = None
+    host_protocol: str | None = None
 
 
 @dataclass(frozen=True)
@@ -127,31 +173,100 @@ def _package_from_manifest(manifest_path: Path) -> TaskPackage | None:
         manifest = _load_json(manifest_path)
     except RunnerError:
         return None
-    if (
-        not isinstance(manifest, dict)
-        or manifest.get("variant_id") != VARIANT_ID
-        or not isinstance(manifest.get("task_id"), str)
+    if not isinstance(manifest, dict) or not isinstance(
+        manifest.get("task_id"), str
     ):
         return None
-
     root = manifest_path.parent
     is_portable = manifest_path.name == "delivery_manifest.json"
     public = root / ("evaluation_view/public" if is_portable else "public")
     prompt_path = public / "prompt.md"
     runtime_path = public / "runtime_contract.json"
     schema_path = public / "submission.schema.json"
-    database_path = None if is_portable else public / "task.duckdb"
     public_files = (prompt_path, runtime_path, schema_path)
-    portable_files = (
-        root / "trusted_tools/toolset.json",
-        root / "trusted_tools/payloads/underlyings.json",
-        root / "trusted_tools/payloads/options.json",
-    )
-    if any(not path.is_file() for path in public_files) or (
-        is_portable and any(not path.is_file() for path in portable_files)
-    ) or (
-        database_path is not None and not database_path.is_file()
-    ):
+    if any(not path.is_file() for path in public_files):
+        return None
+    try:
+        runtime_value = _load_json(runtime_path)
+    except RunnerError:
+        return None
+    if not isinstance(runtime_value, Mapping):
+        return None
+    runtime_host = runtime_value.get("host_protocol")
+
+    toolset: Mapping[str, Any] | None = None
+    toolset_host: Any = None
+    if is_portable:
+        toolset_path = root / "trusted_tools/toolset.json"
+        if not toolset_path.is_file():
+            return None
+        try:
+            toolset_value = _load_json(toolset_path)
+        except RunnerError:
+            return None
+        if not isinstance(toolset_value, Mapping):
+            return None
+        toolset = toolset_value
+        toolset_host = toolset.get("host_protocol")
+
+    variant_id = manifest.get("variant_id")
+    if not isinstance(variant_id, str) or variant_id not in SUPPORTED_VARIANT_IDS:
+        return None
+    target_metric = manifest.get("target_metric")
+    if variant_id == VARIANT_ID:
+        if (
+            target_metric is not None
+            or runtime_host not in (None, PORTABLE_TOOL_HOST_PROTOCOL)
+            or (
+                is_portable
+                and (
+                    toolset_host != PORTABLE_TOOL_HOST_PROTOCOL
+                    or toolset is None
+                    or toolset.get("toolset_schema_version")
+                    != PORTABLE_TOOLSET_SCHEMA_VERSION
+                    or toolset.get("task_id") != manifest["task_id"]
+                    or any(
+                        not path.is_file()
+                        for path in (
+                            root / "trusted_tools/payloads/underlyings.json",
+                            root / "trusted_tools/payloads/options.json",
+                        )
+                    )
+                )
+            )
+        ):
+            return None
+        host_protocol = toolset_host if is_portable else runtime_host
+        database_path = None if is_portable else public / "task.duckdb"
+    else:
+        if not isinstance(target_metric, str):
+            return None
+        spec = METRIC_SPECS_DB_QUERY_V3_BY_TARGET.get(target_metric)
+        if (
+            spec is None
+            or spec.variant_id != variant_id
+            or not is_portable
+            or manifest.get("package_schema_version")
+            != V3_PACKAGE_SCHEMA_VERSION
+            or manifest.get("task_interface_version")
+            != V3_TASK_INTERFACE_VERSION
+            or manifest.get("task_version") != spec.task_version
+            or manifest.get("method_id") != spec.method_id
+            or re.fullmatch(spec.task_id_pattern, manifest["task_id"]) is None
+            or runtime_value.get("runtime_contract_schema_version")
+            != V3_RUNTIME_SCHEMA_VERSION
+            or runtime_host != PORTABLE_TOOL_HOST_PROTOCOL_V3
+            or toolset_host != PORTABLE_TOOL_HOST_PROTOCOL_V3
+            or toolset is None
+            or toolset.get("toolset_schema_version")
+            != PORTABLE_TOOLSET_SCHEMA_VERSION_V3
+            or toolset.get("task_id") != manifest["task_id"]
+        ):
+            return None
+        host_protocol = PORTABLE_TOOL_HOST_PROTOCOL_V3
+        database_path = root / "task.duckdb"
+
+    if database_path is not None and not database_path.is_file():
         return None
     return TaskPackage(
         task_id=manifest["task_id"],
@@ -161,6 +276,9 @@ def _package_from_manifest(manifest_path: Path) -> TaskPackage | None:
         schema_path=schema_path,
         database_path=database_path,
         is_portable=is_portable,
+        variant_id=variant_id,
+        target_metric=target_metric,
+        host_protocol=host_protocol,
     )
 
 
@@ -201,7 +319,7 @@ def discover_task_packages(run_root: Path) -> list[TaskPackage]:
 
     packages = [by_task_id[task_id] for task_id in sorted(by_task_id)]
     if not packages:
-        raise RunnerError(f"no {VARIANT_ID} task packages found under {root}")
+        raise RunnerError(f"no supported BSM metric task packages found under {root}")
     return packages
 
 
@@ -231,6 +349,34 @@ def select_packages(
     return selected
 
 
+def _run_package_identity(
+    packages: Sequence[TaskPackage],
+) -> dict[str, Any]:
+    variant_ids = sorted({package.variant_id for package in packages})
+    target_metrics = sorted(
+        {
+            package.target_metric
+            for package in packages
+            if package.target_metric is not None
+        }
+    )
+    host_protocols = sorted(
+        {
+            package.host_protocol
+            for package in packages
+            if package.host_protocol is not None
+        }
+    )
+    identity: dict[str, Any] = {
+        "variant_ids": variant_ids,
+        "target_metrics": target_metrics,
+        "host_protocols": host_protocols,
+    }
+    if len(variant_ids) == 1:
+        identity["variant_id"] = variant_ids[0]
+    return identity
+
+
 def _public_task_message(package: TaskPackage) -> str:
     prompt = package.prompt_path.read_text(encoding="utf-8")
     runtime = package.runtime_path.read_text(encoding="utf-8")
@@ -248,7 +394,18 @@ def _public_task_message(package: TaskPackage) -> str:
     )
 
 
-def _tool_definitions() -> list[dict[str, Any]]:
+def _tool_definitions(
+    package: TaskPackage | None = None,
+) -> list[dict[str, Any]]:
+    if package is not None and package.host_protocol == PORTABLE_TOOL_HOST_PROTOCOL_V3:
+        trusted_tool_detail = (
+            f" Within solve(tools), call tools.{QUERY_PUBLIC_DUCKDB_V3}"
+            "(sql_string) between one and ten times before calling "
+            f"tools.{SUBMIT_GREEKS_SUBMISSION_V3}(submission_object) exactly "
+            "once. No query may follow submission."
+        )
+    else:
+        trusted_tool_detail = ""
     return [
         {
             "type": "function",
@@ -259,6 +416,7 @@ def _tool_definitions() -> list[dict[str, Any]]:
                     "restricted task harness. The source must define solve(tools), "
                     "use the declared trusted tools, submit the result, and return "
                     "that same result. Fix and call again if execution reports an error."
+                    + trusted_tool_detail
                 ),
                 "parameters": {
                     "type": "object",
@@ -410,6 +568,14 @@ def _runtime_contract(package: TaskPackage) -> dict[str, Any]:
     return runtime
 
 
+def _system_prompt(package: TaskPackage) -> str:
+    return (
+        SYSTEM_PROMPT_V3
+        if package.host_protocol == PORTABLE_TOOL_HOST_PROTOCOL_V3
+        else SYSTEM_PROMPT
+    )
+
+
 def _verify_submission(
     package: TaskPackage,
     result: RuntimeReplayResult,
@@ -417,6 +583,21 @@ def _verify_submission(
     trusted_verification: bool,
 ) -> None:
     if trusted_verification:
+        if package.host_protocol == PORTABLE_TOOL_HOST_PROTOCOL_V3:
+            if package.target_metric is None:
+                raise RunnerError("v3 metric package target is missing")
+            try:
+                verify_market_metric_submission_v3(
+                    package.root,
+                    result.submission,
+                    package.target_metric,
+                )
+            except ValueError as error:
+                raise AttemptError(
+                    "trusted_semantic_mismatch",
+                    "generated solver submission failed exact trusted verification",
+                ) from error
+            return
         if package.is_portable:
             _, underlyings, options = load_portable_greeks_task(package.root)
             inputs = join_bsm_greeks_query_rows(underlyings, options)
@@ -453,7 +634,14 @@ def _run_python_solver(
     source_path.write_text(source, encoding="utf-8")
     try:
         runtime_contract = _runtime_contract(package)
-        if package.is_portable:
+        if package.host_protocol == PORTABLE_TOOL_HOST_PROTOCOL_V3:
+            result = replay_solver_source_with_tools(
+                source_path=source_path,
+                tools=PortableMetricToolsV3(package.root),
+                submission_directory=run_directory / "submission",
+                runtime_contract=runtime_contract,
+            )
+        elif package.is_portable:
             result = replay_solver_source_with_tools(
                 source_path=source_path,
                 tools=PortableGreeksTools(package.root),
@@ -479,15 +667,27 @@ def _run_python_solver(
     return result
 
 
-def _solver_error_output(error: AttemptError) -> dict[str, str]:
+def _solver_error_output(
+    error: AttemptError, package: TaskPackage
+) -> dict[str, str]:
     message = str(error)
     if len(message) > 2000:
         message = message[:2000] + "..."
+    if package.host_protocol == PORTABLE_TOOL_HOST_PROTOCOL_V3:
+        instruction = (
+            "Correct the complete solver source. Call "
+            "tools.query_public_duckdb_v3(sql_string) at least once and at "
+            "most ten times before exactly one "
+            "tools.submit_greeks_submission_v3(submission_object) call; do "
+            "not query after submission. Then call the execution tool again."
+        )
+    else:
+        instruction = "Correct the complete solver source and call the tool again."
     return {
         "status": "error",
         "failure_kind": error.kind,
         "error": message,
-        "instruction": "Correct the complete solver source and call the tool again.",
+        "instruction": instruction,
     }
 
 
@@ -503,12 +703,12 @@ def direct_submission_attempt(
     """Run one fresh Hy3 coding conversation for a single task."""
 
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": _system_prompt(package)},
         {"role": "user", "content": _public_task_message(package)},
     ]
     if retry_feedback:
         messages.append({"role": "user", "content": retry_feedback})
-    definitions = _tool_definitions()
+    definitions = _tool_definitions(package)
     _write_json(
         attempt_dir / "public_agent_request.json",
         _chat_request_body(api_config, messages, definitions),
@@ -555,7 +755,7 @@ def direct_submission_attempt(
                 )
             except AttemptError as error:
                 last_solver_error = error
-                error_output = _solver_error_output(error)
+                error_output = _solver_error_output(error, package)
                 _write_json(run_directory / "result.json", error_output)
                 messages.append(_tool_result_message(call_id, error_output))
                 continue
@@ -594,21 +794,30 @@ def direct_submission_attempt(
         raise
 
 
-def _retry_feedback(error: AttemptError) -> str:
+def _retry_feedback(error: AttemptError, package: TaskPackage) -> str:
     if error.kind == "trusted_semantic_mismatch":
         detail = (
             "A previous generated solver passed the tool/schema checks but failed "
             "exact numeric verification. No oracle values are available. "
             "Recheck the declared BSM formulas, units, 80 binary64 bisection updates, "
-            "row order, and Decimal ROUND_HALF_EVEN serialization."
+            + (
+                "the exact row-id set, and Decimal ROUND_HALF_EVEN serialization."
+                if package.host_protocol == PORTABLE_TOOL_HOST_PROTOCOL_V3
+                else "row order, and Decimal ROUND_HALF_EVEN serialization."
+            )
         )
     else:
         detail = f"A previous independent attempt failed: {error}"
-    return (
-        detail
-        + " Start again, call the Python solver tool, and make the generated "
-        "solve(tools) obey the three trusted-tool calls exactly."
-    )
+    if package.host_protocol == PORTABLE_TOOL_HOST_PROTOCOL_V3:
+        tool_instruction = (
+            "make solve(tools) perform between one and ten "
+            "tools.query_public_duckdb_v3(sql_string) calls before exactly one "
+            "tools.submit_greeks_submission_v3(submission_object) call, with "
+            "no query after submission."
+        )
+    else:
+        tool_instruction = "make solve(tools) obey the three trusted-tool calls exactly."
+    return detail + " Start again, call the Python solver tool, and " + tool_instruction
 
 
 def solve_task(
@@ -644,7 +853,7 @@ def solve_task(
                     "error": str(error),
                 },
             )
-            feedback = _retry_feedback(error)
+            feedback = _retry_feedback(error, package)
             continue
         _write_json(
             attempt_dir / "result.json",
@@ -753,13 +962,23 @@ def run(arguments: argparse.Namespace) -> Path:
     ).resolve()
     _prepare_output_directory(output_dir)
     trusted_verification = not arguments.skip_trusted_verification
+    run_identity = _run_package_identity(packages)
     _write_json(
         output_dir / "selection.json",
         {
-            "variant_id": VARIANT_ID,
+            **run_identity,
             "run_root": str(arguments.run_root.resolve()),
             "task_count": len(packages),
             "task_ids": [package.task_id for package in packages],
+            "tasks": [
+                {
+                    "task_id": package.task_id,
+                    "variant_id": package.variant_id,
+                    "target_metric": package.target_metric,
+                    "host_protocol": package.host_protocol,
+                }
+                for package in packages
+            ],
             "llm_submission_mode": "generated_solver_restricted_replay",
             "trusted_verification": trusted_verification,
             "api": {
@@ -787,6 +1006,9 @@ def run(arguments: argparse.Namespace) -> Path:
         submission_path.write_bytes(result.submission_bytes)
         item = {
             "task_id": package.task_id,
+            "variant_id": package.variant_id,
+            "target_metric": package.target_metric,
+            "host_protocol": package.host_protocol,
             "status": "verified" if trusted_verification else "schema_passed",
             "row_count": len(result.submission["rows"]),
             "submission": str(submission_path.relative_to(output_dir)),
@@ -802,7 +1024,7 @@ def run(arguments: argparse.Namespace) -> Path:
         output_dir / "run_summary.json",
         {
             "status": "completed",
-            "variant_id": VARIANT_ID,
+            **run_identity,
             "submission_mode": "generated_solver_restricted_replay",
             "task_count": len(results),
             "trusted_verification": trusted_verification,
