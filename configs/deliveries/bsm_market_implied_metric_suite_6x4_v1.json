@@ -1,0 +1,21 @@
+{
+  "profile_schema_version": "bsm-market-metric-delivery-profile-v1.0.0",
+  "source_variant_id": "bsm_market_implied_greeks_v1",
+  "suite_variant_id": "bsm_market_implied_metric_suite_v1",
+  "targets": [
+    "iv",
+    "delta",
+    "gamma",
+    "vega_1volpt",
+    "theta_1calendar_day",
+    "rho_1pct"
+  ],
+  "tasks_per_target": 4,
+  "total_task_count": 24,
+  "allocation_policy_id": "sha256-rank-round-robin-without-replacement-v1",
+  "require_unique_source_task": true,
+  "require_unique_source_database": true,
+  "require_unique_market_content": true,
+  "require_unique_derived_task": true,
+  "require_unique_derived_database": true
+}

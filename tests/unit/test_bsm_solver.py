@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from synthetic_derivatives.solver.bsm import (
+from synthetic_derivatives.solver.analytic_and_implied_greeks_iv.bsm import (
     bsm_analytic_values,
     solve_bsm_greeks,
     solve_bsm_greeks_batch,
@@ -172,11 +172,22 @@ def test_solver_imports_only_stdlib_and_the_shared_task_contract(
 ) -> None:
     solver_files = (
         repository_root / "src/synthetic_derivatives/solver/__init__.py",
-        repository_root / "src/synthetic_derivatives/solver/bsm.py",
         repository_root
-        / "src/synthetic_derivatives/solver/bsm_implied_volatility.py",
+        / "src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/__init__.py",
+        repository_root
+        / "src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/bsm.py",
+        repository_root
+        / "src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/bsm_implied_volatility.py",
+        repository_root
+        / "src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/bsm_market_greeks.py",
     )
-    allowed_roots = {"__future__", "math", "typing", "synthetic_derivatives"}
+    allowed_roots = {
+        "__future__",
+        "collections",
+        "math",
+        "typing",
+        "synthetic_derivatives",
+    }
     forbidden_roots = {
         "QuantLib",
         "numpy",

@@ -1,12 +1,13 @@
 # 基于现有 DuckDB 合成 Agent Task 的实施计划
 
-> 实现状态（2026-08-10）：本文件记录最初基于 checked-in config `1.5.0` snapshot 的 pilot
+> 实现状态（2026-08-12）：本文件记录最初基于 checked-in config `1.5.0` snapshot 的 pilot
 > 设计，§1 的计数与 §3 的 B0–B5 catalogue 应按“历史设计输入”阅读。当前仓库已经落地
 > config `1.6.0` authoring/IV separation、config `1.7.0` P/Q joint-market identities、七维
 > runtime、独立 public-child exporter、`bsm_iv_scalar_v1` 与一条 `ACCEPTED` 的 D4
 > `bsm_market_implied_greeks_v1` 三关系 package。该 D4 task 通过 counted trusted adapters
 > 读取 DuckDB relations，不给 Agent raw SQL connection。Phase F batch/dataset tooling 已实现，
-> 完整 100-task run 与 release promotion 尚未执行；B4/B5、F2A 和 joint-payoff tasks 仍未实现。
+> 旧 interface 有本地 100-task 历史 run；当前最小 prompt/interface 尚未重建或发布该
+> batch。B4/B5、F2A 和 joint-payoff tasks 仍未实现。
 
 ## 1. 初始目标与历史结论
 
@@ -106,7 +107,9 @@ BSM baseline 应把它声明为同币种 ex-dividend spot，而不能只写成�
 
 现有 `underlying_daily` close paths 属于物理测度 P。它们不能把 physical drift 或
 physical volatility 用于 option pricing，也不能把 P-measure dependence 当成
-Q-measure joint pricing dependence。
+Q-measure joint pricing dependence。每个区间的连续 GBM proposal 会先按声明 tick 量化，
+published close 再作为下一期 state；因此 solver-visible history 是 rounded-state Markov
+chain。其 high/low 来自独立 synthetic-range heuristic，并非同一 intraperiod path。
 
 第一批 tasks 不使用 P-measure history。未来若增加 historical return、VaR、ES 或
 dependence-statistic tasks，必须另行冻结：
@@ -357,8 +360,10 @@ vega/conditioning 和 canonical replay 筛除不稳定普通题。
 
 阶段 0–3 的合同、隔离与 verifier primitives 已在当前 BSM variants/package 中完成；阶段 5
 以 market-implied Greeks D4 trusted-adapter workflow 落地，而非原拟的 raw-SQL IV batch。
-阶段 4 的完整约 100-task pilot 尚未执行。阶段 6 只完成七维 registry、deterministic mutation/
-curriculum baseline 与 Phase F exporter，尚无多 snapshot split benchmark。
+阶段 4 原设想的 raw-SQL 约 100-task pilot 未执行；后来以旧 trusted-adapter interface 完成过
+一套 Git-ignored 本地历史 run，但当前最小 prompt/interface 尚未重建。阶段 6 只完成七维
+registry、deterministic mutation/curriculum baseline 与 Phase F exporter，尚无多 snapshot
+split benchmark。
 
 ### 阶段 0：冻结设计合同
 
@@ -494,6 +499,6 @@ valuation、quantile convention、scenario order 和 interpolation。Business-da
 5. hidden independent QuantLib verifier、negative submissions 与 leakage checks；
 6. observable reference trajectory、byte-identical replay 与三种 isolated views。
 
-Phase F runner 和 BSM-specific nine-field dataset exporter 也已实现。下一步是执行并审核
-完整 100-task batch、按 parent snapshot identity 检查 split provenance，再显式决定是否将
+Phase F runner 和 BSM-specific nine-field dataset exporter 也已实现。下一步是用当前
+solver interface 重建并审核完整 100-task batch、按 parent snapshot identity 检查 split provenance，再显式决定是否将
 获批 artifacts promote 为 `RELEASED`；这不等同于已完成 B4/B5 或通用跨-family exporter。

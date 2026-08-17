@@ -85,13 +85,15 @@ manifest = export_solver_database(
 )
 ```
 
-Generic 六关系 P2 child 仍只在 integration/packaging 临时目录中创建，不作为独立长期制品
-提交。其上已经完成 task-specific 二次投影：accepted
+Generic 六关系 P2 child 仍只在 `tests/integration/` 与
+`tests/packaging_analytic_and_implied_greeks_iv/` 的 pytest 临时目录中创建，不作为独立长期制品提交。
+其上已经完成 task-specific 二次投影：accepted
 `bsm_market_implied_greeks_v1` package 提交一份独立三关系 DuckDB，包含
-`metadata.public_task`、`solver_visible.greeks_task_inputs` 和
-`solver_visible.greeks_task_contract`。它通过 trusted adapters 接到标准库固定 80 步 IV +
+`metadata.public_task`、`solver_visible.underlying_market_inputs` 和
+`solver_visible.option_quote_inputs`。它通过两个 data-only trusted adapters 接到标准库固定 80 步 IV +
 Greeks solver，并由 pinned QuantLib verifier exact-compare；详见
 [`task_packages/README.md`](../../../task_packages/README.md)。当前 checked-in source artifact
 仍只有一条 `ACCEPTED` golden task；Phase F 已参数化 private selector seed，并提供 verified
-nine-field dataset exporter。Valuation date 仍由 frozen package contract 固定，完整 100-task
-batch 与 `RELEASED` promotion 尚未执行。
+nine-field dataset exporter。Valuation date 仍由 frozen package contract 固定；旧 interface
+有一套 Git-ignored 本地 100-task run，当前最小 prompt/interface 的完整 batch、split audit
+与 `RELEASED` promotion 尚未执行。

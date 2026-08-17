@@ -1,0 +1,383 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-task-package-v3.schema.json",
+  "title": "Portable DuckDB-query BSM metric agent task package manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "package_schema_version",
+    "task_interface_version",
+    "delivery_status",
+    "task_family",
+    "task_id",
+    "task_version",
+    "target_metric",
+    "variant_id",
+    "method_id",
+    "source_task_id",
+    "source_manifest_digest",
+    "public_child_snapshot",
+    "database",
+    "evaluation_view",
+    "toolset",
+    "verifier",
+    "artifacts",
+    "artifact_visibility"
+  ],
+  "properties": {
+    "package_schema_version": {
+      "const": "agent-task-package-v3.0.0"
+    },
+    "task_interface_version": {
+      "const": "bsm-market-metric-agent-task-v2.0.0"
+    },
+    "delivery_status": {
+      "const": "PORTABLE_SUITE_VERIFIED"
+    },
+    "task_family": {
+      "const": "bsm_greeks"
+    },
+    "task_id": {
+      "$ref": "#/$defs/metricTaskId"
+    },
+    "task_version": {
+      "const": "2.0.0"
+    },
+    "target_metric": {
+      "enum": [
+        "iv",
+        "delta",
+        "gamma",
+        "vega_1volpt",
+        "theta_1calendar_day",
+        "rho_1pct"
+      ]
+    },
+    "variant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "method_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_task_id": {
+      "type": "string",
+      "pattern": "^bsm-mig-v2-[0-9a-f]{24}$"
+    },
+    "source_manifest_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "public_child_snapshot": {
+      "$ref": "#/$defs/snapshotIdentity"
+    },
+    "database": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "snapshot_id",
+        "file_digest",
+        "logical_checksum",
+        "market_content_digest"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "bsm-market-metric-task-duckdb-v2.0.0"
+        },
+        "snapshot_id": {
+          "$ref": "#/$defs/snapshotId"
+        },
+        "file_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "logical_checksum": {
+          "$ref": "#/$defs/sha256"
+        },
+        "market_content_digest": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "evaluation_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "manifest_digest",
+        "interface_digest"
+      ],
+      "properties": {
+        "path": {
+          "const": "evaluation_view"
+        },
+        "manifest_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "interface_digest": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "toolset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "digest"
+      ],
+      "properties": {
+        "path": {
+          "const": "trusted_tools/toolset.json"
+        },
+        "digest": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "oracle_config_digest",
+        "runtime_digest"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "oracle_config_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "runtime_digest": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^(?:task\\.duckdb|source_manifest\\.json|evaluation_view/.+|trusted_tools/toolset\\.json|verifier/.+)$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/sha256"
+      }
+    },
+    "artifact_visibility": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^(?:task\\.duckdb|source_manifest\\.json|evaluation_view/.+|trusted_tools/toolset\\.json|verifier/.+)$"
+      },
+      "additionalProperties": {
+        "enum": [
+          "solver_evaluation_view",
+          "tool_host_only",
+          "verifier_only",
+          "delivery_audit_only"
+        ]
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ivIdentity"
+    },
+    {
+      "$ref": "#/$defs/deltaIdentity"
+    },
+    {
+      "$ref": "#/$defs/gammaIdentity"
+    },
+    {
+      "$ref": "#/$defs/vegaIdentity"
+    },
+    {
+      "$ref": "#/$defs/thetaIdentity"
+    },
+    {
+      "$ref": "#/$defs/rhoIdentity"
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "metricTaskId": {
+      "type": "string",
+      "pattern": "^bsm-market-(?:iv|delta|gamma|vega-1volpt|theta-1calendar-day|rho-1pct)-v2-[0-9a-f]{24}$"
+    },
+    "snapshotId": {
+      "type": "string",
+      "pattern": "^BSM-MARKET-METRIC-[0-9A-F]{24}$"
+    },
+    "snapshotIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "snapshot_id",
+        "revision",
+        "logical_checksum"
+      ],
+      "properties": {
+        "snapshot_id": {
+          "$ref": "#/$defs/snapshotId"
+        },
+        "revision": {
+          "const": 1
+        },
+        "logical_checksum": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "ivIdentity": {
+      "properties": {
+        "target_metric": {
+          "const": "iv"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^bsm-market-iv-v2-[0-9a-f]{24}$"
+        },
+        "variant_id": {
+          "const": "bsm_market_implied_iv_v1"
+        },
+        "method_id": {
+          "const": "bsm-mid-iv-bisection80-v1"
+        },
+        "verifier": {
+          "properties": {
+            "id": {
+              "const": "quantlib-bsm-market-implied-iv-verifier-v2"
+            }
+          }
+        }
+      }
+    },
+    "deltaIdentity": {
+      "properties": {
+        "target_metric": {
+          "const": "delta"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^bsm-market-delta-v2-[0-9a-f]{24}$"
+        },
+        "variant_id": {
+          "const": "bsm_market_implied_delta_v1"
+        },
+        "method_id": {
+          "const": "bsm-mid-iv-bisection80-analytic-delta-v1"
+        },
+        "verifier": {
+          "properties": {
+            "id": {
+              "const": "quantlib-bsm-market-implied-delta-verifier-v2"
+            }
+          }
+        }
+      }
+    },
+    "gammaIdentity": {
+      "properties": {
+        "target_metric": {
+          "const": "gamma"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^bsm-market-gamma-v2-[0-9a-f]{24}$"
+        },
+        "variant_id": {
+          "const": "bsm_market_implied_gamma_v1"
+        },
+        "method_id": {
+          "const": "bsm-mid-iv-bisection80-analytic-gamma-v1"
+        },
+        "verifier": {
+          "properties": {
+            "id": {
+              "const": "quantlib-bsm-market-implied-gamma-verifier-v2"
+            }
+          }
+        }
+      }
+    },
+    "vegaIdentity": {
+      "properties": {
+        "target_metric": {
+          "const": "vega_1volpt"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^bsm-market-vega-1volpt-v2-[0-9a-f]{24}$"
+        },
+        "variant_id": {
+          "const": "bsm_market_implied_vega_1volpt_v1"
+        },
+        "method_id": {
+          "const": "bsm-mid-iv-bisection80-analytic-vega-1volpt-v1"
+        },
+        "verifier": {
+          "properties": {
+            "id": {
+              "const": "quantlib-bsm-market-implied-vega-1volpt-verifier-v2"
+            }
+          }
+        }
+      }
+    },
+    "thetaIdentity": {
+      "properties": {
+        "target_metric": {
+          "const": "theta_1calendar_day"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^bsm-market-theta-1calendar-day-v2-[0-9a-f]{24}$"
+        },
+        "variant_id": {
+          "const": "bsm_market_implied_theta_1calendar_day_v1"
+        },
+        "method_id": {
+          "const": "bsm-mid-iv-bisection80-analytic-theta-1calendar-day-v1"
+        },
+        "verifier": {
+          "properties": {
+            "id": {
+              "const": "quantlib-bsm-market-implied-theta-1calendar-day-verifier-v2"
+            }
+          }
+        }
+      }
+    },
+    "rhoIdentity": {
+      "properties": {
+        "target_metric": {
+          "const": "rho_1pct"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^bsm-market-rho-1pct-v2-[0-9a-f]{24}$"
+        },
+        "variant_id": {
+          "const": "bsm_market_implied_rho_1pct_v1"
+        },
+        "method_id": {
+          "const": "bsm-mid-iv-bisection80-analytic-rho-1pct-v1"
+        },
+        "verifier": {
+          "properties": {
+            "id": {
+              "const": "quantlib-bsm-market-implied-rho-1pct-verifier-v2"
+            }
+          }
+        }
+      }
+    }
+  }
+}

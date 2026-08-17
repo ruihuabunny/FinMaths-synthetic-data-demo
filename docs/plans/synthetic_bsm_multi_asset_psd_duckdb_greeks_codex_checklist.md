@@ -5,13 +5,14 @@
 > 设计依据：`docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md`  
 > 配套计划：`docs/plans/synthetic_bsm_multi_asset_psd_duckdb_greeks_plan.md`
 
-> 完成状态（2026-08-10）：P0–P6 已完成，唯一保留项是人工 review 后的 commit split。
-> Golden D4 task 为 `bsm-mig-v1-1f1fc1880b42253725b118eb`，含 8 underlyings、160 rows、
+> 完成状态（2026-08-12）：P0–P6 已完成，唯一保留项是人工 review 后的 commit split。
+> Golden D4 task 为 `bsm-mig-v1-bde472c5cb0ca8a660314c9e`，含 8 underlyings、160 rows、
 > 3 relations，public logical checksum 为
-> `eda816dd104fad3682c11b452237ddafe1d0b08646c23ec39a25f032a3430758`，状态为
+> `0630a0216e36d5f8785d9f1e0dfd8d2e2445038010895f0f07221eb6409aeec3`，状态为
 > `ACCEPTED`。后续 packaging 以根目录
 > `synthetic_bsm_greeks_agent_task_packaging_plan.md` 为准：Phase A–E 已完成，Phase F
-> runner/dataset exporter 已实现；完整 100-task batch 与 `RELEASED` promotion 待执行。
+> runner/dataset exporter 已实现；旧 interface 有本地历史 batch，当前 interface 的完整
+> 100-task rebuild 与 `RELEASED` promotion 待执行。
 
 ## 给 Codex 的执行指令
 
@@ -105,9 +106,10 @@ Authoring DB 和 task DB 必须是两个安全边界；不能仅依赖同一个�
 - [x] 加入 bounds、put-call parity、delta relation、gamma/vega positivity 等 invariant tests；这些是发布 gate，不替代独立 oracle。
 - [x] `d1/d2` 只能作为瞬时内部变量；禁止把它们持久化为公开 label、feature、solver-visible metadata、目标列或回归捷径。
 
-建议新文件：
+落地文件（迁移后的当前路径）：
 
-- `src/synthetic_derivatives/solver/bsm.py`
+- `src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/README.md`
+- `src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/bsm.py`
 - `src/synthetic_derivatives/tasks/bsm_greeks.py`
 - `src/synthetic_derivatives/verifier/bsm_greeks.py`
 - `schemas/bsm-greeks-output.schema.json`
@@ -116,6 +118,11 @@ Authoring DB 和 task DB 必须是两个安全边界；不能仅依赖同一个�
 - `tests/integration/test_bsm_greeks_verifier.py`
 
 ## P4 — 固定算法的 implied volatility（Greeks 稳定后再做）
+
+当前 Solver 落地文件为
+`src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/bsm_implied_volatility.py`；
+共享 inverse contract 位于 `src/synthetic_derivatives/tasks/bsm_implied_volatility.py`，独立
+QuantLib reference 位于 `src/synthetic_derivatives/verifier/bsm_implied_volatility.py`。
 
 - [x] 从 task/verifier config 定义 IV contract，不得放回 generator config。
 - [x] 使用确定性 price bounds 和固定 volatility bracket。
@@ -152,12 +159,16 @@ Authoring DB 和 task DB 必须是两个安全边界；不能仅依赖同一个�
 
 ## P6 — Solver 安全、集成验收与交付
 
+D4 visible-price IV → five unit Greeks 的 repo-side 组合实现位于
+`src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/bsm_market_greeks.py`；
+Agent package 仍使用经过 runtime/source policy 审计的 standalone reference artifact。
+
 - [x] Solver import audit 拒绝 QuantLib、现成 Greeks/IV/surface packages、动态安装、网络访问和私有 DB 路径。
 - [x] Verifier 环境与 solver 环境分离；QuantLib 只能存在于 trusted authoring/verifier 环境。
 - [x] 生成至少一个 small smoke task set，覆盖多个 underlyings、call/put、strike、expiry 和合法 non-diagonal Q correlation。
 - [x] 从 public DuckDB 运行 solver，再由 trusted verifier exact-compare canonical output。
 - [x] 两次独立 replay 的 task IDs、row order、checksums、prices、Greeks、IV（若已实现）完全一致。
-- [x] 运行 `make test`，并新增一个不依赖 checked-in 私有 child 的 end-to-end temp-directory test；最终结果为 `260 passed`（2026-08-10）。
+- [x] 2026-08-10 阶段门运行 `make test`，并新增一个不依赖 checked-in 私有 child 的 end-to-end temp-directory test；当时结果为 `260 passed`。当前 suite 计数见根 README/最新验证结果，历史 checkpoint 不冒充当前测试状态。
 - [x] 更新 README/authoring docs，只描述实际已实现功能；不要把 P-only dependence 写成 P/Q 都已实现。
 - [ ] 最终提交按职责拆分，建议顺序：dependence contract → public DB export → BSM/Greeks → IV → seven-axis runtime → docs/tests。（本轮未创建 commit，留待人工 review 后处理。）
 

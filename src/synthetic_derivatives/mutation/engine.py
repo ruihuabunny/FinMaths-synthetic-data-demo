@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from synthetic_derivatives.mutation.models import Lineage, MutatedTask, Operator
 from synthetic_derivatives.task_space import (
     AXES,
     TaskSpaceRegistry,
@@ -15,56 +15,11 @@ from synthetic_derivatives.task_space import (
 )
 from synthetic_derivatives.task_space.models import CoordinateValue
 
-
-@dataclass(frozen=True)
-class MutationOperator:
-    """Axes, cardinality, and direction allowed by one mutation operation."""
-
-    operator_id: str
-    allowed_axes: frozenset[str]
-    max_changed_axes: int
-    direction: str
-
-
-@dataclass(frozen=True)
-class MutationLineage:
-    """Replayable record connecting an immutable parent and child task."""
-
-    parent_task_id: str
-    child_task_id: str
-    operator: str
-    before: dict[str, CoordinateValue]
-    after: dict[str, CoordinateValue]
-    seed: int
-    engine_id: str
-    compatibility_rule_id: str
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return the JSON-ready lineage record."""
-
-        return {
-            "parent_task_id": self.parent_task_id,
-            "child_task_id": self.child_task_id,
-            "operator": self.operator,
-            "before": self.before,
-            "after": self.after,
-            "seed": self.seed,
-            "engine_id": self.engine_id,
-            "compatibility_rule_id": self.compatibility_rule_id,
-        }
-
-
-@dataclass(frozen=True)
-class MutatedTask:
-    """A generated child task bundled with its required lineage."""
-
-    task: TaskSpec
-    lineage: MutationLineage
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return the JSON-ready child and lineage payload."""
-
-        return {"task": self.task.to_dict(), "lineage": self.lineage.to_dict()}
+# These names were historically defined in this module.  Keep them as aliases
+# so direct imports and persisted pickle references continue to resolve while
+# the model definitions live in ``mutation.models``.
+MutationLineage = Lineage
+MutationOperator = Operator
 
 
 class MutationEngine:
@@ -82,7 +37,7 @@ class MutationEngine:
         if len(operator_ids) != len(set(operator_ids)):
             raise ValueError("mutation operator_id values must be unique")
         self.operators = {
-            item["operator_id"]: MutationOperator(
+            item["operator_id"]: Operator(
                 operator_id=item["operator_id"],
                 allowed_axes=frozenset(item["allowed_axes"]),
                 max_changed_axes=int(item["max_changed_axes"]),
@@ -201,7 +156,7 @@ class MutationEngine:
             method_id=child_method,
             output_contract_id=child_output_contract,
         )
-        lineage = MutationLineage(
+        lineage = Lineage(
             parent_task_id=parent.task_id,
             child_task_id=child.task_id,
             operator=operator_id,

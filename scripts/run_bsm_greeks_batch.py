@@ -19,14 +19,14 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
 from synthetic_derivatives.export import sample_underlyings  # noqa: E402
-from synthetic_derivatives.packaging.contracts import (  # noqa: E402
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts import (  # noqa: E402
     canonical_json_bytes,
     load_json_object,
 )
-from synthetic_derivatives.packaging.package import (  # noqa: E402
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.package import (  # noqa: E402
     build_bsm_greeks_package,
 )
-from synthetic_derivatives.packaging.parent import (  # noqa: E402
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.parent import (  # noqa: E402
     materialize_joint_parent,
 )
 from synthetic_derivatives.training import (  # noqa: E402
@@ -38,7 +38,7 @@ _EXPECTED_CANDIDATE_REJECTIONS = {
     "published market-Greeks row is outside BSM price bounds",
     "published market-Greeks row has no root in the bracket",
     "stdlib and QuantLib canonical answers differ",
-    "selected row lies exactly on a decimal rounding tie",
+    "selected row is too close to a decimal rounding boundary",
 }
 
 
@@ -198,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     shutil.copytree(run_dataset.dataset_root, dataset_copy)
 
     summary = {
-        "run_schema_version": "bsm-market-implied-greeks-batch-run-v1.0.0",
+        "run_schema_version": "bsm-market-implied-greeks-batch-run-v2.0.0",
         "status": "completed",
         "task_family": "bsm_greeks",
         "variant_id": "bsm_market_implied_greeks_v1",

@@ -68,6 +68,17 @@ $$
 耦合 underlying close shocks。`driver_order` 必须恰好排列 underlying IDs，不能包含
 option IDs、Greeks 或其他 derivative contracts。
 
+$S_t>0$ 表示 USD/underlying-unit 的 synthetic ex-dividend spot；它不是 total-return index。
+`physical_drift` 是 $\mathbb P$ 下年化瞬时期望价格收益率（year$^{-1}$），
+`physical_volatility` 是年化瞬时收益标准差（year$^{-1/2}$），时间轴为 calendar time，
+day-count 为 Actual/365 Fixed。当前 `adjusted_close = close`、`dividend = 0`、
+`corporate_action = none` 是独立 observation rules，不是 GBM 自动生成的 cash distributions。
+
+在 $\mathcal F_{t_i}$ 已知当前全体 published closes、确定性 functions、日期与冻结 P spec。
+下一日期 namespace 的 factor/idiosyncratic normal shocks 与过去 disjoint intervals 独立，
+同一日期按 $\Lambda/D/R$ 联合。当前 deterministic-time model 的 Markov state 因而是 published
+close vector；stochastic volatility/rates/regimes 必须先扩展 persisted state 才能接入。
+
 Config `1.7.0` 把这一合同扩展为严格有序的 P/Q specs。两者使用独立
 `dependence_spec_id`；Q spec 记录 source P spec、mapping ID、共同 Q/numeraire/rate-path
 IDs，并在当前 `girsanov_drift_only_same_brownian_covariance` baseline 下显式重复且严格
@@ -76,9 +87,22 @@ drift shift 不改变 Brownian quadratic covariation，不是可推广到 stocha
 模型的默认规则。Historical path generation 始终只消费 P spec。
 
 `start_date` materialize 的是 $S(t_0)=S_0$ initial condition，不从虚构前一日抽 shock。
+当前 checked-in configs 的 `initial_spot` 都与 underlying tick 对齐，所以 canonicalization
+不改变 $S_0$。Parser 目前只校验正值，未单独拒绝非 tick-aligned 自定义 `initial_spot`；这种
+输入会先被 `ROUND_HALF_EVEN` 后才写入 initial row，不能声称 materialized state 等于原始值。
 之后每个 actual-calendar interval 对 piecewise-linear $\mu_P(t)$ 精确积分取平均，并对
 $\sigma_P^2(t)$ 精确积分取 RMS；这两个 flat-equivalent coefficients 使 QuantLib GBM
-transition 与 deterministic time-inhomogeneous GBM 在 observation endpoints 上同分布。
+从当前 published state 到未量化 proposal 的 transition 与 deterministic
+time-inhomogeneous GBM 在 observation endpoint 上同分布。Proposal 随后按配置的
+underlying minimum price increment 做 `ROUND_HALF_EVEN`，量化后的 published close
+就是下一期 restart state；所以 materialized path 的准确合同是 rounded-state Markov chain，
+不是保留隐藏未舍入状态的 continuous-state GBM。这个量化 checkpoint 是 one-shot/append
+一致性的一部分，改变它必须产生新的 snapshot identity。
+
+当前 OHLC 采用显式 no-gap convention：`open = previous published close`。`high/low` 来自
+独立 `separate_synthetic_range-v1` heuristic shock，只保证必要的价格顺序与正值，不是同一
+intraperiod diffusion path 或 bridge/range law。Volume 来自单独的 deterministic uniform
+stream；这些字段都不是 spot GBM 自身的输出。
 
 ### Option generation
 
@@ -159,19 +183,21 @@ recursive leakage scan 的 public-only child，并只以 read-only mode 交付�
 
 ## Agent task packaging handoff
 
-`synthetic_derivatives.packaging` 消费单一 `FROZEN`、config `1.7.0` P/Q parent，不回写或
+`synthetic_derivatives.packaging_analytic_and_implied_greeks_iv` 消费单一 `FROZEN`、config `1.7.0` P/Q parent，不回写或
 原地迁移它。当前 golden selector 先生成 generic 8-underlying public child，再将任务输入
-物化为只含 `metadata.public_task`、`solver_visible.greeks_task_inputs` 和
-`solver_visible.greeks_task_contract` 的独立 D4 DuckDB。P/Q joint-market identities 保留在
+物化为只含 `metadata.public_task`、`solver_visible.underlying_market_inputs` 和
+`solver_visible.option_quote_inputs` 的独立 D4 DuckDB。P/Q joint-market identities 保留在
 public provenance 中，factor matrices 与 seed/private lineage 不进入 Agent-visible rows。
 
 Packaging 随后冻结 prompt、effective runtime、submission schema、hidden QuantLib verifier、
 stdlib reference solver 和 observable trajectory，并导出严格 allowlisted 的 authoring、
-train/dev、evaluation views。Authoring private artifact manifest 校验全部源制品 hash；package
-verifier 再比较每个 view copy 与源文件字节。Checked-in artifact 目前仍是一条
+train/dev、evaluation views。Evaluation view 物理上只含 manifest、prompt、runtime contract
+与 submission schema；raw DB 由 trusted host 持有。Authoring private artifact manifest 校验
+全部源制品 hash。Checked-in artifact 目前仍是一条
 `ACCEPTED` golden task；Phase F 已参数化 private selector seed，并提供 verified nine-field
-dataset exporter。Valuation date 仍由 package contract 固定，完整 100-task run 与
-`RELEASED` promotion 尚未执行。详见
+dataset exporter。Valuation date 仍由 package contract 固定。2026-08-10 的 Git-ignored
+100-task 本地 run 使用前一版 verbose prompt/interface；当前最小 prompt/interface 尚未完成
+对应的 100-task rebuild、split audit 或 `RELEASED` promotion。详见
 [`task_packages/README.md`](../../../task_packages/README.md)。
 
 ## 使用方式

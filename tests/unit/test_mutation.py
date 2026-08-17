@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import json
+import pickle
 from pathlib import Path
 
 import pytest
 
-from synthetic_derivatives.mutation import MutationEngine
+from synthetic_derivatives.mutation import (
+    Lineage,
+    MutatedTask,
+    MutationEngine,
+    MutationLineage as PublicMutationLineage,
+    Operator,
+)
+from synthetic_derivatives.mutation.engine import MutationLineage, MutationOperator
 from synthetic_derivatives.task_space import TaskSpaceRegistry, TaskSpec
 
 
@@ -20,6 +28,27 @@ def _load(
         json.loads(base_task_manifest_path.read_text(encoding="utf-8"))
     )
     return engine, task
+
+
+def test_engine_preserves_legacy_model_imports() -> None:
+    assert PublicMutationLineage is Lineage
+    assert MutationLineage is Lineage
+    assert MutationOperator is Operator
+
+
+def test_legacy_model_pickle_paths_resolve() -> None:
+    assert (
+        pickle.loads(
+            b"csynthetic_derivatives.mutation.engine\nMutationLineage\n."
+        )
+        is Lineage
+    )
+    assert (
+        pickle.loads(
+            b"csynthetic_derivatives.mutation.engine\nMutationOperator\n."
+        )
+        is Operator
+    )
 
 
 def test_single_axis_mutation_is_deterministic_and_keeps_snapshot(
@@ -47,6 +76,9 @@ def test_single_axis_mutation_is_deterministic_and_keeps_snapshot(
     assert first.lineage.before["F"] == first.lineage.after["F"] == "F0"
     assert "-F0-" in first.task.task_id
     assert first.lineage.engine_id == engine.engine_id
+    assert isinstance(engine.operators["raise_single_axis"], Operator)
+    assert isinstance(first, MutatedTask)
+    assert isinstance(first.lineage, Lineage)
 
 
 def test_mutation_rejects_incompatible_child(

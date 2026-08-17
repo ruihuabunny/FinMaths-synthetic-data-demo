@@ -1,7 +1,7 @@
 {
   "profile_kind": "task_overlay",
-  "profile_id": "bsm-greeks-overlay-v1",
-  "global_profile_id": "solver-global-v1",
+  "profile_id": "bsm-greeks-overlay-v2",
+  "global_profile_id": "solver-global-v2",
   "environment_id": "solver-bsm-greeks-py312-v1",
   "python_version": "3.12",
   "allowed_direct_imports": [
@@ -15,9 +15,9 @@
     "typing"
   ],
   "trusted_tools": {
-    "query_greeks_task_contract_v1": 1,
-    "query_greeks_task_inputs_v1": 1,
-    "submit_greeks_submission_v1": 1
+    "query_greeks_underlying_market_v2": 1,
+    "query_greeks_option_quotes_v2": 1,
+    "submit_greeks_submission_v2": 1
   },
   "filesystem": {
     "read": ["public/*"],

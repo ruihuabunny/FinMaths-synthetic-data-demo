@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bsm-greeks-submission-v2.schema.json",
+  "x-schema-version": "bsm-market-implied-greeks-submission-v2.0.0",
+  "title": "Canonical market-implied BSM Greeks submission",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "submission_schema_version", "method_id", "status", "rows"],
+  "properties": {
+    "task_id": {"type": "string", "pattern": "^bsm-mig-v2-[0-9a-f]{24}$"},
+    "submission_schema_version": {"const": "bsm-market-implied-greeks-submission-v2.0.0"},
+    "method_id": {"const": "bsm-mid-iv-bisection80-analytic-greeks-v1"},
+    "status": {"const": "completed"},
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/resultRow"}
+    }
+  },
+  "$defs": {
+    "decimal8": {
+      "type": "string",
+      "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{8}$",
+      "not": {"const": "-0.00000000"}
+    },
+    "nonnegativeDecimal8": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.[0-9]{8}$"
+    },
+    "positiveDecimal8": {
+      "type": "string",
+      "pattern": "^(?!(?:0\\.0{8})$)(?:0|[1-9][0-9]*)\\.[0-9]{8}$"
+    },
+    "resultRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "row_id",
+        "iv_status",
+        "market_implied_volatility",
+        "unit_delta",
+        "unit_gamma",
+        "unit_vega_1volpt",
+        "unit_theta_1calendar_day",
+        "unit_rho_1pct"
+      ],
+      "properties": {
+        "row_id": {"type": "string", "pattern": "^row_[0-9]{6}$"},
+        "iv_status": {"const": "CONVERGED_FIXED_ITERATIONS"},
+        "market_implied_volatility": {"$ref": "#/$defs/positiveDecimal8"},
+        "unit_delta": {"$ref": "#/$defs/decimal8"},
+        "unit_gamma": {"$ref": "#/$defs/nonnegativeDecimal8"},
+        "unit_vega_1volpt": {"$ref": "#/$defs/nonnegativeDecimal8"},
+        "unit_theta_1calendar_day": {"$ref": "#/$defs/decimal8"},
+        "unit_rho_1pct": {"$ref": "#/$defs/decimal8"}
+      }
+    }
+  }
+}

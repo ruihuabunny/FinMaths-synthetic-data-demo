@@ -10,7 +10,7 @@
 
 ---
 
-## 当前仓库实现状态（2026-08-10）
+## 当前仓库实现状态（2026-08-12）
 
 本文是完整目标框架，不表示每个产品、模型、套利层级或训练导出都已落地。当前仓库已经
 实现 config `1.6.0` authoring/IV 边界、config `1.7.0` measure-qualified P/Q dependence、
@@ -22,8 +22,10 @@ verifier 和隔离 release views。
 仓库内 checked-in `snapshots/public/quantlib_bsm_smoke_v1.duckdb` 仍是不可变的 config
 `1.5.0` 历史 demo，只含 P dependence 和 private authoring IV audit；新任务从另一个冻结的
 config `1.7.0` P/Q parent 构建，不原地迁移该文件。Phase F batch runner 与 BSM-specific
-nine-field dataset exporter 已实现，但完整 100-task run 与 release promotion 尚未执行。
-Basket/index/spread joint payoff、F2A+ 套利业务与跨 task-family 通用 training exporter 仍未实现。当前精确边界以
+nine-field dataset exporter 已实现。旧 solver interface 有一套 Git-ignored 本地 100-task
+历史 run；当前最小 prompt/interface 的 100-task rebuild、split audit 与 release promotion
+尚未执行。L3 Monte Carlo 只有目录骨架；L4--L8、basket/index/spread joint payoff、F2A+
+套利业务与跨 task-family 通用 training exporter 仍未实现。当前精确边界以
 [主 README](../README.md)、[执行清单](plans/synthetic_bsm_multi_asset_psd_duckdb_greeks_codex_checklist.md)
 和 [golden package 说明](../task_packages/README.md) 为准。
 
@@ -159,7 +161,12 @@ canonical mid 调用 QuantLib 反解并写入 private audit。该历史 public p
 4 expiries × 7 strikes × call/put，共 1,232 个固定合约，65 个 business dates 内生成
 60,368 条 expiry 前 quotes。各期限来自同一个 deterministic-time-varying-diffusion BSM
 marginal model，而不是 `physical volatility + 0.02` 或逐 quote latent smile。Option
-contracts 不加入 correlation matrix。Config `1.6.0+` 已把 IV inversion 移出 authoring；
+contracts 不加入 correlation matrix。Historical close 生成在每个区间先执行精确积分的
+lognormal proposal，再把 proposal 按价格 quantum 量化；published close 是下一期 restart
+state。因此 materialized history 是 rounded-state Markov chain，不是隐藏未舍入状态的
+continuous-state GBM。`open = previous published close` 是 no-gap convention；`high/low`
+来自独立 synthetic-range heuristic，volume 来自独立 activity rule，不提供 intraperiod
+path、range 或市场微观结构真值。Config `1.6.0+` 已把 IV inversion 移出 authoring；
 config `1.7.0` 已加入完整 P/Q dependence pair。当前 D4 golden task 只把 P/Q identities 与
 joint-market policy 作为 provenance，单资产 vanilla IV/Greeks 仍不读取 cross-asset
 correlation；多资产联合 payoff 定价仍是后续阶段。

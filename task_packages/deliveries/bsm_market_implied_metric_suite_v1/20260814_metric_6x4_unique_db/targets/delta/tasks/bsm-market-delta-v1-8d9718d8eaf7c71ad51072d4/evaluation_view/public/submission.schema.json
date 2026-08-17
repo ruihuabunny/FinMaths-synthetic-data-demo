@@ -1,0 +1,2313 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bsm-market-implied-delta-submission-v1.schema.json",
+  "x-schema-version": "bsm-market-implied-delta-submission-v1.0.0",
+  "title": "Canonical market-implied BSM Delta submission",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "submission_schema_version",
+    "method_id",
+    "status",
+    "rows"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^bsm-market-delta-v1-[0-9a-f]{24}$"
+    },
+    "submission_schema_version": {
+      "const": "bsm-market-implied-delta-submission-v1.0.0"
+    },
+    "method_id": {
+      "const": "bsm-mid-iv-bisection80-analytic-delta-v1"
+    },
+    "status": {
+      "const": "completed"
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 160,
+      "maxItems": 160,
+      "prefixItems": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000001"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000002"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000003"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000004"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000005"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000006"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000007"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000008"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000009"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000010"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000011"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000012"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000013"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000014"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000015"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000016"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000017"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000018"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000019"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000020"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000021"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000022"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000023"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000024"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000025"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000026"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000027"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000028"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000029"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000030"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000031"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000032"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000033"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000034"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000035"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000036"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000037"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000038"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000039"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000040"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000041"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000042"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000043"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000044"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000045"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000046"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000047"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000048"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000049"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000050"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000051"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000052"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000053"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000054"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000055"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000056"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000057"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000058"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000059"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000060"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000061"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000062"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000063"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000064"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000065"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000066"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000067"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000068"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000069"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000070"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000071"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000072"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000073"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000074"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000075"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000076"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000077"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000078"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000079"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000080"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000081"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000082"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000083"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000084"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000085"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000086"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000087"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000088"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000089"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000090"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000091"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000092"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000093"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000094"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000095"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000096"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000097"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000098"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000099"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000100"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000101"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000102"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000103"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000104"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000105"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000106"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000107"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000108"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000109"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000110"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000111"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000112"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000113"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000114"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000115"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000116"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000117"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000118"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000119"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000120"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000121"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000122"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000123"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000124"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000125"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000126"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000127"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000128"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000129"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000130"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000131"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000132"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000133"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000134"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000135"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000136"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000137"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000138"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000139"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000140"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000141"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000142"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000143"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000144"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000145"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000146"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000147"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000148"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000149"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000150"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000151"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000152"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000153"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000154"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000155"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000156"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000157"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000158"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000159"
+                }
+              }
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/resultRow"
+            },
+            {
+              "properties": {
+                "row_id": {
+                  "const": "row_000160"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "decimal8": {
+      "type": "string",
+      "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{8}$",
+      "not": {
+        "const": "-0.00000000"
+      }
+    },
+    "nonnegativeDecimal8": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.[0-9]{8}$"
+    },
+    "positiveDecimal8": {
+      "type": "string",
+      "pattern": "^(?!(?:0\\.0{8})$)(?:0|[1-9][0-9]*)\\.[0-9]{8}$"
+    },
+    "resultRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "row_id",
+        "unit_delta"
+      ],
+      "properties": {
+        "row_id": {
+          "type": "string",
+          "pattern": "^row_[0-9]{6}$"
+        },
+        "unit_delta": {
+          "$ref": "#/$defs/decimal8"
+        }
+      }
+    }
+  }
+}
+

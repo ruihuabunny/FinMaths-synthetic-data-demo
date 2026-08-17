@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-task-portable-toolset-v1.schema.json",
+  "title": "Portable data-only BSM Greeks trusted toolset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "toolset_schema_version",
+    "host_protocol",
+    "task_id",
+    "path_base",
+    "required_call_schedule",
+    "resource_budget",
+    "tools"
+  ],
+  "properties": {
+    "toolset_schema_version": {
+      "const": "bsm-greeks-portable-toolset-v1.0.0"
+    },
+    "host_protocol": {
+      "const": "static-json-query-schema-submit-v1"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^bsm-mig-v1-[0-9a-f]{24}$"
+    },
+    "path_base": {"const": "task_root"},
+    "required_call_schedule": {
+      "const": [
+        "query_greeks_task_contract_v1",
+        "query_greeks_task_inputs_v1",
+        "submit_greeks_submission_v1"
+      ]
+    },
+    "resource_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trusted_query_calls",
+        "submission_calls",
+        "submission_bytes"
+      ],
+      "properties": {
+        "trusted_query_calls": {"const": 2},
+        "submission_calls": {"const": 1},
+        "submission_bytes": {"const": 5242880}
+      }
+    },
+    "tools": {
+      "type": "array",
+      "prefixItems": [
+        {"$ref": "#/$defs/contractQuery"},
+        {"$ref": "#/$defs/inputsQuery"},
+        {"$ref": "#/$defs/submissionSink"}
+      ],
+      "items": false,
+      "minItems": 3,
+      "maxItems": 3
+    }
+  },
+  "$defs": {
+    "emptyArguments": {
+      "const": {
+        "type": "object",
+        "additionalProperties": false,
+        "maxProperties": 0
+      }
+    },
+    "contractQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "max_calls",
+        "arguments_schema",
+        "payload_path",
+        "payload_digest"
+      ],
+      "properties": {
+        "name": {"const": "query_greeks_task_contract_v1"},
+        "kind": {"const": "static_json_query"},
+        "max_calls": {"const": 1},
+        "arguments_schema": {"$ref": "#/$defs/emptyArguments"},
+        "payload_path": {
+          "const": "trusted_tools/payloads/contract.json"
+        },
+        "payload_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "inputsQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "max_calls",
+        "arguments_schema",
+        "payload_path",
+        "payload_digest"
+      ],
+      "properties": {
+        "name": {"const": "query_greeks_task_inputs_v1"},
+        "kind": {"const": "static_json_query"},
+        "max_calls": {"const": 1},
+        "arguments_schema": {"$ref": "#/$defs/emptyArguments"},
+        "payload_path": {
+          "const": "trusted_tools/payloads/inputs.json"
+        },
+        "payload_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "submissionSink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "max_calls",
+        "submission_schema_path",
+        "submission_schema_digest",
+        "submission_schema_dialect",
+        "task_id_constraint",
+        "row_id_sequence_constraint",
+        "canonical_serialization"
+      ],
+      "properties": {
+        "name": {"const": "submit_greeks_submission_v1"},
+        "kind": {"const": "schema_validated_submission_sink"},
+        "max_calls": {"const": 1},
+        "submission_schema_path": {
+          "const": "public/submission.schema.json"
+        },
+        "submission_schema_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "submission_schema_dialect": {
+          "const": "https://json-schema.org/draft/2020-12/schema"
+        },
+        "task_id_constraint": {
+          "type": "string",
+          "pattern": "^bsm-mig-v1-[0-9a-f]{24}$"
+        },
+        "row_id_sequence_constraint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "rows_field",
+            "row_id_field",
+            "prefix",
+            "decimal_width",
+            "start",
+            "increment",
+            "contiguous"
+          ],
+          "properties": {
+            "rows_field": {"const": "rows"},
+            "row_id_field": {"const": "row_id"},
+            "prefix": {"const": "row_"},
+            "decimal_width": {"const": 6},
+            "start": {"const": 1},
+            "increment": {"const": 1},
+            "contiguous": {"const": true}
+          }
+        },
+        "canonical_serialization": {
+          "const": "utf8-sort-keys-compact-newline-v1"
+        }
+      }
+    }
+  }
+}

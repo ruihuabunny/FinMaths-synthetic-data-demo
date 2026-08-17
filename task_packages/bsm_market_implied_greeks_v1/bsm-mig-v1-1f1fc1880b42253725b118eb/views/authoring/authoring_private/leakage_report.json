@@ -1,1 +1,0 @@
-{"database_relations":["metadata.public_task","solver_visible.greeks_task_contract","solver_visible.greeks_task_inputs"],"private_token_scan":"clean","public_files":["prompt.md","runtime_contract.json","submission.schema.json","task.duckdb"],"status":"clean"}

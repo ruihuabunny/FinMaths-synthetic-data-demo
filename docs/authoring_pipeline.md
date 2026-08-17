@@ -1,6 +1,6 @@
 # DuckDB + QuantLib Authoring Pipeline
 
-> 实现状态（2026-08-10）：underlying simulator 第一阶段与 static
+> 实现状态（2026-08-12）：underlying simulator 第一阶段与 static
 > `OptionChainBuilder` 与 liquidity-filtered quote profile 已经实现。Generator config
 > `1.2.0` 可以用 $\Lambda/D/R$ 相关结构生成物理测度 $\mathbb P$ 下的多个
 > underlying path；config `1.3.0` 生成 expiry × listing-moneyness × call/put 完整网格，
@@ -12,7 +12,8 @@
 > Option/derivative pricing 不读取 underlying 相关矩阵，原有 v1/v1.1/v1.2 pipeline
 > 保持兼容。独立 exporter 与 BSM Greeks packaging pipeline 已能从 frozen P/Q parent
 > 生成一条 accepted 的 8-underlying D4 golden task；Phase F batch runner 与九字段 dataset
-> exporter 已实现，完整 batch run 与 release promotion 尚未执行。
+> exporter 已实现。旧 solver interface 在 Git-ignored `runs/` 中留有本地 100-task 历史
+> run；当前最小 prompt/interface 尚未重建、审核或 promotion 该批次。
 
 ## 目标与范围
 
@@ -308,7 +309,7 @@ discounting 或 underlying simulation。完整 filter 与 quote model 均写入 
 | `authoring/templates/quantlib_bsm_correlated_underlyings.template.json` | 可运行的 config `1.2.0` correlated-underlying 示例。 |
 | `configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json` | 冻结 config `1.5.0` 的 22-underlying 历史 profile；保留 private authoring IV audit 仅用于迁移审计。 |
 | `configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json` | 当前 writable config `1.6.0` baseline；保留 Q pricing inputs，但不在 authoring 层生成 IV answers。 |
-| `configs/task_packages/bsm_market_implied_greeks_v1.json` | D4 golden task 的七维坐标、确定性 selection、精确 method/schema/capability 合同。 |
+| `configs/task_packages/bsm_market_implied_greeks_v1.json` | D4 golden task 的七维坐标、确定性 selection、精确 method/schema/capability 合同，以及用于 stable identity 的 solver-interface 版本。 |
 | `snapshots/public/quantlib_bsm_smoke_v1.duckdb` | 已冻结的 metals public snapshot；文件路径为向后兼容保留名。 |
 | `snapshots/public/quantlib_bsm_smoke_v1.manifest.json` | 当前 logical revision、版本标识和行数。 |
 | `scripts/edit_snapshot.py` | 仓库本地 `.venv` 使用的编辑入口。 |
@@ -324,7 +325,7 @@ discounting 或 underlying simulation。完整 filter 与 quote model 均写入 
 | `tests/unit/test_underlying_simulator.py` | $\Lambda/D/R$、联合 shock、持久化、append invariance 与 derivative boundary 测试。 |
 | `tests/unit/test_option_chain_builder.py` | chain config、完整网格、listing strike、不可变性及 append/sync tests。 |
 | `tests/integration/test_solver_database_replay.py` | 22→8 public child、parent immutability、replay checksum、nested leakage 与只读边界。 |
-| `tests/packaging/` | D4 package 的数据库、runtime、trajectory、verifier、leakage、release-view 与 replay 端到端合同。 |
+| `tests/packaging_analytic_and_implied_greeks_iv/` | D4 package 的数据库、runtime、trajectory、verifier、leakage、release-view 与 replay 端到端合同。 |
 
 ## DuckDB schemas（当前实现）
 
@@ -406,6 +407,13 @@ relations：
 logical checksums、joint-market contract、P/Q dependence IDs 和 drift-only covariance mapping
 policy。相关性只约束共同市场身份，不进入单资产 vanilla BSM 边际 price/Greeks。
 
+`public/prompt.md` 只是最小路由，不再复制 method、data dictionary、submission schema 或
+runtime permissions。它只指向四个 public source：contract query、ordered-input query、
+`public/submission.schema.json` 与 `public/runtime_contract.json`。BSM 的 $\mathbb Q$/numeraire、
+定价 law、visible-mid IV schedule、Greek units、binary64 checkpoints、rounding 和 row order
+全部由三关系 DB 中的 canonical method contract 唯一定义；输出 schema 与 runtime contract
+分别只拥有结构和能力语义。
+
 Agent 通过各一次的 trusted contract/input query adapter 读取数据，不得到 raw DuckDB handle。
 Reference solver 在 effective runtime allowlist 下两次重放；trusted verifier 只从 public
 bid/ask 和冻结 method config 用 QuantLib 独立重建 80-step IV 与五个 unit Greeks。Source
@@ -424,20 +432,38 @@ time-inhomogeneous GBM close：
 \frac{dS_t}{S_t}=\mu(t)dt+\sigma(t)dW_t.
 \]
 
+$S_t>0$ 是 USD/underlying-unit 的 synthetic ex-dividend spot，不是 total-return index。
+$\mu$ 是 $\mathbb P$ 下年化瞬时期望价格收益率（year$^{-1}$），$\sigma$ 是年化瞬时收益
+标准差（year$^{-1/2}$）；时间轴为 calendar time，day-count 为 Actual/365 Fixed。
+在 $\mathcal F_{t_i}$ 已知当前 published close vector、确定性 functions、日期与冻结 P spec；
+未来 date namespace 的 factor/idiosyncratic normal shocks 与过去 disjoint intervals 独立，
+同一日期按冻结 $\Lambda/D/R$ 联合。当前模型没有额外 latent state。
+
 `physical_drift` 和 `physical_volatility` 既可以是向后兼容的 scalar，也可以是以
 `start_date` 为原点的 `piecewise_linear` deterministic function。每个 close
 interval 对 \(\mu(t)\) 精确积分并取算术平均，对 \(\sigma^2(t)\) 精确积分并取
 root-mean-square；得到的 interval-equivalent 参数交给 QuantLib 的 exact GBM
-transition。物理 drift/volatility function 与风险中性定价参数分开保存，完整函数
+proposal transition。Proposal 再按 underlying minimum price increment 做
+`ROUND_HALF_EVEN`，published close 作为下一 interval 的 restart state；因此实际
+materialized law 是 rounded-state Markov chain，而不是保留未舍入 latent close 的
+continuous-state GBM。物理 drift/volatility function 与风险中性定价参数分开保存，完整函数
 和当日有效参数写入 `pricing_metadata.physical_dynamics`。
 
 `start_date` 行只 materialize $S(t_0)=S_0$，OHLC 均为 `initial_spot`，不抽取从虚构前一日
 到 $t_0$ 的 transition。后续行才从 preceding materialized state 按真实 calendar interval
-演化。当前 metals config 由 [`sample_physical_dynamics.py`](../scripts/sample_physical_dynamics.py)
+演化。Checked-in configs 的 `initial_spot` 都已与 underlying tick 对齐；parser 目前不显式
+拒绝非对齐自定义值，而 generator 会先量化该值，所以这种输入不能主张原始值就是 initial
+condition。当前 metals config 由 [`sample_physical_dynamics.py`](../scripts/sample_physical_dynamics.py)
 按 underlying ID 分区随机流，分别抽取互不相同的 per-underlying seed、7-node offset grid、
 drift phi/std、log-vol phi/std 和有界均值回归 Gaussian/lognormal nodes。Global seed、
 per-underlying seeds、每个参数的 hard bounds 和 realized values 全部冻结；路径生成只消费
 realized nodes。
+
+OHLC 另有明确但简化的 observation contract：`open = previous published close`，即 no-gap；
+`high/low` 由 `separate_synthetic_range-v1` heuristic stream 构造，不来自同一 intraperiod
+path、Brownian bridge 或 exact range distribution。Volume 使用独立 uniform stream。
+`adjusted_close = close`、`dividend = 0`、`corporate_action = none` 也是显式规则。这些字段不
+支持 barrier、realized-range、overnight-gap、total-return 或真实流动性推断。
 
 随机流不是一个依赖循环顺序的全局 stream。v1/v1.1 使用以下 tuple 派生 32-bit seed：
 
@@ -597,10 +623,18 @@ time-varying-diffusion BSM marginal model。
 ```
 
 当前 checked-in golden task 是
-`bsm-mig-v1-1f1fc1880b42253725b118eb`：8 个 underlyings、2 个 live expiries、每 expiry
+`bsm-mig-v1-bde472c5cb0ca8a660314c9e`：8 个 underlyings、2 个 live expiries、每 expiry
 5 个 strikes、call/put 成对，共 160 行；agent database 仅含 3 个允许关系。它仍处于
 `ACCEPTED`。Phase F 已提供 seed-parameterized batch runner 和 verified nine-field dataset
-exporter，但尚未执行完整 100-task run 或 `RELEASED` promotion。
+exporter。旧 interface 有 Git-ignored 本地 100-task 历史 run；当前 interface 尚未执行完整
+100-task rebuild、split audit 或 `RELEASED` promotion。
+
+采用最小 prompt 的新构建必须先计算 `solver_interface_digest`。该 canonical digest 绑定
+solver-interface contract version、rendered prompt、method contract、submission schema 和
+effective runtime contract，并进入 stable task-ID 公式；trusted adapter/input surface 的语义
+变化通过升级 interface version 纳入 identity。任何一个接口变化都必须生成新 task directory。
+当前 checked-in `ACCEPTED` package 已在新 identity 完成构建、replay、verifier、leakage、
+release-view 和源码隔离验收后完成显式 promotion。
 
 ## Smoke-test 验收（当前实现）
 
@@ -629,9 +663,9 @@ make test
   dependence identities 与 mapping；
 - legacy 22 品种 profile 的 1,232 contracts、60,368 quotes 与等量 private audits，以及
   current baseline 的零 authoring-IV rows；
-- accepted D4 package 的 3-relation/160-row public DB、80-step bisection + analytic Greeks、
-  independent QuantLib verifier、runtime limits、leakage scans、release-view byte identity 与
-  two-replay determinism。
+- accepted D4 package 的 3-relation/160-row public DB、四源最小 prompt routing、
+  `solver_interface_digest`、80-step bisection + analytic Greeks、independent QuantLib verifier、
+  runtime limits、leakage scans、release-view byte identity 与 two-replay determinism。
 
 ## 版本与参考
 
