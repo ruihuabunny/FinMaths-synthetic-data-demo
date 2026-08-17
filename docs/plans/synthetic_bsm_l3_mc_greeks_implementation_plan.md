@@ -1,10 +1,16 @@
 # Synthetic BSM Agent Task：L3 Monte Carlo Greeks 实施计划与数学推导
 
-> 实现状态（2026-08-12）：本文是 future/design-only 计划。当前仓库只有可导入的
+> 实现状态（2026-08-17）：本文仍是 pending/future-design 计划。当前仓库只有可导入的
 > `src/synthetic_derivatives/solver/mc/` 骨架，没有任何 MC estimator、L3 task/variant、
-> draw bank、schema、runtime profile、package、verifier 或验收测试。现有可运行能力止于
-> analytic BSM、visible-price IV 与 analytic market-implied Greeks；本文中的“第一版”均指
-> 未来 release，不是当前 API。
+> draw bank、L3 schema、L3 runtime profile、package、verifier 或验收测试；本文中的
+> “第一版”均指未来 release，不是当前 API。
+>
+> 仓库已经完成 `tdgbm_bsm` model-family identity、semantic TaskSpec v3、独立
+> executable-capability registry、family-aware curriculum/mutation，以及 analytic/visible-IV
+> package 的 static/query-v3 交付链路。L3 必须作为同一 `tdgbm_bsm` family 内的新
+> task/method/interface 接入这些边界；design catalog 或 `solver/mc/` 的可导入性均不授予
+> 执行能力。现有数值能力仍止于 analytic BSM、visible-price IV 与 analytic
+> market-implied Greeks。
 
 ## 1. 文档目的
 
@@ -128,11 +134,11 @@ V=e^{-rT}\mathbb E^Q[g(S_T)].
 |---|---|---|
 | `delta` | \(\partial V/\partial S_0\) | 每 1 个 spot 单位 |
 | `gamma` | \(\partial^2V/\partial S_0^2\) | 每 \(1^2\) 个 spot 单位 |
-| `vega_per_1pct` | \(0.01\,\partial V/\partial\sigma\) | volatility 上升 1 percentage point |
-| `rho_per_1bp` | \(10^{-4}\,\partial V/\partial r\) | rate 上升 1 bp |
-| `theta_per_day` | \(\Theta/B\) | 经过 1 日，\(B\) 为指定 day-count basis |
+| `vega_1volpt` | \(0.01\,\partial V/\partial\sigma\) | volatility 上升 1 percentage point |
+| `rho_1pct` | \(0.01\,\partial V/\partial r\) | continuous rate 上升 1 percentage point |
+| `theta_1calendar_day` | \(\Theta/B\) | 经过 1 日，\(B\) 为指定 day-count basis |
 
-内部 raw 值和外部 scaled 值不得混用。第一版配置应明确写出 `vega_scale: 0.01`、`rho_scale: 0.0001` 与 `theta_day_count_basis`。
+内部 raw 值和外部 scaled 值不得混用。第一版配置应明确写出 `vega_scale: 0.01`、`rho_scale: 0.01` 与 `theta_day_count_basis`。
 
 ### 3.4 输入 IV 的来源
 
@@ -140,6 +146,27 @@ V=e^{-rT}\mathbb E^Q[g(S_T)].
 - L3 composite mutation 可以先调用 L1 的 analytic BSM inversion；
 - 不允许使用 \(P\)-measure realized/historical diffusion 代替 \(\sigma_{\mathrm{imp}}\)；
 - 不在 L3 中用 noisy MC root finding 反解 IV。
+
+### 3.5 当前仓库中的语义身份
+
+L3 复用已实现的 `tdgbm_bsm` model family；它增加的是 task/method/interface，不是新的
+model family。实现前必须按照 semantic TaskSpec v3 冻结并测试以下正交身份：
+
+- `model_family_id: tdgbm_bsm`；
+- `task_family_id`：MC pricing/Greeks 能力族；
+- `task_kind_id`：plain price、antithetic price、CRN Greek、pathwise Greek、LR Greek
+  或 bundle；
+- estimator-specific `method_id`；
+- 新的 `solver_interface_id`；
+- 新的 `output_contract_id`；
+- concrete `coordinates`，其中 `M=0` 来自 `tdgbm_bsm`、MC method 使用 `A6`；
+- `snapshot_id` 与 `snapshot_revision`。
+
+`L3a`–`L3g` 是 curriculum 标签，不是仓库七维 reasoning coordinates 中的 `L` 值。
+具体 MC variant 应与 numerical-method axis `A6` 结构兼容，但 catalog compatibility
+不等于 executable capability。只有 authoring、solver、独立 verifier、runtime、package
+materializer 和验收测试证据全部存在后，才能向 executable-capability registry 添加精确
+key；在此之前 curriculum 必须 fail closed，不能采样 L3。
 
 ---
 
@@ -298,7 +325,7 @@ rate bump 必须同时作用于：
 1. discount factor \(e^{-rT}\)；
 2. terminal distribution 中的 risk-neutral drift \((r-q)T\)。
 
-外部输出为 \(10^{-4}\widehat\rho\)。
+外部输出与现有仓库 Greek contract 对齐，为 \(0.01\widehat\rho\)，字段名使用 `rho_1pct`。`rate_bump_abs` 仍可为 \(10^{-4}\)；bump size 与输出单位不得混淆。
 
 ### 5.5 Theta（第二阶段）
 
@@ -310,7 +337,7 @@ rate bump 必须同时作用于：
 \frac{Y(T-h_T;Z_i)-Y(T+h_T;Z_i)}{2h_T}.
 \]
 
-该式输出 annualized raw Theta；`theta_per_day` 为：
+该式输出 annualized raw Theta；`theta_1calendar_day` 为：
 
 \[
 \widehat\Theta_{\mathrm{per\ day}}
@@ -566,6 +593,8 @@ g(S_T)
 \right].
 \]
 
+外部输出同样为 \(0.01\rho_{\mathrm{LR}}\)，即 `rho_1pct`。
+
 ### 7.6 LRM Theta（可选扩展）
 
 令：
@@ -679,7 +708,9 @@ Theta：
 
 ## 9. L3 子层与正式交付顺序
 
-沿用总 curriculum 中的 L3a–L3g，但将实际实现拆成三个 release。
+沿用总 curriculum 中的 L3a–L3g，但将实际实现拆成三个 release。这里的 L3a–L3g 仅表示
+curriculum sublevel；semantic task identity、七维 coordinates 与 executable capability
+仍按第 3.5 节独立冻结。
 
 | 子层 | Task | 默认 estimator | 第一版状态 |
 |---|---|---|---|
@@ -776,7 +807,25 @@ tests/
     └── test_l3_hard_verifier.py
 ```
 
-### 10.1 核心函数契约
+### 10.1 Repository integration artifacts
+
+除数值模块外，第一版还必须新增或版本化与当前仓库架构一致的声明性制品。建议路径如下；
+具体 ID 在 Step 1 冻结后不得静默改名：
+
+```text
+configs/variants/l3_mc_greeks_v1.json
+configs/task_packages/l3_mc_greeks_v1.json
+environments/solver/capabilities.l3_mc_greeks_v1.json
+schemas/l3-mc-greeks-output-v1.schema.json
+schemas/l3-mc-greeks-submission-v1.schema.json
+```
+
+`configs/task_space/executable_capabilities_v1.json` 只能在完整实现证据通过后增加 L3 key。
+L3 继续使用现有 `tdgbm_bsm` model-family identity，不创建第二个虚假 family，也不通过
+修改 model coordinate `M` 获得能力。新的 runtime/profile/lock、method/interface/output
+contract 和 package materializer 必须使用 L3 自己的版本化 identity。
+
+### 10.2 核心函数契约
 
 ```python
 terminal_spot_exact(S0, T, r, q, sigma, z) -> float64_array
@@ -815,6 +864,11 @@ estimate_lr_greeks(task, base_z)
 DuckDB 由 trusted adapter 读取；除非新的 L3 runtime contract 明确授权，Agent 不获得 raw
 connection。当前 analytic/IV runtime 禁止 Agent 直接导入 `duckdb`，L3 不能沿用其 profile
 却在 prompt 中假定 raw SQL 可用。
+
+与当前 accepted package 模式一致，draw bank 应物化到 L3 public task database 或由 host
+持有的只读数据库中，并通过有序、计数、版本化的 trusted adapter 暴露。Evaluation view
+只装载 manifest、prompt、effective runtime contract 与 submission schema；是否物理挂载
+数据库必须由新的 `solver_interface_id` 和 runtime contract 唯一决定。
 
 ### 11.2 推荐表结构
 
@@ -883,7 +937,13 @@ ORDER BY draw_index;
 
 ```yaml
 task_id: l3d_call_atm_0001
-level: L3d
+model_family_id: tdgbm_bsm
+task_family_id: mc_pricing_greeks
+task_kind_id: core_greeks_crn
+method_id: bsm-exact-terminal-crn-antithetic-dgv-v1
+solver_interface_id: ordered-draw-query-schema-submit-v1
+output_contract_id: l3-mc-greeks-output-v1
+curriculum_sublevel: L3d
 measure: Q
 contract_type: european_vanilla
 option_type: call
@@ -893,7 +953,7 @@ terminal_sampler: exact_lognormal
 estimator: crn_central_difference
 
 draw_source: duckdb_frozen_draw_bank
-draw_set_id: pcg64_seed_20260812_m50000
+draw_set_id: pcg64_seed_20260817_m50000
 num_base_draws: 50000
 antithetic: true
 total_paths: 100000
@@ -911,12 +971,12 @@ outputs:
   - mc_price
   - delta
   - gamma
-  - vega_per_1pct
+  - vega_1volpt
   - standard_errors
 
 units:
   vega_scale: 0.01
-  rho_scale: 0.0001
+  rho_scale: 0.01
   theta_day_count_basis: 365
 
 serialization:
@@ -925,7 +985,12 @@ serialization:
   rounding_mode: half_even
 ```
 
-示例 bump 是初始默认值，不应在没有离线 QA 的情况下视为所有 moneyness/maturity 的永恒最优值。task config 才是每题唯一权威来源。
+该 YAML 是 method/task-parameter profile 示例，不是完整 semantic TaskSpec v3；每个 concrete
+task 还必须绑定完整 `coordinates`、`snapshot_id` 与 `snapshot_revision`。示例中的 L3
+identity 是建议值，尚未注册为当前 capability；Step 1 必须先冻结其最终版本。
+示例 bump 是初始默认值，不应在没有离线 QA 的情况下视为所有 moneyness/maturity 的永恒
+最优值。versioned method contract 拥有 estimator/bump 语义，task config 拥有该题的具体
+参数，两者共同构成权威来源。
 
 ---
 
@@ -947,28 +1012,68 @@ method contract、ordered inputs/draws、submission schema 与 effective runtime
 
 Runtime contract 单独拥有 imports、trusted adapters、call budgets、filesystem、network 与资源
 限制；submission schema 只拥有输出形状。Rendered prompt、method contract、runtime 与 schema
-必须一起进入新的 L3 solver-interface identity。
+必须一起进入新的 L3 solver-interface identity。semantic TaskSpec v3 还必须单独绑定
+`model_family_id`、`task_family_id`、`task_kind_id`、`method_id`、
+`solver_interface_id`、`output_contract_id`、`coordinates`、`snapshot_id` 与
+`snapshot_revision`；这些身份不得只存在于 prompt 文本中。
 
 ### 13.2 建议输出
 
 ```json
 {
   "task_id": "l3d_call_atm_0001",
+  "submission_schema_version": "l3-mc-greeks-submission-v1.0.0",
+  "method_id": "bsm-exact-terminal-crn-antithetic-dgv-v1",
+  "output_contract_id": "l3-mc-greeks-output-v1",
+  "status": "completed",
   "estimator": "crn_central_difference",
   "mc_price": "8.12345678",
   "delta": "0.54321098",
   "gamma": "0.01987654",
-  "vega_per_1pct": "0.38765432",
+  "vega_1volpt": "0.38765432",
   "standard_errors": {
     "mc_price": "0.01234567",
     "delta": "0.00123456",
     "gamma": "0.00012345",
-    "vega_per_1pct": "0.00198765"
+    "vega_1volpt": "0.00198765"
   }
 }
 ```
 
-固定小数位字符串比自由浮点 JSON 更适合 exact hard verifier。
+固定小数位字符串比自由浮点 JSON 更适合 exact hard verifier。字段名和单位应复用现有
+Greek 词汇：`vega_1volpt`、`theta_1calendar_day`、`rho_1pct`。
+
+### 13.3 Package 与 release views
+
+L3 package 应复用当前已验收交付的边界模式，但使用自己的 versioned identity：
+
+```text
+<task_id>/
+├── manifest.json
+├── public/
+│   ├── task.duckdb
+│   ├── prompt.md
+│   ├── runtime_contract.json
+│   └── submission.schema.json
+├── verifier/
+│   ├── runtime.py
+│   ├── oracle_config.json
+│   ├── requirements.lock
+│   └── test_*.py
+├── reference/
+│   ├── final_submission.json
+│   ├── trajectory.jsonl
+│   └── artifacts/
+├── authoring_private/
+│   └── identity/oracle/build/leakage manifests
+└── views/
+    ├── evaluation/
+    ├── train_dev/
+    └── authoring/
+```
+
+已有 analytic/visible-IV delivery 是冻结制品；L3 materializer 不得原地改写、复用其
+package identity 或把 MC oracle 塞入现有 delivery。
 
 ---
 
@@ -984,17 +1089,22 @@ L3 hard verifier 比较的是：
 
 ### 14.2 Canonical 计算顺序
 
-1. 从 task record 读取参数；
-2. 按 `draw_index` 升序读取 base \(Z_i\)；
-3. 使用 `float64` 计算 \(S_T(Z_i)\) 与 \(S_T(-Z_i)\)；
+1. 从 task record 读取参数，并按 contract 冻结的 checkpoint 转为 binary64；
+2. 按 `draw_index` 升序读取 base \(Z_i\)；adapter 必须返回 binary64 或可无损 round-trip
+   为 binary64 的表示，不能依赖未声明的 JSON/SQL decimal cast；
+3. 使用 method contract 指定的 scalar math/kernel 计算 \(S_T(Z_i)\) 与 \(S_T(-Z_i)\)；
+   Python `math`、NumPy ufunc 或其他 backend 不得在同一 identity 下互换；
 4. 在路径级形成 price/Greek contributions；
 5. 每个 base draw 先形成 antithetic pair mean；
 6. 按 `draw_index` 升序执行 contract 指定的 binary64 reduction；第一版建议明确冻结为
    left-to-right scalar accumulation，不能只写成会随 NumPy/backend 改变的“sum”；
-7. 计算 pair-level sample standard error，使用 `ddof=1`；
+7. 计算 pair-level sample standard error，使用 `ddof=1`，并冻结 subtraction、square、
+   accumulation、division 与 square-root 顺序；
 8. 在 reduction 完成后做 Greek unit scaling；
-9. 最后一步 canonical rounding；
-10. 逐字段 exact compare。
+9. 将有限 binary64 按 versioned canonicalizer 转为 decimal，使用 8 位
+   `ROUND_HALF_EVEN`，并把负零规范为正零；
+10. 校验 submission schema、method/interface/output-contract identity；
+11. 逐字段 exact compare。
 
 ### 14.3 Verifier 分层
 
@@ -1022,6 +1132,20 @@ Agent 侧禁止：
 - 未在 allowlist 中的预计算 pricing service。
 
 Verifier 可以独立使用 trusted analytic implementation 做 QA，但正式 exact target 应由规范化 MC reference solver 重算。
+
+### 14.5 Executable capability admission
+
+L3 capability key 必须精确绑定：
+
+```text
+(model_family_id, task_family_id, task_kind_id, method_id,
+ solver_interface_id, output_contract_id)
+```
+
+只有 generator/authoring、Solver、独立 Verifier、package materializer、runtime contract
+和 test evidence 全部存在且通过后，才允许把状态写为 `library_implemented` 或
+`portable_verified`。缺少任一证据时必须 fail closed；design catalog、目录骨架、README
+或单独的数值函数都不能让 scheduler 抽到 L3。
 
 ---
 
@@ -1094,7 +1218,10 @@ Verifier 可以独立使用 trusted analytic implementation 做 QA，但正式 e
 3. L3d CRN Delta/Gamma/Vega；
 4. L3e pathwise Delta/Vega；
 5. L3f LR Delta/Gamma/Vega；
-6. 相同 task 在 solver 与 verifier 中输出逐字符一致。
+6. 相同 task 在 solver 与 verifier 中输出逐字符一致；
+7. trusted adapter 的 draw transport 可无损 round-trip 为相同 binary64；
+8. stdlib/NumPy 等不同 kernel 不得在同一 method/runtime identity 下产生未声明替换；
+9. package manifest、evaluation/train-dev/authoring views 与 leakage scan snapshot。
 
 ### 15.4 Property tests
 
@@ -1148,7 +1275,7 @@ Verifier 可以独立使用 trusted analytic implementation 做 QA，但正式 e
 | naive pathwise Gamma | Gamma 错误为 0 | 只允许 CRN/LR/mixed |
 | bump 太小 | cancellation/high variance | config 固定并离线 QA |
 | bump 太大 | truncation bias | 按 maturity/moneyness 分层校准 |
-| Vega/Rho 单位混乱 | 相差 100 或 10,000 倍 | raw 与 scaled 字段分离 |
+| Vega/Rho 单位混乱 | 相差 100 或 10,000 倍 | 固定 `vega_1volpt`/`rho_1pct`，拒绝 1 bp 字段 |
 | Theta 符号混乱 | \(\partial_TV\) 与 market Theta 相反 | 固定 \(\Theta=-\partial_TV\) |
 | 过早 rounding | 结果漂移 | 仅最终 serialization rounding |
 | analytic formula 代替 MC | 没有执行指定算法 | frozen realization exact verifier |
@@ -1158,17 +1285,20 @@ Verifier 可以独立使用 trusted analytic implementation 做 QA，但正式 e
 
 ## 18. 实施步骤与验收门
 
-### Step 1：冻结 conventions
+### Step 1：冻结 conventions 与 semantic identity
 
 交付：
 
 - Greek definitions；
-- units/scaling；
+- 与现有仓库一致的 `vega_1volpt`、`theta_1calendar_day`、`rho_1pct` units/scaling；
 - bump semantics；
 - draw/pair/path-count semantics；
-- rounding 与 output schema。
+- model/task/kind/method/interface/output-contract、coordinates 与 snapshot identity；
+- binary64 cast、math kernel、reduction、rounding 与 output schema；
+- L3 runtime/profile/lock 的依赖选择。
 
-验收：同一字段在 authoring、solver、verifier 和文档中定义一致。
+验收：同一字段和 identity 在 authoring、solver、verifier、runtime、package、schema 与文档
+中定义一致；此阶段仍不得注册 executable capability。
 
 ### Step 2：实现 exact terminal MC core
 
@@ -1233,11 +1363,29 @@ Verifier 可以独立使用 trusted analytic implementation 做 QA，但正式 e
 - 修改 draw order、bump、unit 或 antithetic SE convention 时失败；
 - 重复运行逐字符一致。
 
-### Step 7：加入 Rho/Theta 与 portfolio
+### Step 7：建立 package、runtime 与 capability admission
 
 交付：
 
-- CRN Rho/Theta；
+- 独立 L3 package materializer；
+- manifest、public/private/reference/verifier 边界与三种 release view；
+- 新的 Solver runtime/profile/dependency lock；
+- semantic TaskSpec v3 adapter；
+- executable-capability evidence entry；
+- family-aware curriculum/scheduler integration。
+
+验收：
+
+- evaluation view 不含 reference answer、verifier source 或 private draw provenance；
+- runtime import/tool/mount/budget 与 prompt 声明一致；
+- 缺少任一 evidence 时 capability gate 和 scheduler fail closed；
+- accepted package 可从 manifest 重放并逐字段验证。
+
+### Step 8：加入 Rho/Theta 与 portfolio
+
+交付：
+
+- CRN Rho/Theta，外部单位为 `rho_1pct` 与 `theta_1calendar_day`；
 - pathwise/LR Rho；
 - portfolio positions/multipliers；
 - multi-underlying Greek vector schema。
@@ -1261,7 +1409,7 @@ Verifier 可以独立使用 trusted analytic implementation 做 QA，但正式 e
 | absolute rate bump | \(10^{-4}\) |
 | time bump | \(1/365\) year |
 | vega output scale | \(10^{-2}\) |
-| rho output scale | \(10^{-4}\) |
+| rho output scale | \(10^{-2}\) |
 | output digits | 8 |
 
 这些是工程 baseline，不是待估计参数。正式 task 中必须将它们写入 config/prompt。
@@ -1272,6 +1420,9 @@ Verifier 可以独立使用 trusted analytic implementation 做 QA，但正式 e
 
 L3 第一版只有在以下条件全部满足时才算完成：
 
+- [ ] L3 复用 `tdgbm_bsm` model family，且没有通过修改 `M` 创建虚假 family；
+- [ ] L3a–L3g 只作为 curriculum 标签，具体 variant 与 `A6` 及 semantic TaskSpec v3 一致；
+- [ ] model/task/kind/method/interface/output-contract、coordinates 与 snapshot identity 已冻结并进入 deterministic task identity；
 - [ ] L3 代码路径没有读取 \(P\)-measure drift/diffusion/correlation；
 - [ ] European BSM 使用 exact terminal sampling，无 Euler bias；
 - [ ] plain 与 antithetic MC price 已实现；
@@ -1280,16 +1431,20 @@ L3 第一版只有在以下条件全部满足时才算完成：
 - [ ] LR Delta/Gamma/Vega 已实现；
 - [ ] naive pathwise Gamma 被显式禁止；
 - [ ] antithetic standard error 基于 pair means；
-- [ ] raw/scaled Greek units 唯一且有测试；
+- [ ] raw/scaled Greek units 唯一且有测试，字段使用 `vega_1volpt`、`theta_1calendar_day`、`rho_1pct`；
 - [ ] frozen draw bank、draw order 和 dtype 已固定；
 - [ ] agent output 是 fixed-draw MC realization，不是 analytic Greek；
 - [ ] solver/verifier 对固定 task 的序列化结果逐字符一致；
 - [ ] analytic BSM grid QA 通过；
 - [ ] public database/prompt 不包含 reference answers；
-- [ ] task pack 包含 database、prompt、pytest verifier、reference trajectory 与 config；
-- [ ] allowlist/sandbox 明确阻止直接调用 Greeks package 或读取 private verifier。
+- [ ] task pack 包含 manifest、database、prompt、runtime、submission schema、pytest verifier、reference trajectory、config 与三种 release view；
+- [ ] 新的 L3 runtime/profile/dependency lock 已版本化并通过跨进程 deterministic snapshots；
+- [ ] allowlist/sandbox 明确阻止直接调用 Greeks package 或读取 private verifier；
+- [ ] executable-capability entry 只在完整 evidence 通过后启用，缺证据时 curriculum/scheduler fail closed。
 
-截至 2026-08-12，上述条目全部未完成；现有 `solver/mc/__init__.py` 仅声明未来模块边界。
+截至 2026-08-17，上述 L3 条目全部未完成；现有 `solver/mc/__init__.py` 仅声明未来模块
+边界。已完成的 `tdgbm_bsm` model-family/TaskSpec v3/capability 基础设施是 L3 的前置集成
+目标，不应被误记为 L3 estimator 或 package 已实现。
 
 ---
 
