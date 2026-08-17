@@ -60,6 +60,9 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.prompt_rende
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.runtime import (
     compose_runtime_contract_v3,
 )
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.semantic_capabilities import (
+    require_portable_metric_capabilities,
+)
 
 
 SUITE_SCHEMA_VERSION = "bsm-market-metric-suite-v1.0.0"
@@ -1176,6 +1179,10 @@ def _build_portable_bsm_metric_suite(
 ) -> PortableMetricSuite:
     """Build all targets in one staging tree and publish with one rename."""
 
+    # This preflight is sidecar-only and deliberately does not enter any frozen
+    # package identity. Verification/replay of accepted packages stays on the
+    # legacy path, while new materialization fails before creating output.
+    require_portable_metric_capabilities(query_v3=protocol is _V3_PROTOCOL)
     delivery_name = _require_identifier(delivery_id, "delivery_id")
     allocation_name = _require_identifier(allocation_id, "allocation_id")
     profile_value = _load_profile(profile)

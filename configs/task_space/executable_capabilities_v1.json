@@ -1,0 +1,375 @@
+{
+  "schema_version": "executable-capability-registry-v1.0.0",
+  "registry_id": "synthetic-derivatives-executable-capabilities-v1",
+  "capabilities": [
+    {
+      "model_family_id": "tdgbm_bsm",
+      "task_family_id": "analytic_greeks",
+      "task_kind_id": "core_greeks",
+      "method_id": "bsm-analytic-float64-greeks-v1",
+      "solver_interface_id": "python-library-bsm-analytic-greeks-v1",
+      "catalog_task_family_id": "bsm_greeks",
+      "status": "library_implemented",
+      "output_contract_id": "bsm-analytic-greeks-output-v1",
+      "legacy_identity_ids": ["variant:bsm_analytic_greeks_v1"],
+      "evidence": {
+        "authoring_backend_id": "tdgbm_bsm_authoring_v1",
+        "solver_id": "stdlib-bsm-analytic-greeks-v1",
+        "verifier_id": "quantlib-bsm-analytic-greeks-verifier-v1",
+        "package_materializer_id": null,
+        "runtime_contract_id": null,
+        "test_ids": [
+          "tests/unit/test_bsm_greeks_contract.py",
+          "tests/integration/test_bsm_greeks_verifier.py"
+        ]
+      }
+    },
+    {
+      "model_family_id": "tdgbm_bsm",
+      "task_family_id": "implied_volatility",
+      "task_kind_id": "scalar_iv",
+      "method_id": "bsm-bisection-float64-80-v1",
+      "solver_interface_id": "python-library-bsm-scalar-iv-v1",
+      "catalog_task_family_id": "bsm_vanilla",
+      "status": "library_implemented",
+      "output_contract_id": "bsm-iv-scalar-output-v1",
+      "legacy_identity_ids": ["variant:bsm_iv_scalar_v1"],
+      "evidence": {
+        "authoring_backend_id": "tdgbm_bsm_authoring_v1",
+        "solver_id": "stdlib-bsm-implied-volatility-v1",
+        "verifier_id": "quantlib-bsm-implied-volatility-verifier-v1",
+        "package_materializer_id": null,
+        "runtime_contract_id": null,
+        "test_ids": [
+          "tests/unit/test_bsm_implied_volatility.py",
+          "tests/integration/test_bsm_iv_verifier.py"
+        ]
+      }
+    },
+    {
+      "model_family_id": "tdgbm_bsm",
+      "task_family_id": "market_implied_metric_bundle",
+      "task_kind_id": "core_greeks_bundle",
+      "method_id": "bsm-mid-iv-bisection80-analytic-greeks-v1",
+      "solver_interface_id": "static-json-query-schema-submit-v2",
+      "catalog_task_family_id": "bsm_greeks",
+      "status": "portable_verified",
+      "output_contract_id": "bsm-market-implied-greeks-output-v1",
+      "legacy_identity_ids": [
+        "variant:bsm_market_implied_greeks_v1",
+        "delivery:20260813_prompt_v2_100"
+      ],
+      "evidence": {
+        "authoring_backend_id": "tdgbm_bsm_authoring_v1",
+        "solver_id": "stdlib-bsm-market-implied-greeks-v1",
+        "verifier_id": "quantlib-bsm-market-implied-greeks-verifier-v1",
+        "package_materializer_id": "bsm-market-implied-greeks-portable-delivery-v2",
+        "runtime_contract_id": "static-json-query-schema-submit-v2",
+        "test_ids": [
+          "tests/packaging_analytic_and_implied_greeks_iv/test_portable_delivery.py",
+          "tests/packaging_analytic_and_implied_greeks_iv/test_bsm_greeks_database_and_replay.py"
+        ]
+      }
+    },
+    {
+      "model_family_id": "tdgbm_bsm",
+      "task_family_id": "market_implied_metric",
+      "task_kind_id": "iv",
+      "method_id": "bsm-mid-iv-bisection80-v1",
+      "solver_interface_id": "static-json-query-schema-submit-v2",
+      "catalog_task_family_id": "bsm_greeks",
+      "status": "portable_verified",
+      "output_contract_id": "bsm-market-implied-iv-submission-v1.0.0",
+      "legacy_identity_ids": [
+        "metric-spec:bsm_market_implied_iv_v1:static-v1",
+        "delivery:20260814_metric_6x4_unique_db:iv"
+      ],
+      "evidence": {
+        "authoring_backend_id": "tdgbm_bsm_authoring_v1",
+        "solver_id": "stdlib-bsm-market-implied-iv-v1",
+        "verifier_id": "quantlib-bsm-market-implied-iv-verifier-v1",
+        "package_materializer_id": "bsm-market-metric-suite-static-v1",
+        "runtime_contract_id": "static-json-query-schema-submit-v2",
+        "test_ids": [
+          "tests/packaging_analytic_and_implied_greeks_iv/test_portable_metric_suite.py",
+          "tests/packaging_analytic_and_implied_greeks_iv/test_metric_specs.py"
+        ]
+      }
+    },
+    {
+      "model_family_id": "tdgbm_bsm",
+      "task_family_id": "market_implied_metric",
+      "task_kind_id": "delta",
+      "method_id": "bsm-mid-iv-bisection80-analytic-delta-v1",
+      "solver_interface_id": "static-json-query-schema-submit-v2",
+      "catalog_task_family_id": "bsm_greeks",
+      "status": "portable_verified",
+      "output_contract_id": "bsm-market-implied-delta-submission-v1.0.0",
+      "legacy_identity_ids": [
+        "metric-spec:bsm_market_implied_delta_v1:static-v1",
+        "delivery:20260814_metric_6x4_unique_db:delta"
+      ],
+      "evidence": {
+        "authoring_backend_id": "tdgbm_bsm_authoring_v1",
+        "solver_id": "stdlib-bsm-market-implied-delta-v1",
+        "verifier_id": "quantlib-bsm-market-implied-delta-verifier-v1",
+        "package_materializer_id": "bsm-market-metric-suite-static-v1",
+        "runtime_contract_id": "static-json-query-schema-submit-v2",
+        "test_ids": [
+          "tests/packaging_analytic_and_implied_greeks_iv/test_portable_metric_suite.py",
+          "tests/packaging_analytic_and_implied_greeks_iv/test_metric_specs.py"
+        ]
+      }
+    },
+    {
+      "model_family_id": "tdgbm_bsm",
+      "task_family_id": "market_implied_metric",
+      "task_kind_id": "gamma",
+      "method_id": "bsm-mid-iv-bisection80-analytic-gamma-v1",
+      "solver_interface_id": "static-json-query-schema-submit-v2",
+      "catalog_task_family_id": "bsm_greeks",
+      "status": "portable_verified",
+      "output_contract_id": "bsm-market-implied-gamma-submission-v1.0.0",
+      "legacy_identity_ids": [
+        "metric-spec:bsm_market_implied_gamma_v1:static-v1",
+        "delivery:20260814_metric_6x4_unique_db:gamma"
+      ],
+      "evidence": {
+        "authoring_backend_id": "tdgbm_bsm_authoring_v1",
+        "solver_id": "stdlib-bsm-market-implied-gamma-v1",
+        "verifier_id": "quantlib-bsm-market-implied-gamma-verifier-v1",
+        "package_materializer_id": "bsm-market-metric-suite-static-v1",
+        "runtime_contract_id": "static-json-query-schema-submit-v2",
+        "test_ids": [
+          "tests/packaging_analytic_and_implied_greeks_iv/test_portable_metric_suite.py",
+          "tests/packaging_analytic_and_implied_greeks_iv/test_metric_specs.py"
+        ]
+      }
+    },
+    {
+      "model_family_id": "tdgbm_bsm",
+      "task_family_id": "market_implied_metric",
+      "task_kind_id": "vega_1volpt",
+      "method_id": "bsm-mid-iv-bisection80-analytic-vega-1volpt-v1",
+      "solver_interface_id": "static-json-query-schema-submit-v2",
+      "catalog_task_family_id": "bsm_greeks",
+      "status": "portable_verified",
+      "output_contract_id": "bsm-market-implied-vega-1volpt-submission-v1.0.0",
+      "legacy_identity_ids": [
+        "metric-spec:bsm_market_implied_vega_1volpt_v1:static-v1",
+        "delivery:20260814_metric_6x4_unique_db:vega_1volpt"
+      ],
+      "evidence": {
+        "authoring_backend_id": "tdgbm_bsm_authoring_v1",
+        "solver_id": "stdlib-bsm-market-implied-vega-1volpt-v1",
+        "verifier_id": "quantlib-bsm-market-implied-vega-1volpt-verifier-v1",
+        "package_materializer_id": "bsm-market-metric-suite-static-v1",
+        "runtime_contract_id": "static-json-query-schema-submit-v2",
+        "test_ids": [
+          "tests/packaging_analytic_and_implied_greeks_iv/test_portable_metric_suite.py",
+          "tests/packaging_analytic_and_implied_greeks_iv/test_metric_specs.py"
+        ]
+      }
+    },
+    {
+      "model_family_id": "tdgbm_bsm",
+      "task_family_id": "market_implied_metric",
+      "task_kind_id": "theta_1calendar_day",
+      "method_id": "bsm-mid-iv-bisection80-analytic-theta-1calendar-day-v1",
+      "solver_interface_id": "static-json-query-schema-submit-v2",
+      "catalog_task_family_id": "bsm_greeks",
+      "status": "portable_verified",
+      "output_contract_id": "bsm-market-implied-theta-1calendar-day-submission-v1.0.0",
+      "legacy_identity_ids": [
+        "metric-spec:bsm_market_implied_theta_1calendar_day_v1:static-v1",
+        "delivery:20260814_metric_6x4_unique_db:theta_1calendar_day"
+      ],
+      "evidence": {
+        "authoring_backend_id": "tdgbm_bsm_authoring_v1",
+        "solver_id": "stdlib-bsm-market-implied-theta-1calendar-day-v1",
+        "verifier_id": "quantlib-bsm-market-implied-theta-1calendar-day-verifier-v1",
+        "package_materializer_id": "bsm-market-metric-suite-static-v1",
+        "runtime_contract_id": "static-json-query-schema-submit-v2",
+        "test_ids": [
+          "tests/packaging_analytic_and_implied_greeks_iv/test_portable_metric_suite.py",
+          "tests/packaging_analytic_and_implied_greeks_iv/test_metric_specs.py"
+        ]
+      }
+    },
+    {
+      "model_family_id": "tdgbm_bsm",
+      "task_family_id": "market_implied_metric",
+      "task_kind_id": "rho_1pct",
+      "method_id": "bsm-mid-iv-bisection80-analytic-rho-1pct-v1",
+      "solver_interface_id": "static-json-query-schema-submit-v2",
+      "catalog_task_family_id": "bsm_greeks",
+      "status": "portable_verified",
+      "output_contract_id": "bsm-market-implied-rho-1pct-submission-v1.0.0",
+      "legacy_identity_ids": [
+        "metric-spec:bsm_market_implied_rho_1pct_v1:static-v1",
+        "delivery:20260814_metric_6x4_unique_db:rho_1pct"
+      ],
+      "evidence": {
+        "authoring_backend_id": "tdgbm_bsm_authoring_v1",
+        "solver_id": "stdlib-bsm-market-implied-rho-1pct-v1",
+        "verifier_id": "quantlib-bsm-market-implied-rho-1pct-verifier-v1",
+        "package_materializer_id": "bsm-market-metric-suite-static-v1",
+        "runtime_contract_id": "static-json-query-schema-submit-v2",
+        "test_ids": [
+          "tests/packaging_analytic_and_implied_greeks_iv/test_portable_metric_suite.py",
+          "tests/packaging_analytic_and_implied_greeks_iv/test_metric_specs.py"
+        ]
+      }
+    },
+    {
+      "model_family_id": "tdgbm_bsm",
+      "task_family_id": "market_implied_metric",
+      "task_kind_id": "iv",
+      "method_id": "bsm-mid-iv-bisection80-v1",
+      "solver_interface_id": "read-only-duckdb-query-schema-submit-v3",
+      "catalog_task_family_id": "bsm_greeks",
+      "status": "portable_verified",
+      "output_contract_id": "bsm-market-implied-iv-submission-v2.0.0",
+      "legacy_identity_ids": [
+        "metric-spec:bsm_market_implied_iv_v1:query-v3",
+        "delivery:20260814_metric_6x4_db_query_v3:iv"
+      ],
+      "evidence": {
+        "authoring_backend_id": "tdgbm_bsm_authoring_v1",
+        "solver_id": "stdlib-bsm-market-implied-iv-v1",
+        "verifier_id": "quantlib-bsm-market-implied-iv-verifier-v2",
+        "package_materializer_id": "bsm-market-metric-suite-duckdb-query-v3",
+        "runtime_contract_id": "read-only-duckdb-query-schema-submit-v3",
+        "test_ids": [
+          "tests/packaging_analytic_and_implied_greeks_iv/test_portable_metric_suite_v3.py",
+          "tests/packaging_analytic_and_implied_greeks_iv/test_metric_verifier_v3.py"
+        ]
+      }
+    },
+    {
+      "model_family_id": "tdgbm_bsm",
+      "task_family_id": "market_implied_metric",
+      "task_kind_id": "delta",
+      "method_id": "bsm-mid-iv-bisection80-analytic-delta-v1",
+      "solver_interface_id": "read-only-duckdb-query-schema-submit-v3",
+      "catalog_task_family_id": "bsm_greeks",
+      "status": "portable_verified",
+      "output_contract_id": "bsm-market-implied-delta-submission-v2.0.0",
+      "legacy_identity_ids": [
+        "metric-spec:bsm_market_implied_delta_v1:query-v3",
+        "delivery:20260814_metric_6x4_db_query_v3:delta"
+      ],
+      "evidence": {
+        "authoring_backend_id": "tdgbm_bsm_authoring_v1",
+        "solver_id": "stdlib-bsm-market-implied-delta-v1",
+        "verifier_id": "quantlib-bsm-market-implied-delta-verifier-v2",
+        "package_materializer_id": "bsm-market-metric-suite-duckdb-query-v3",
+        "runtime_contract_id": "read-only-duckdb-query-schema-submit-v3",
+        "test_ids": [
+          "tests/packaging_analytic_and_implied_greeks_iv/test_portable_metric_suite_v3.py",
+          "tests/packaging_analytic_and_implied_greeks_iv/test_metric_verifier_v3.py"
+        ]
+      }
+    },
+    {
+      "model_family_id": "tdgbm_bsm",
+      "task_family_id": "market_implied_metric",
+      "task_kind_id": "gamma",
+      "method_id": "bsm-mid-iv-bisection80-analytic-gamma-v1",
+      "solver_interface_id": "read-only-duckdb-query-schema-submit-v3",
+      "catalog_task_family_id": "bsm_greeks",
+      "status": "portable_verified",
+      "output_contract_id": "bsm-market-implied-gamma-submission-v2.0.0",
+      "legacy_identity_ids": [
+        "metric-spec:bsm_market_implied_gamma_v1:query-v3",
+        "delivery:20260814_metric_6x4_db_query_v3:gamma"
+      ],
+      "evidence": {
+        "authoring_backend_id": "tdgbm_bsm_authoring_v1",
+        "solver_id": "stdlib-bsm-market-implied-gamma-v1",
+        "verifier_id": "quantlib-bsm-market-implied-gamma-verifier-v2",
+        "package_materializer_id": "bsm-market-metric-suite-duckdb-query-v3",
+        "runtime_contract_id": "read-only-duckdb-query-schema-submit-v3",
+        "test_ids": [
+          "tests/packaging_analytic_and_implied_greeks_iv/test_portable_metric_suite_v3.py",
+          "tests/packaging_analytic_and_implied_greeks_iv/test_metric_verifier_v3.py"
+        ]
+      }
+    },
+    {
+      "model_family_id": "tdgbm_bsm",
+      "task_family_id": "market_implied_metric",
+      "task_kind_id": "vega_1volpt",
+      "method_id": "bsm-mid-iv-bisection80-analytic-vega-1volpt-v1",
+      "solver_interface_id": "read-only-duckdb-query-schema-submit-v3",
+      "catalog_task_family_id": "bsm_greeks",
+      "status": "portable_verified",
+      "output_contract_id": "bsm-market-implied-vega-1volpt-submission-v2.0.0",
+      "legacy_identity_ids": [
+        "metric-spec:bsm_market_implied_vega_1volpt_v1:query-v3",
+        "delivery:20260814_metric_6x4_db_query_v3:vega_1volpt"
+      ],
+      "evidence": {
+        "authoring_backend_id": "tdgbm_bsm_authoring_v1",
+        "solver_id": "stdlib-bsm-market-implied-vega-1volpt-v1",
+        "verifier_id": "quantlib-bsm-market-implied-vega-1volpt-verifier-v2",
+        "package_materializer_id": "bsm-market-metric-suite-duckdb-query-v3",
+        "runtime_contract_id": "read-only-duckdb-query-schema-submit-v3",
+        "test_ids": [
+          "tests/packaging_analytic_and_implied_greeks_iv/test_portable_metric_suite_v3.py",
+          "tests/packaging_analytic_and_implied_greeks_iv/test_metric_verifier_v3.py"
+        ]
+      }
+    },
+    {
+      "model_family_id": "tdgbm_bsm",
+      "task_family_id": "market_implied_metric",
+      "task_kind_id": "theta_1calendar_day",
+      "method_id": "bsm-mid-iv-bisection80-analytic-theta-1calendar-day-v1",
+      "solver_interface_id": "read-only-duckdb-query-schema-submit-v3",
+      "catalog_task_family_id": "bsm_greeks",
+      "status": "portable_verified",
+      "output_contract_id": "bsm-market-implied-theta-1calendar-day-submission-v2.0.0",
+      "legacy_identity_ids": [
+        "metric-spec:bsm_market_implied_theta_1calendar_day_v1:query-v3",
+        "delivery:20260814_metric_6x4_db_query_v3:theta_1calendar_day"
+      ],
+      "evidence": {
+        "authoring_backend_id": "tdgbm_bsm_authoring_v1",
+        "solver_id": "stdlib-bsm-market-implied-theta-1calendar-day-v1",
+        "verifier_id": "quantlib-bsm-market-implied-theta-1calendar-day-verifier-v2",
+        "package_materializer_id": "bsm-market-metric-suite-duckdb-query-v3",
+        "runtime_contract_id": "read-only-duckdb-query-schema-submit-v3",
+        "test_ids": [
+          "tests/packaging_analytic_and_implied_greeks_iv/test_portable_metric_suite_v3.py",
+          "tests/packaging_analytic_and_implied_greeks_iv/test_metric_verifier_v3.py"
+        ]
+      }
+    },
+    {
+      "model_family_id": "tdgbm_bsm",
+      "task_family_id": "market_implied_metric",
+      "task_kind_id": "rho_1pct",
+      "method_id": "bsm-mid-iv-bisection80-analytic-rho-1pct-v1",
+      "solver_interface_id": "read-only-duckdb-query-schema-submit-v3",
+      "catalog_task_family_id": "bsm_greeks",
+      "status": "portable_verified",
+      "output_contract_id": "bsm-market-implied-rho-1pct-submission-v2.0.0",
+      "legacy_identity_ids": [
+        "metric-spec:bsm_market_implied_rho_1pct_v1:query-v3",
+        "delivery:20260814_metric_6x4_db_query_v3:rho_1pct"
+      ],
+      "evidence": {
+        "authoring_backend_id": "tdgbm_bsm_authoring_v1",
+        "solver_id": "stdlib-bsm-market-implied-rho-1pct-v1",
+        "verifier_id": "quantlib-bsm-market-implied-rho-1pct-verifier-v2",
+        "package_materializer_id": "bsm-market-metric-suite-duckdb-query-v3",
+        "runtime_contract_id": "read-only-duckdb-query-schema-submit-v3",
+        "test_ids": [
+          "tests/packaging_analytic_and_implied_greeks_iv/test_portable_metric_suite_v3.py",
+          "tests/packaging_analytic_and_implied_greeks_iv/test_metric_verifier_v3.py"
+        ]
+      }
+    }
+  ]
+}

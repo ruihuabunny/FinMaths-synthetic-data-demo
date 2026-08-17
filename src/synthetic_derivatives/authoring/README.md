@@ -11,14 +11,15 @@ snapshot。Solver 不应直接导入本包，也不能访问其中的 private ge
 
 | 模块 | 职责 |
 |:---|:---|
+| [`backends.py`](backends.py) | 将已实现的 `tdgbm_bsm` family 显式解析为现有 underlying/option generators；未知 family 在创建 artifact 前失败。 |
 | [`config.py`](config.py) | 解析 generator config；校验 deterministic physical functions、underlying dependence、option-chain grid 和稳定 ID；规范派生 $D$ 与 $R$。 |
 | [`generator_common.py`](generator_common.py) | 两个 generator 共享的 pinned QuantLib 检查、calendar/day-count、日期转换、8 位 decimal canonicalization，以及 namespaced deterministic RNG。 |
 | [`underlying_daily_generator.py`](underlying_daily_generator.py) | 生成 underlying master、P/Q measure-qualified dependence、`underlying_daily` 和 `pricing_metadata`；只有 P spec 可生成 path shock。 |
 | [`option_daily_generator.py`](option_daily_generator.py) | 生成 private option-chain spec、冻结的 option contracts 和 Q-measure `option_daily`；不提供 underlying path/dependence API，也不生成 IV answers。 |
-| [`pipeline.py`](pipeline.py) | 编排两个 generator、DuckDB transaction、incremental MERGE、snapshot compatibility、quality gates、revision 和 manifest。 |
+| [`pipeline.py`](pipeline.py) | 通过 backend registry 编排两个 generator、DuckDB transaction、incremental MERGE、snapshot compatibility、quality gates、revision 和 manifest。 |
 | [`schema.py`](schema.py) | DuckDB DDL、additive migration、solver-visible views、table column order 和 business-key MERGE。 |
 | [`cli.py`](cli.py) | `create-smoke`、`append-dates`、`sync-config`、`sync-range`、`summary` 和 `freeze` 命令入口。 |
-| [`__init__.py`](__init__.py) | 对外只导出 `AuthoringPipeline`。 |
+| [`__init__.py`](__init__.py) | 导出 `AuthoringPipeline` 与显式 authoring backend registry 类型。 |
 
 原来的单体 `generator.py` 已拆除。Product-specific generator 只共享基础设施，不互相
 调用，避免 option quote 生成路径意外读取 P-measure correlation contract。

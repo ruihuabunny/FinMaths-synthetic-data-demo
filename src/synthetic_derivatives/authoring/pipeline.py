@@ -18,17 +18,18 @@ from uuid import uuid4
 import duckdb
 import QuantLib as ql
 
+from synthetic_derivatives.authoring.backends import (
+    DEFAULT_AUTHORING_BACKEND_REGISTRY,
+    AuthoringBackendRegistry,
+)
 from synthetic_derivatives.authoring.config import GeneratorConfig
-from synthetic_derivatives.authoring.option_daily_generator import OptionDailyGenerator
 from synthetic_derivatives.authoring.schema import (
     SCHEMA_VERSION,
     TABLE_SPECS,
     initialize_schema,
     merge_rows,
 )
-from synthetic_derivatives.authoring.underlying_daily_generator import (
-    UnderlyingDailyGenerator,
-)
+from synthetic_derivatives.model_families import TDGBM_BSM_MODEL_FAMILY_ID
 
 
 class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
@@ -40,14 +41,26 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
     ``OptionDailyGenerator`` respectively.
     """
 
-    def __init__(self, database: str | Path, config: GeneratorConfig):
+    def __init__(
+        self,
+        database: str | Path,
+        config: GeneratorConfig,
+        *,
+        model_family_id: str = TDGBM_BSM_MODEL_FAMILY_ID,
+        backend_registry: AuthoringBackendRegistry | None = None,
+    ):
         """Open ``database`` and initialize/migrate it to the current schema."""
 
+        registry = backend_registry or DEFAULT_AUTHORING_BACKEND_REGISTRY
+        backend = registry.resolve(model_family_id)
+        backend.validate_config(config)
+        self.model_family_id = model_family_id
+        self.authoring_backend = backend
         self.database = Path(database)
         self.database.parent.mkdir(parents=True, exist_ok=True)
         self.config = config
-        self.underlying_generator = UnderlyingDailyGenerator(config)
-        self.option_generator = OptionDailyGenerator(config)
+        self.underlying_generator = backend.create_underlying_generator(config)
+        self.option_generator = backend.create_option_generator(config)
         if self.database.exists():
             probe = duckdb.connect(str(self.database), read_only=True)
             snapshot_table_exists = probe.execute(

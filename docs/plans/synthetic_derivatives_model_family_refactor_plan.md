@@ -8,6 +8,18 @@
 >
 > 文档状态：基于当前实现更新的重构设计与实施 handoff；本文件是非规范性计划，当前行为以代码、配置、schema、测试和已验收 artifact 为准。
 
+> 实施状态（2026-08-17）：本计划初始 DoD 所定义的 Phase 1–4 已在当前分支完成。
+> 已新增 `tdgbm_bsm` stochastic identity、semantic TaskSpec v3、独立 executable
+> capability registry、legacy/`MetricSpec` adapters、package preflight gate、显式
+> authoring backend dispatch，以及 family-aware curriculum/mutation 新路径。L3 MC、第二个
+> model family 和 generic common kernel 仍未实现，继续属于本计划明确排除的后续阶段。
+> 验收证据为当前全量 `.venv/bin/python -m pytest` 的 `545 passed`、
+> `git diff --check` 通过，以及三个 accepted delivery 根目录无 diff；规范性入口与测试见
+> [`model_families`](../../src/synthetic_derivatives/model_families/)、
+> [`executable_capabilities_v1.json`](../../configs/task_space/executable_capabilities_v1.json)、
+> [`test_model_family_registry.py`](../../tests/unit/test_model_family_registry.py) 和
+> [`test_family_capability_gate.py`](../../tests/integration/test_family_capability_gate.py)。
+
 ## 1. 这次更新后的结论
 
 当前分支已经不再处于“先设计单 Greek package”的阶段。仓库已经完成：
@@ -512,20 +524,20 @@ task_packages/deliveries/bsm_market_implied_metric_suite_v1/20260814_metric_6x4_
 
 ## 14. 本轮初始 Definition of Done
 
-- [ ] `tdgbm_bsm` 成为显式、可校验的 model family；
-- [ ] model family、task family、task kind、solver interface 四种身份分离；
-- [ ] semantic TaskSpec v3 与 existing package/query v3 明确区分；
-- [ ] current TaskSpec、variant 和 delivery 通过显式 adapter 映射，未被改写；
-- [ ] design catalog 与 executable capability 分离；
-- [ ] current static/query-v3 六 target capabilities 被准确登记；
-- [ ] MC、Heston、local-vol 等不完整能力 fail closed；
-- [ ] current generator 通过 `TDGBMBSMAuthoringBackend` registry dispatch；
-- [ ] authoring rows/checksum/source assignment 与现状一致；
-- [ ] scheduler 在 family-local stage mapping 前执行 capability gate；
-- [ ] ordinary mutation 无法改变 model family 或 `M`；
-- [ ] current three delivery baselines 与全部 accepted artifact byte-identical；
-- [ ] Solver/Verifier 数值独立性没有降低；
-- [ ] 新增 unit/integration tests、全量 `pytest` 和 `git diff --check` 通过。
+- [x] `tdgbm_bsm` 成为显式、可校验的 model family；
+- [x] model family、task family、task kind、solver interface 四种身份分离；
+- [x] semantic TaskSpec v3 与 existing package/query v3 明确区分；
+- [x] current TaskSpec、variant 和 delivery 通过显式 adapter 映射，未被改写；
+- [x] design catalog 与 executable capability 分离；
+- [x] current static/query-v3 六 target capabilities 被准确登记；
+- [x] MC、Heston、local-vol 等不完整能力 fail closed；
+- [x] current generator 通过 `TDGBMBSMAuthoringBackend` registry dispatch；
+- [x] authoring rows/checksum/source assignment 与现状一致；
+- [x] scheduler 在 family-local stage mapping 前执行 capability gate；
+- [x] ordinary mutation 无法改变 model family 或 `M`；
+- [x] current three delivery baselines 与全部 accepted artifact byte-identical；
+- [x] Solver/Verifier 数值独立性没有降低；
+- [x] 新增 unit/integration tests、全量 `pytest` 和 `git diff --check` 通过。
 
 以下明确不属于本轮初始 DoD：
 

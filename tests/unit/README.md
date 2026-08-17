@@ -31,8 +31,14 @@ Unit tests 可以直接导入具体实现类、调用非公开 helper，并检�
 | [`test_bsm_implied_volatility.py`](test_bsm_implied_volatility.py) | 同一 Solver 包的 Decimal-first visible midpoint、贴现 price domain、固定 `[1e-6,5.0]` bracket、恰好 80 次 bisection、四种 canonical status、无 fallback 与 task-only config boundary。 |
 | [`test_option_chain_builder.py`](test_option_chain_builder.py) | Expiry × grid × call/put 展开、liquidity filtering、quote-noise replay、moneyness/absolute-strike 互斥、listing strike 冻结、stable contract ID、append/`sync-config` invariance 和 22-underlying public config 结构。 |
 | [`test_task_space.py`](test_task_space.py) | 七维 task coordinates、F enum/schema 一致性、显式旧六维迁移、registry compatibility 和 documented axes。 |
+| [`test_model_family_registry.py`](test_model_family_registry.py) | `tdgbm_bsm` stochastic identity、`M=0` 派生、closed schema、duplicate/unknown family 与动态 import-path 拒绝。 |
+| [`test_executable_capability_registry.py`](test_executable_capability_registry.py) | Exact five-field capability key、status/evidence gate、static/query interface 分离和 MC/non-BSM fail-closed。 |
+| [`test_task_v3_identity.py`](test_task_v3_identity.py) | Semantic TaskSpec v3 的四类正交身份、closed serialization、legacy adapter 与 family/`M` 一致性。 |
+| [`test_authoring_backend_registry.py`](test_authoring_backend_registry.py) | `TDGBMBSMAuthoringBackend` 显式 dispatch、duplicate/unknown rejection 和写 artifact 前失败。 |
 | [`test_mutation.py`](test_mutation.py) | Deterministic single-axis mutation、snapshot lineage、incompatible child rejection 和 method identity。 |
+| [`test_family_mutation_guards.py`](test_family_mutation_guards.py) | Family/`M` immutability、capability-backed semantic changes，以及 kind/method/interface/output/snapshot 完整 lineage。 |
 | [`test_curriculum.py`](test_curriculum.py) | 20/60/20 stage mass、mastery-adaptive sampling，以及 diagnostics 不改变 binary reward。 |
+| [`test_family_curriculum.py`](test_family_curriculum.py) | Capability gate 先于 family-local stage mapping、portable-only pool 和不变的 20/60/20/mastery semantics。 |
 | [`test_hy3_chat_runner.py`](test_hy3_chat_runner.py) | Hy3 Chat Completions nested function-tool shape、普通文本拒绝、受限 solver replay、capability denial、tool-error repair round 与 trusted exact verification。 |
 
 Golden package 的 trusted-adapter runtime、reference replay、QuantLib verifier、release views、

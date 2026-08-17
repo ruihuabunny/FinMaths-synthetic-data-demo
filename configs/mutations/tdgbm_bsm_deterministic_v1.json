@@ -1,0 +1,56 @@
+{
+  "schema_version": "family-mutation-v1.0.0",
+  "engine_id": "tdgbm-bsm-deterministic-task-mutation-v1",
+  "model_family_id": "tdgbm_bsm",
+  "immutable_fields": ["model_family_id", "coordinates.M"],
+  "operators": [
+    {
+      "operator_id": "raise_single_axis",
+      "allowed_axes": ["L", "P", "A", "D", "R"],
+      "max_changed_axes": 1,
+      "direction": "increase",
+      "allowed_identity_fields": ["method_id"],
+      "max_changed_identity_fields": 1
+    },
+    {
+      "operator_id": "lower_single_axis",
+      "allowed_axes": ["L", "P", "A", "D", "R"],
+      "max_changed_axes": 1,
+      "direction": "decrease",
+      "allowed_identity_fields": ["method_id"],
+      "max_changed_identity_fields": 1
+    },
+    {
+      "operator_id": "semantic_counterfactual",
+      "allowed_axes": [],
+      "max_changed_axes": 0,
+      "direction": "any",
+      "allowed_identity_fields": [
+        "task_family_id",
+        "task_kind_id",
+        "solver_interface_id",
+        "method_id",
+        "output_contract_id",
+        "snapshot_id",
+        "snapshot_revision"
+      ],
+      "max_changed_identity_fields": 7
+    },
+    {
+      "operator_id": "late_stage_multi_axis",
+      "allowed_axes": ["L", "P", "A", "D", "R"],
+      "max_changed_axes": 3,
+      "direction": "any",
+      "allowed_identity_fields": [
+        "task_family_id",
+        "task_kind_id",
+        "solver_interface_id",
+        "method_id",
+        "output_contract_id",
+        "snapshot_id",
+        "snapshot_revision"
+      ],
+      "max_changed_identity_fields": 7
+    }
+  ]
+}
