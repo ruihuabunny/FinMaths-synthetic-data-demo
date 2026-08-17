@@ -3,6 +3,11 @@
 本包集中维护 Solver 侧已经实现的三个标准库数值模块。目录组织是开发与审阅边界；它不会
 自动把这些模块加入 Agent runtime allowlist，也不会改变 Trusted verifier 的独立实现要求。
 
+当前 semantic capability registry 只把这些实现绑定到 `tdgbm_bsm`：analytic Greeks 与
+scalar IV 是 `library_implemented`，已有 combined/static/query-v3 package paths 是
+`portable_verified`。数值函数在仓库中可导入，不会自动为另一 model family、task kind 或
+solver interface 创建 capability。
+
 ## 模块职责
 
 | 模块 | 输入与职责 | 主要公开函数 |

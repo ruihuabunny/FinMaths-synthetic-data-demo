@@ -11,8 +11,8 @@
   - market-implied: `(L5,P0,M0,A1,D4,R1,F0)`
 - Design sources:
   - `docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md`
-  - `docs/plans/synthetic_bsm_multi_asset_psd_duckdb_greeks_plan.md`
-  - `docs/plans/synthetic_bsm_multi_asset_psd_duckdb_greeks_codex_checklist.md`
+  - `docs/plans/finished_synthetic_bsm_multi_asset_psd_duckdb_greeks_plan.md`
+  - `docs/plans/finished_synthetic_bsm_multi_asset_psd_duckdb_greeks_codex_checklist.md`
 - Status (2026-08-12): Phase A–E complete；golden task
   `bsm-mig-v1-bde472c5cb0ca8a660314c9e` is `ACCEPTED`。Phase F runner and
   nine-field dataset exporter are implemented. A predecessor interface has a

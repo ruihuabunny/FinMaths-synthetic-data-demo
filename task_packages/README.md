@@ -10,6 +10,25 @@ source package contains four authoring areas:
 - `reference/`: observable train/dev replay artifacts;
 - `authoring_private/`: selection provenance, oracle answer, and build reports.
 
+## Semantic capability preflight
+
+Existing package/task IDs, manifests, schemas and delivery digests remain on
+their accepted versioned contracts. The model-family refactor maps those legacy
+identities through explicit adapters into semantic TaskSpec v3; it does not add
+new fields to a frozen package or rename its interface.
+
+Before a new single-metric suite is materialized, the builder loads the
+`tdgbm_bsm` family registry and requires exact `portable_verified` capabilities
+for its source combined bundle and every selected metric/interface. Static
+v2 and DuckDB-query v3 are distinct capability keys and output contracts. A
+catalog-compatible but unimplemented family, missing evidence, or identity
+mismatch fails before a staging/output directory is created.
+
+This repository-side preflight is not copied into the Agent-visible package and
+does not replace the effective runtime profile. Replay and verification of an
+already accepted artifact continue to use its frozen manifest, runtime,
+toolset, schema and trusted verifier.
+
 Only `views/evaluation` is mountable as the solver filesystem. Its exact tree
 is:
 

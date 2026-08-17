@@ -15,6 +15,8 @@ Run it from the repository root:
 
 Coverage includes:
 
+- semantic `tdgbm_bsm` capability preflight before output creation, including
+  exact static-v2/query-v3 interface and output-contract mappings;
 - strict package/runtime/trajectory/submission/oracle interfaces;
 - global-allowlist ∩ task-overlay composition and solver-source policy attacks;
 - deterministic 8-underlying selection and the exact three-relation, 160-row DB;
@@ -27,7 +29,7 @@ Coverage includes:
 - spawn-process runtime enforcement for import/builtin/tool/submission/resource
   limits, with the production OS/container boundary documented separately;
 - verified source package → self-contained nine-field JSONL export with no
-  private oracle or sampling seed.
+  private oracle or sampling seed;
 - source batch → relocatable portable tasks with declarative static query tools,
   schema-bound submission, strict visibility/digest manifests, and no reference,
   private, dataset, view, absolute-path, or readable selector-seed leakage.

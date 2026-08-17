@@ -67,8 +67,11 @@ analytic/visible-IV package contract.
 
 - `L3a` through `L3g` are curriculum labels, not values of the repository's
   seven-dimensional reasoning axis `L`. A concrete Monte Carlo variant must be
-  registered through the compatibility registry with numerical-method axis
-  `A6`.
+  structurally compatible with numerical-method axis `A6`, but that catalog rule
+  grants no execution capability. The current executable-capability sidecar has
+  no MC key; a future variant must add its full semantic task/method/interface
+  identity and implementation evidence only after the complete numerical,
+  verifier, runtime and package loop exists.
 - Unit and integration tests remain in `tests/unit/` and `tests/integration/`.
   Hard-verifier rejection tests use the existing `tests/verifier_robustness/`.
   When an L3 package exists, its package tests belong in a distinct

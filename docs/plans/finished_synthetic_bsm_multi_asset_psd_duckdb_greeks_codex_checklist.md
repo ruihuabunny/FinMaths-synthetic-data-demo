@@ -3,7 +3,7 @@
 > 目标分支：`synthetic-BSM-agent-task`  
 > 仓库：`ruihuabunny/FinMaths-synthetic-data-demo`  
 > 设计依据：`docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md`  
-> 配套计划：`docs/plans/synthetic_bsm_multi_asset_psd_duckdb_greeks_plan.md`
+> 配套计划：`docs/plans/finished_synthetic_bsm_multi_asset_psd_duckdb_greeks_plan.md`
 
 > 完成状态（2026-08-12）：P0–P6 已完成，唯一保留项是人工 review 后的 commit split。
 > Golden D4 task 为 `bsm-mig-v1-bde472c5cb0ca8a660314c9e`，含 8 underlyings、160 rows、

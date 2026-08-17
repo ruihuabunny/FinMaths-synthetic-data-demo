@@ -9,7 +9,7 @@
 
 > 第 2 节保留迁移前审计结果，便于解释差异来源；本文其他章节已按实际落地结果回填。
 > 逐项证据与唯一未完成的 commit checkpoint 以
-> `docs/plans/synthetic_bsm_multi_asset_psd_duckdb_greeks_codex_checklist.md` 为准。
+> `docs/plans/finished_synthetic_bsm_multi_asset_psd_duckdb_greeks_codex_checklist.md` 为准。
 
 ## 1. Executive decision
 

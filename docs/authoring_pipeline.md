@@ -1,7 +1,7 @@
 # DuckDB + QuantLib Authoring Pipeline
 
-> 实现状态（2026-08-12）：underlying simulator 第一阶段与 static
-> `OptionChainBuilder` 与 liquidity-filtered quote profile 已经实现。Generator config
+> 实现状态（2026-08-17）：underlying simulator 第一阶段与 static
+> `OptionChainBuilder`、liquidity-filtered quote profile 已经实现。Generator config
 > `1.2.0` 可以用 $\Lambda/D/R$ 相关结构生成物理测度 $\mathbb P$ 下的多个
 > underlying path；config `1.3.0` 生成 expiry × listing-moneyness × call/put 完整网格，
 > 并冻结挂牌 strike；config `1.4.0` 从 candidate grid 只挂牌近月、近价合约，并以
@@ -10,10 +10,11 @@
 > 将 IV inversion 移出 authoring，config `1.7.0` 增加独立 P/Q underlying-driver
 > dependence identities。Authoring schema `2.5.0` 保存 source/mapping/common-Q context。
 > Option/derivative pricing 不读取 underlying 相关矩阵，原有 v1/v1.1/v1.2 pipeline
-> 保持兼容。独立 exporter 与 BSM Greeks packaging pipeline 已能从 frozen P/Q parent
-> 生成一条 accepted 的 8-underlying D4 golden task；Phase F batch runner 与九字段 dataset
-> exporter 已实现。旧 solver interface 在 Git-ignored `runs/` 中留有本地 100-task 历史
-> run；当前最小 prompt/interface 尚未重建、审核或 promotion 该批次。
+> 保持兼容。当前 pipeline 先通过显式 `TDGBMBSMAuthoringBackend` 解析唯一已实现的
+> `tdgbm_bsm` family，未知 family 在创建 artifact 前失败；固定 config/seed 的原 direct
+> constructor 与 backend path 已通过 row/checksum equivalence。独立 exporter、BSM Greeks
+> packaging、100-task combined v2 delivery，以及 static/query-v3 两个 24-task metric suites
+> 均已实现。L3 Monte Carlo、第二个 model family 与 generic packaging kernel 尚未实现。
 
 ## 目标与范围
 
@@ -25,12 +26,12 @@
 
 Smoke test 中有 5 个 underlying 定义和 5 个 option templates。每个 template 会实例化到每个 underlying，因此数据库包含 25 个 option contracts，而不是总共 5 个合约。
 
-Mutation + curriculum 本身不直接写 authoring DuckDB：`task_space` 只登记 snapshot
-id/revision 和七维坐标（当前 task 固定 `F0`；旧六维输入仅由显式 adapter 迁移），
-`mutation` 只产生 child task/lineage，`curriculum` 只计算
-采样权重。联合 simulator 会扩展 authoring pipeline；若 mutation 改变市场状态、共享
-利率路径、边际模型或联合依赖，仍须通过新的 authoring config/snapshot id 生成，再把
-新 revision 注册到 child task。
+Mutation + curriculum 本身不直接写 authoring DuckDB：`task_space` 只定义七维 design
+catalog 与 semantic TaskSpec v3（当前 task 固定 `F0`；旧六维输入仅由显式 adapter 迁移），
+不声明执行能力。Family-aware scheduler/mutation 必须先通过 exact capability gate；mutation
+只产生 child task/lineage，curriculum 只计算采样权重。若 mutation 改变市场状态、共享利率
+路径、边际模型或联合依赖，仍须通过新的 authoring config/snapshot ID 生成，再把新 revision
+写入 child task identity。
 
 ## Underlying simulator 第一阶段（历史基线）
 
@@ -305,6 +306,8 @@ discounting 或 underlying simulation。完整 filter 与 quote model 均写入 
 
 | 文件 | 用途 |
 |:---|:---|
+| `configs/model_families/tdgbm_bsm_v1.json` | 当前 P/Q dynamics、pricing、mapping、state、day-count、dtype、RNG 与 canonicalization identity。 |
+| `configs/task_space/executable_capabilities_v1.json` | 当前 analytic/IV/metric static/query-v3 路径的 exact implementation evidence；design catalog 本身不授予能力。 |
 | `configs/generators/quantlib_bsm_smoke_v1.json` | 固定 seed、模型、underlyings、option templates 与 quote rules。 |
 | `authoring/templates/quantlib_bsm_correlated_underlyings.template.json` | 可运行的 config `1.2.0` correlated-underlying 示例。 |
 | `configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json` | 冻结 config `1.5.0` 的 22-underlying 历史 profile；保留 private authoring IV audit 仅用于迁移审计。 |
@@ -316,6 +319,7 @@ discounting 或 underlying simulation。完整 filter 与 quote model 均写入 
 | `scripts/sample_physical_dynamics.py` | 从声明分布可重放地抽样 physical drift/volatility nodes，并将 realized nodes 冻结到 config。 |
 | `scripts/package_bsm_greeks_task.py` | 从现有 frozen `1.7` parent，或从 `1.6` baseline 临时构造 private P/Q parent，构建并验证 accepted/released package。 |
 | `src/synthetic_derivatives/authoring/generator_common.py` | 两个 generator 共享的 pinned QuantLib、calendar/day-count、decimal canonicalization 与 deterministic RNG。 |
+| `src/synthetic_derivatives/authoring/backends.py` | 将 `tdgbm_bsm` 显式 dispatch 到现有 generators；未知 family 在写入前 fail closed。 |
 | `src/synthetic_derivatives/authoring/underlying_daily_generator.py` | Underlying master/dependence、P path 与 pricing metadata；唯一消费 $\Lambda/D/R$ 的 generator。 |
 | `src/synthetic_derivatives/authoring/option_daily_generator.py` | Option chain spec、frozen contracts 与 daily quotes；只接收 realized spot，不提供 underlying dependence API。 |
 | `src/synthetic_derivatives/authoring/pipeline.py` | 显式编排两个 generator、DuckDB transaction、incremental MERGE 与 quality gates。 |
@@ -622,19 +626,21 @@ time-varying-diffusion BSM marginal model。
   --build-status ACCEPTED
 ```
 
-当前 checked-in golden task 是
-`bsm-mig-v1-bde472c5cb0ca8a660314c9e`：8 个 underlyings、2 个 live expiries、每 expiry
-5 个 strikes、call/put 成对，共 160 行；agent database 仅含 3 个允许关系。它仍处于
-`ACCEPTED`。Phase F 已提供 seed-parameterized batch runner 和 verified nine-field dataset
-exporter。旧 interface 有 Git-ignored 本地 100-task 历史 run；当前 interface 尚未执行完整
-100-task rebuild、split audit 或 `RELEASED` promotion。
+原始 D4 acceptance baseline task
+`bsm-mig-v1-bde472c5cb0ca8a660314c9e` 使用 8 个 underlyings、2 个 live expiries、每 expiry
+5 个 strikes、call/put 成对，共 160 行；agent database 仅含 3 个允许关系。当前维护的
+combined delivery 已升级为 100 个 `bsm-mig-v2-*` portable tasks，路径为
+`task_packages/deliveries/bsm_market_implied_greeks_v1/20260813_prompt_v2_100/`，其状态是
+manifest 声明的 `PORTABLE_VERIFIED`，不是隐式 `RELEASED`。另有两个各 24-task 的 6×4
+single-metric suites；所有 accepted delivery 都保持冻结。
 
 采用最小 prompt 的新构建必须先计算 `solver_interface_digest`。该 canonical digest 绑定
 solver-interface contract version、rendered prompt、method contract、submission schema 和
 effective runtime contract，并进入 stable task-ID 公式；trusted adapter/input surface 的语义
 变化通过升级 interface version 纳入 identity。任何一个接口变化都必须生成新 task directory。
-当前 checked-in `ACCEPTED` package 已在新 identity 完成构建、replay、verifier、leakage、
-release-view 和源码隔离验收后完成显式 promotion。
+当前 v2 package/delivery identity 已完成 build、replay、verifier、leakage、release-view 和
+源码隔离验收。Model-family adapter 不改写这些 identity；新 metric-suite materialization
+只在创建 staging tree 前额外执行 exact executable-capability preflight。
 
 ## Smoke-test 验收（当前实现）
 

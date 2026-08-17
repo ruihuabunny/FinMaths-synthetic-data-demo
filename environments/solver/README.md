@@ -14,6 +14,11 @@ DuckDB connection. Effective capabilities are computed as the intersection of
 `capabilities.global_v2.json` and `capabilities.bsm_greeks_v1.json`; the overlay
 can only remove capabilities or reduce budgets.
 
+The model-family executable registry is an earlier repository-side admission
+gate, not an Agent allowlist. It matches the exact semantic task key and evidence
+before packaging/scheduling; these environment files still independently decide
+imports, processes, mounts, tools, and budgets for the concrete runtime.
+
 Not allowed in the solver image:
 
 - QuantLib, py_vollib, mibian, rateslib, or packaged pricing/Greek/IV APIs;

@@ -24,6 +24,19 @@ snapshot。Solver 不应直接导入本包，也不能访问其中的 private ge
 原来的单体 `generator.py` 已拆除。Product-specific generator 只共享基础设施，不互相
 调用，避免 option quote 生成路径意外读取 P-measure correlation contract。
 
+## Model-family dispatch
+
+`AuthoringPipeline` 的兼容默认值是当前唯一实现的 `tdgbm_bsm`。构造 pipeline 时会先通过
+不可变 backend registry 解析 family、校验 generator config 中的 BSM process/engine
+identity，再创建数据库目录或 generator；未知 family、重复 backend 或不匹配的 config
+因此在 artifact 写入前 fail closed。
+
+这个 adapter 不改变现有 generator 文件、随机流、行生成顺序或 canonicalization。
+Family 的完整 P/Q、numeraire、day-count、state、transition、dtype 与 RNG identity 由
+[`model-family config`](../../../configs/model_families/tdgbm_bsm_v1.json) 声明；backend 只负责
+把该 identity 显式绑定到已经存在的实现。新增第二个 family 必须提供自己的完整 state 与
+数值闭环，不能把新参数塞进当前 BSM backend。
+
 ## 生成顺序
 
 一次 `sync_range` 在同一个 DuckDB transaction 内执行：
@@ -194,11 +207,11 @@ Packaging 随后冻结 prompt、effective runtime、submission schema、hidden Q
 stdlib reference solver 和 observable trajectory，并导出严格 allowlisted 的 authoring、
 train/dev、evaluation views。Evaluation view 物理上只含 manifest、prompt、runtime contract
 与 submission schema；raw DB 由 trusted host 持有。Authoring private artifact manifest 校验
-全部源制品 hash。Checked-in artifact 目前仍是一条
-`ACCEPTED` golden task；Phase F 已参数化 private selector seed，并提供 verified nine-field
-dataset exporter。Valuation date 仍由 package contract 固定。2026-08-10 的 Git-ignored
-100-task 本地 run 使用前一版 verbose prompt/interface；当前最小 prompt/interface 尚未完成
-对应的 100-task rebuild、split audit 或 `RELEASED` promotion。详见
+全部源制品 hash。当前仓库维护一个 100-task combined v2 portable delivery，以及 static v2
+和 DuckDB-query v3 两个各 24-task 的 6×4 metric suites；它们均为冻结制品，不由 authoring
+pipeline 原地更新。新 metric-suite materialization 先通过 `tdgbm_bsm`
+executable-capability preflight，但 accepted artifact 的 replay/verification 仍只依赖其冻结
+manifest/runtime/verifier。详见
 [`task_packages/README.md`](../../../task_packages/README.md)。
 
 ## 使用方式
@@ -258,6 +271,11 @@ option quotes。候选网格是 6 expiries × 11 moneyness × call/put，filter 
 - [`test_option_chain_builder.py`](../../../tests/unit/test_option_chain_builder.py)：
   grid expansion、liquidity filtering、quote-noise replay、listing strike、stable contract
   identity、append/`sync-config` 和 chain immutability。
+- [`test_authoring_backend_registry.py`](../../../tests/unit/test_authoring_backend_registry.py)：
+  explicit dispatch、duplicate/unknown family rejection 和写入前失败。
+- [`test_tdgbm_bsm_backend_equivalence.py`](../../../tests/integration/test_tdgbm_bsm_backend_equivalence.py)：
+  backend path 与原 direct-constructor path 的 solver-visible rows、authoring rows 和 logical
+  checksum 等价。
 - [`test_authoring_smoke.py`](../../../tests/public/test_authoring_smoke.py)：
   transaction、NOOP、append、legacy additive config 与 freeze。
 
