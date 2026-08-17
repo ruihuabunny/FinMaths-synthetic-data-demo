@@ -9,8 +9,8 @@
 > Golden D4 task 为 `bsm-mig-v1-bde472c5cb0ca8a660314c9e`，含 8 underlyings、160 rows、
 > 3 relations，public logical checksum 为
 > `0630a0216e36d5f8785d9f1e0dfd8d2e2445038010895f0f07221eb6409aeec3`，状态为
-> `ACCEPTED`。后续 packaging 以根目录
-> `synthetic_bsm_greeks_agent_task_packaging_plan.md` 为准：Phase A–E 已完成，Phase F
+> `ACCEPTED`。后续 packaging 以同目录
+> `synthetic_bsm_greeks_agent_task_packaging_plan.md` 为历史依据：Phase A–E 已完成，Phase F
 > runner/dataset exporter 已实现；旧 interface 有本地历史 batch，当前 interface 的完整
 > 100-task rebuild 与 `RELEASED` promotion 待执行。
 

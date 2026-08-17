@@ -70,7 +70,7 @@ flowchart TD
 
 ### 3.1 Authoring 名义通用，实际固定为 GBM–BSM
 
-当前 [`GeneratorConfig`](src/synthetic_derivatives/authoring/config.py) 已包含：
+当前 [`GeneratorConfig`](../../src/synthetic_derivatives/authoring/config.py) 已包含：
 
 ```text
 pricing_model
@@ -80,15 +80,15 @@ physical_process
 
 但运行实现仍然固定：
 
-- [`UnderlyingDailyGenerator`](src/synthetic_derivatives/authoring/underlying_daily_generator.py) 实现 deterministic time-inhomogeneous GBM；
-- [`OptionDailyGenerator`](src/synthetic_derivatives/authoring/option_daily_generator.py) 直接构造 `BlackScholesMertonProcess` 和 `AnalyticEuropeanEngine`；
-- [`AuthoringPipeline`](src/synthetic_derivatives/authoring/pipeline.py) 直接实例化这两个 generator。
+- [`UnderlyingDailyGenerator`](../../src/synthetic_derivatives/authoring/underlying_daily_generator.py) 实现 deterministic time-inhomogeneous GBM；
+- [`OptionDailyGenerator`](../../src/synthetic_derivatives/authoring/option_daily_generator.py) 直接构造 `BlackScholesMertonProcess` 和 `AnalyticEuropeanEngine`；
+- [`AuthoringPipeline`](../../src/synthetic_derivatives/authoring/pipeline.py) 直接实例化这两个 generator。
 
 因此，现有 model/engine 字段主要是 provenance，而不是可靠的 runtime dispatch。仅修改 JSON 中的 `pricing_model` 不能生成 Heston 或 local-vol 市场。
 
 ### 3.2 `task_family_id` 混合了不同语义
 
-当前 [`configs/task_space/derivatives_v2.json`](configs/task_space/derivatives_v2.json) 同时包含：
+当前 [`configs/task_space/derivatives_v2.json`](../../configs/task_space/derivatives_v2.json) 同时包含：
 
 ```text
 bsm_greeks
@@ -126,7 +126,7 @@ model_risk
 
 ### 3.4 Curriculum 无法表达 family-specific 算法
 
-当前 [`AdaptiveCurriculumScheduler.stage_for`](src/synthetic_derivatives/curriculum/scheduler.py) 只接收 `TaskCoordinates`，不读取 `task_family_id` 或 model family。
+当前 [`AdaptiveCurriculumScheduler.stage_for`](../../src/synthetic_derivatives/curriculum/scheduler.py) 只接收 `TaskCoordinates`，不读取 `task_family_id` 或 model family。
 
 这无法自然表达：
 
@@ -139,7 +139,7 @@ model_risk
 
 ### 3.5 Packaging 同时包含通用生命周期和 BSM 数值语义
 
-当前 [`packaging_analytic_and_implied_greeks_iv/`](src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv/) 同时负责：
+当前 [`packaging_analytic_and_implied_greeks_iv/`](../../src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv/) 同时负责：
 
 - artifact hashes 与 manifest；
 - leakage scan；
@@ -402,7 +402,7 @@ class GBMBSMAuthoringBackend:
         return OptionDailyGenerator(config)
 ```
 
-把 [`AuthoringPipeline`](src/synthetic_derivatives/authoring/pipeline.py) 从直接构造具体类改为：
+把 [`AuthoringPipeline`](../../src/synthetic_derivatives/authoring/pipeline.py) 从直接构造具体类改为：
 
 ```python
 backend = authoring_family_registry.resolve(config.model_family_id)
@@ -471,7 +471,7 @@ family config 负责本地 stage 与 task selectors。
 
 ### 8.2 当前 GBM–BSM curriculum 直接复用现有 L0–L8
 
-[`synthetic_bsm_agent_task_complete_curriculum.md`](synthetic_bsm_agent_task_complete_curriculum.md) 已经给出适合当前 pipeline 的依赖顺序：
+[`synthetic_bsm_agent_task_complete_curriculum.md`](../curricula/synthetic_bsm_agent_task_complete_curriculum.md) 已经给出适合当前 pipeline 的依赖顺序：
 
 | Local stage | 能力 |
 |---|---|
@@ -694,7 +694,7 @@ Verifier 内部可以复算完整 BSM state，但只能校验该 task 声明的�
 
 ## 11. Training exporter
 
-当前 [`training/bsm_market_greeks.py`](src/synthetic_derivatives/training/bsm_market_greeks.py) 是 BSM-specific nine-field exporter。建议分两层：
+当前 [`training/bsm_market_greeks.py`](../../src/synthetic_derivatives/training/bsm_market_greeks.py) 是 BSM-specific nine-field exporter。建议分两层：
 
 ```text
 training/common/

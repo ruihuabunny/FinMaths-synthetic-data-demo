@@ -168,3 +168,8 @@ reference files to the portable leaves:
 
 The frozen contract, provenance, validation evidence, and release digests are
 recorded in `reports/bsm_public_duckdb_query_v3_migration.md`.
+
+## Reports
+
+Migration handoffs and completed validation evidence are indexed in
+[`reports/README.md`](reports/README.md).

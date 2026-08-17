@@ -621,7 +621,7 @@ analytic Greek 不作为 MC task 的提交答案，而用于：
 - 检查 call/put sign、rate/dividend 与单位约定。
 
 当前 repo 的 analytic benchmark 实现与数学/权限说明位于
-[`src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/`](src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/README.md)。
+[`src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/`](../../src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/README.md)。
 MC 验收只能把它用于 QA；不得用其解析输出替代 frozen-draw estimator realization。
 
 定义：
@@ -734,7 +734,7 @@ G_{\mathrm{portfolio}}
 `solver/analytic_and_implied_greeks_iv/`；未来 MC 数值实现进入 `solver/mc/`，并使用独立
 package materializer 与 package-test suite，不能复用 analytic/visible-IV family 的数值代码
 或 package identity。当前实际状态见根
-[README 的 L3 目录说明](README.md#l3-monte-carlo-greeks-目录映射规划骨架)。
+[Solver MC scaffold 说明](../../src/synthetic_derivatives/solver/mc/README.md)。
 
 ```text
 src/synthetic_derivatives/

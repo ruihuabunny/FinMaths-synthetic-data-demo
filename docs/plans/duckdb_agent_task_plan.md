@@ -45,7 +45,7 @@ Frozen DuckDB snapshot
 数值稳定性、权限隔离和 canonical replay 等质量门。
 
 在初始审计时，基础 task manifest 仍为 `DRAFT` 且 `publication_eligible=false`。当时的
-[`task.schema.json`](../../../schemas/task.schema.json) 主要覆盖 task identity；Solver、
+[`task.schema.json`](../../schemas/task.schema.json) 主要覆盖 task identity；Solver、
 verifier、submission、trajectory 和训练数据闭环仍需实现。
 
 ## 2. 第一阶段数学合同

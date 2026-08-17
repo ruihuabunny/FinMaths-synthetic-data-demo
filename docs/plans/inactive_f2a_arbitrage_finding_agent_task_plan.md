@@ -47,8 +47,8 @@ output_contract   = arbitrage-opportunity-type-trajectory-v1
 - 允许按任务声明交易 underlying、cash account 和 European options，并允许 BSM 动态复制。
 - Solver 看不到 parent before-value、mutation 位置、private lineage 或 hidden label。
 
-套利与无套利的通用定义遵循 [AGENTS.md](../../../AGENTS.md)。完整七维框架见
-[financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md](../../../docs/financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md)。
+套利与无套利的通用定义遵循 [AGENTS.md](../../AGENTS.md)。完整七维框架见
+[financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md](../financial_derivatives_deterministic_orm_framework_mutation_curriculum_simulator_final.md)。
 
 ## 3. Subset
 
