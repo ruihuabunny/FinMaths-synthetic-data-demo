@@ -19,4 +19,18 @@
   visible quotes; canonical IV is recovered later from those visible values.
 - All writes go through the transactional DRAFT/freeze/revision pipeline and its
   quality gates. Extend config/schema/tests together.
-
+- `config.py`, `schema.py`, and `pipeline.py` are stable façades. Internal
+  modules must import the owning focused module instead of importing a façade
+  back into its implementation and creating a cycle.
+- Generation modules (`underlying_path`, `underlying_observations`,
+  `pricing_metadata`, and product generators) must not import DuckDB. Storage,
+  schema, persistence, and migration modules must not import QuantLib or model
+  numerics.
+- `AuthoringPipeline` alone owns complete `BEGIN / COMMIT / ROLLBACK` ordering.
+  Materialization and validation components reuse its connection and never
+  publish a manifest or open an independent writer.
+- Immutable preflight and post-write validation are distinct security/correctness
+  phases. Preserve both even when they invoke the same contract comparison.
+- Typed rows in `row_contracts.py` and column order in `table_specs.py` are an
+  explicit two-sided contract; keep their field tuples exactly equal and do not
+  generate either one by reflection from the other.

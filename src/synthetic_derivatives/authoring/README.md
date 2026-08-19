@@ -12,12 +12,13 @@ snapshot。Solver 不应直接导入本包，也不能访问其中的 private ge
 | 模块 | 职责 |
 |:---|:---|
 | [`backends.py`](backends.py) | 将已实现的 `tdgbm_bsm` family 显式解析为现有 underlying/option generators；未知 family 在创建 artifact 前失败。 |
-| [`config.py`](config.py) | 解析 generator config；校验 deterministic physical functions、P/Q dependence、option-chain、bridge/volume contracts 和稳定 ID；规范派生 $D$ 与 $R$。 |
-| [`generator_common.py`](generator_common.py) | 两个 generator 共享的 pinned QuantLib、calendar/day-count、价格 canonicalization、keyed RNG，以及 log-domain-safe signed-int64 lognormal volume helper。 |
-| [`underlying_daily_generator.py`](underlying_daily_generator.py) | 生成 underlying master、P/Q dependence、private observation specs、P-close、conditional bridge OHLC、keyed volume 和 `pricing_metadata`；只有 P spec 可生成 close shock。 |
+| [`config.py`](config.py) | 稳定兼容 façade；由 `config_loader` 负责 I/O/顶层编排，`config_versions` 冻结 1.0–1.8 closed policy，领域模型与 parser 分布在 `config_models`、`deterministic_functions`、`option_chain`、`dependence`、`observation_contracts`。 |
+| [`canonicalization.py`](canonicalization.py) / [`row_contracts.py`](row_contracts.py) | 中性的 Decimal/JSON canonicalization，以及与 DuckDB 列序 exact 对齐、仍保持 tuple 行为的具名 row contracts。 |
+| [`generator_common.py`](generator_common.py) | 两个 generator 共享的 pinned QuantLib、calendar/day-count、keyed RNG，以及 log-domain-safe signed-int64 lognormal volume helper。 |
+| [`underlying_daily_generator.py`](underlying_daily_generator.py) | 稳定 generator façade 与 typed row assembly；分别委托 `underlying_path` 的 P-close、`underlying_observations` 的 OHLCV、`pricing_metadata` 的 P/Q provenance serialization。 |
 | [`option_daily_generator.py`](option_daily_generator.py) | 生成 private option-chain spec、冻结的 option contracts 和 Q-measure `option_daily`；不提供 underlying path/dependence API，也不生成 IV answers。 |
-| [`pipeline.py`](pipeline.py) | 通过 backend registry 编排两个 generator、DuckDB transaction、incremental MERGE、snapshot compatibility、quality gates、revision 和 manifest。 |
-| [`schema.py`](schema.py) | DuckDB DDL、additive migration、solver-visible views、table column order 和 business-key MERGE。 |
+| [`pipeline.py`](pipeline.py) | 稳定 public façade，拥有 connection lifecycle 与完整事务顺序；具体工作委托给 `materialization`、`compatibility`、`quality_gates`、`snapshot_store` 和 `manifest`。 |
+| [`schema.py`](schema.py) | 稳定 schema façade；`schema_ddl`、`schema_migrations`、`table_specs`、`persistence` 与 `visibility` 分别拥有 DDL、迁移、列序、MERGE 和隐私投影。 |
 | [`cli.py`](cli.py) | `create-smoke`、`append-dates`、`sync-config`、`sync-range`、`summary`、`validate` 和 `freeze` 命令入口。 |
 | [`__init__.py`](__init__.py) | 导出 `AuthoringPipeline` 与显式 authoring backend registry 类型。 |
 
@@ -43,6 +44,7 @@ Family 的完整 P/Q、numeraire、day-count、state、transition、dtype 与 RN
 
 ```text
 validate DRAFT snapshot and immutable config
+  -> insert RUNNING audit row
   -> UnderlyingDailyGenerator
        -> bridge/volume specs + underlying master + dependence specs
        -> realized P-measure underlying paths
@@ -52,8 +54,9 @@ validate DRAFT snapshot and immutable config
        -> Q option quotes from realized spot + frozen contract + pricing inputs
   -> MERGE by stable business keys
   -> cross-table quality gates
-  -> revision + manifest
+  -> revision + run completion
   -> commit
+  -> atomic manifest publication
 ```
 
 run 开始后的任一步失败都会 rollback 市场数据批次，并在

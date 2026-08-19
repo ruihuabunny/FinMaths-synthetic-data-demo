@@ -7,6 +7,12 @@
 > `configs/generators/quantlib_bsm_metals_option_chain_smoke_v3.json`。旧 config、frozen
 > snapshot、task package 和 delivery 未原地改写。
 >
+> 结构重构状态（2026-08-19）：config `1.0.0`--`1.8.0` 能力已集中到 closed
+> policy table；config/schema/pipeline 保留稳定 façade。Typed rows 与显式 table specs
+> exact 对齐；DDL/migration/persistence、preflight/post-write gates、materialization/store/
+> manifest，以及 P-close/OHLCV/metadata serialization 已按职责拆分。此次重构不改变
+> 数学、随机流、schema/config/generator identity、逻辑行或冻结 artifact。
+>
 > 历史实现状态（2026-08-17）：underlying simulator 第一阶段与 static
 > `OptionChainBuilder`、liquidity-filtered quote profile 已经实现。Generator config
 > `1.2.0` 可以用 $\Lambda/D/R$ 相关结构生成物理测度 $\mathbb P$ 下的多个
@@ -22,6 +28,25 @@
 > constructor 与 backend path 已通过 row/checksum equivalence。独立 exporter、BSM Greeks
 > packaging、100-task combined v2 delivery，以及 static/query-v3 两个 24-task metric suites
 > 均已实现。L3 Monte Carlo、第二个 model family 与 generic packaging kernel 尚未实现。
+
+## 当前模块与事务边界
+
+公开 import 继续从 `authoring.config`、`authoring.schema`、`authoring.pipeline` 和现有
+generator 模块进入。内部依赖固定为：
+
+| 边界 | Owning modules | 约束 |
+|:---|:---|:---|
+| Config contract | `config_versions`、`config_loader`、各领域 parser/model | 只登记 1.0–1.8；未知版本 fail closed。 |
+| Neutral contracts | `canonicalization`、`row_contracts`、`table_specs` | NamedTuple 字段序与显式 DuckDB columns exact equal，不反射生成 DDL。 |
+| P generation | `underlying_path`、`underlying_observations`、`pricing_metadata` | 可使用 QuantLib/RNG，不导入 DuckDB；P-close、conditional OHLCV 与 P/Q serialization 分离。 |
+| Storage | `schema_ddl`、`schema_migrations`、`persistence`、`snapshot_store` | 不导入 QuantLib 或金融模型实现；migration 只接受显式 2.0–2.5 → 2.6 路径。 |
+| Validation | `compatibility`、`quality_gates` | immutable preflight 与 post-write replay/completeness/privacy 是两个独立阶段。 |
+| Orchestration | `pipeline`、`materialization`、`manifest` | 只有 pipeline 决定完整事务；manifest 在 commit 后原子发布。 |
+
+`sync_range` 的规范顺序是：preflight → RUNNING audit → materialization → post-write
+gates → conditional revision → COMPLETED/NOOP → commit → manifest。Preflight 失败不写
+FAILED；RUNNING 后失败回滚整个 market transaction，再单独记录 FAILED。Manifest 发布失败
+会明确报告 DuckDB 已提交，不会伪装成数据库 rollback。
 
 ## 目标与范围
 

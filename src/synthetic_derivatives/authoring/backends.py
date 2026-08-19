@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import MappingProxyType
 from typing import Iterable, Protocol
 
-from synthetic_derivatives.authoring.config import GeneratorConfig
+from synthetic_derivatives.authoring.config_models import GeneratorConfig
 from synthetic_derivatives.authoring.option_daily_generator import OptionDailyGenerator
 from synthetic_derivatives.authoring.underlying_daily_generator import (
     UnderlyingDailyGenerator,

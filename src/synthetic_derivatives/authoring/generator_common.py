@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 from datetime import date
-from decimal import Decimal, ROUND_HALF_EVEN
+from decimal import Decimal
 from typing import Any
 
 import QuantLib as ql
 
-from synthetic_derivatives.authoring.config import (
-    GeneratorConfig,
+from synthetic_derivatives.authoring.canonicalization import (
+    canonical_json,
+    price_quantum,
+    quantize_price,
     quantize_to_increment,
 )
+from synthetic_derivatives.authoring.config_models import GeneratorConfig
 
 
 PINNED_QUANTLIB_VERSION = "1.39"
@@ -71,29 +73,6 @@ def keyed_mean_preserving_lognormal_int64(
     raw_volume = math.exp(log_raw_volume)
     rounded = round(raw_volume)
     return max(0, min(SIGNED_INT64_MAX, rounded))
-
-
-def canonical_json(value: Any) -> str:
-    """Serialize private provenance with a stable key and separator order."""
-
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-def price_quantum(decimal_places: int) -> Decimal:
-    """Return the decimal quantum declared by generator configuration."""
-
-    return Decimal(1).scaleb(-decimal_places)
-
-
-def quantize_price(
-    value: float | Decimal, *, decimal_places: int = 8
-) -> Decimal:
-    """Canonicalize one market decimal and remove signed zero."""
-
-    result = Decimal(str(value)).quantize(
-        price_quantum(decimal_places), rounding=ROUND_HALF_EVEN
-    )
-    return abs(result) if result == 0 else result
 
 
 def ql_date(value: date) -> ql.Date:
