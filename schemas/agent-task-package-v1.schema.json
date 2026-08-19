@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-task-package-v1.schema.json",
+  "title": "Public-safe immutable agent task package manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "package_schema_version",
+    "task_id",
+    "task_family",
+    "task_version",
+    "variant_id",
+    "coordinates",
+    "build_status",
+    "release_profile",
+    "parent_snapshot",
+    "public_child_snapshot",
+    "valuation_date",
+    "selected_underlying_ids",
+    "joint_market_contract_id",
+    "p_dependence_spec_id",
+    "q_dependence_spec_id",
+    "dependence_policy_id",
+    "method_contract",
+    "submission_schema",
+    "runtime_environment",
+    "verifier",
+    "artifacts",
+    "views"
+  ],
+  "properties": {
+    "package_schema_version": {"const": "agent-task-package-v1.0.0"},
+    "task_id": {"type": "string", "pattern": "^bsm-mig-v1-[0-9a-f]{24}$"},
+    "task_family": {"const": "bsm_greeks"},
+    "task_version": {"const": "1.0.0"},
+    "variant_id": {"const": "bsm_market_implied_greeks_v1"},
+    "coordinates": {"$ref": "difficulty-v2.schema.json"},
+    "build_status": {"enum": ["DRAFT", "ACCEPTED", "RELEASED"]},
+    "release_profile": {"const": "golden-single-task-v1"},
+    "parent_snapshot": {"$ref": "#/$defs/snapshotIdentity"},
+    "public_child_snapshot": {"$ref": "#/$defs/snapshotIdentity"},
+    "valuation_date": {"type": "string", "format": "date"},
+    "selected_underlying_ids": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "joint_market_contract_id": {"type": "string", "minLength": 1},
+    "p_dependence_spec_id": {"type": "string", "minLength": 1},
+    "q_dependence_spec_id": {"type": "string", "minLength": 1},
+    "dependence_policy_id": {"type": "string", "minLength": 1},
+    "method_contract": {"$ref": "#/$defs/digestedIdentity"},
+    "submission_schema": {"$ref": "#/$defs/digestedIdentity"},
+    "runtime_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["environment_id", "profile_id", "lock_id", "contract_digest"],
+      "properties": {
+        "environment_id": {"type": "string", "minLength": 1},
+        "profile_id": {"type": "string", "minLength": 1},
+        "lock_id": {"type": "string", "minLength": 1},
+        "contract_digest": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "verifier": {"$ref": "#/$defs/digestedIdentity"},
+    "artifacts": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^(public|verifier|reference|authoring_private)/"},
+      "additionalProperties": {"$ref": "#/$defs/sha256"}
+    },
+    "views": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authoring", "train_dev", "evaluation"],
+      "properties": {
+        "authoring": {"$ref": "#/$defs/fileList"},
+        "train_dev": {"$ref": "#/$defs/fileList"},
+        "evaluation": {"$ref": "#/$defs/fileList"}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "snapshotIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshot_id", "revision", "logical_checksum"],
+      "properties": {
+        "snapshot_id": {"type": "string", "minLength": 1},
+        "revision": {"type": "integer", "minimum": 1},
+        "logical_checksum": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "digestedIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "digest"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "digest": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "fileList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

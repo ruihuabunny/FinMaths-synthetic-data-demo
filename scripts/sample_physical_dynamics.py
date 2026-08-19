@@ -209,7 +209,7 @@ def sample_config(
     *,
     parameter_generator_seed: int,
 ) -> dict[str, Any]:
-    """Return config 1.5 with distinct per-underlying sampled functions."""
+    """Return config 1.6 with distinct per-underlying sampled functions."""
 
     if not SAMPLING_SEED_BOUNDS[0] <= parameter_generator_seed <= SAMPLING_SEED_BOUNDS[1]:
         raise ValueError(
@@ -223,12 +223,12 @@ def sample_config(
     result = json.loads(json.dumps(raw))
     result.update(
         {
-            "schema_version": "1.5.0",
+            "schema_version": "1.6.0",
             "generator_config_id": (
-                "quantlib-randomized-tdgbm-metals-liquid-option-chain-v3"
+                "quantlib-randomized-tdgbm-metals-liquid-option-chain-v4"
             ),
-            "generator_version": "0.7.0",
-            "snapshot_id": "DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v3",
+            "generator_version": "0.8.0",
+            "snapshot_id": "DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v4",
         }
     )
     used_underlying_seeds: set[int] = set()
@@ -430,20 +430,14 @@ def sample_config(
         "rate_path_id": "USD-FLAT-CONTINUOUS-RATE-v1",
         "measure_change": "girsanov_drift_only",
         "volatility_mapping": "same_deterministic_diffusion",
-        "implied_volatility_solver": {
-            "method": "QuantLib.VanillaOption.impliedVolatility",
-            "target_quote": "canonical_mid",
-            "accuracy": 1e-12,
-            "max_evaluations": 1000,
-            "minimum_volatility": 1e-6,
-            "maximum_volatility": 4.0,
-        },
     }
     result.pop("smile", None)
     return result
 
 
 def main() -> int:
+    """Sample once, freeze the realized functions, and write generator JSON."""
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)

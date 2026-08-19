@@ -1,0 +1,3675 @@
+{
+  "schema_version": "1.6.0",
+  "generator_config_id": "quantlib-randomized-tdgbm-metals-liquid-option-chain-v4",
+  "generator_version": "0.8.0",
+  "snapshot_id": "DERIVATIVES-METALS-LIQUID-RANDOMIZED-TDGBM-Q-v4",
+  "seed": 20260806,
+  "rng": "QuantLib.BoxMullerMersenneTwisterGaussianRng/underlying-factor-idiosyncratic-sha256-v1",
+  "start_date": "2026-08-03",
+  "business_days": 65,
+  "calendar": "WeekendsOnly",
+  "day_count": "Actual365Fixed",
+  "valuation_time_utc": "16:00:00",
+  "pricing_model": "Black-Scholes-Merton",
+  "pricing_engine": "QuantLib.AnalyticEuropeanEngine",
+  "physical_process": "QuantLib.BlackScholesMertonProcess",
+  "currency": "USD",
+  "quote_decimal_places": 8,
+  "underlying_minimum_price_increment": "0.00000001",
+  "option_minimum_price_increment": "0.00000001",
+  "underlyings": [
+    {
+      "underlying_id": "SYNTH-METAL-ALUMINUM",
+      "initial_spot": 100.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0517860448
+          },
+          {
+            "day_offset": 34,
+            "value": 0.0396750464
+          },
+          {
+            "day_offset": 47,
+            "value": 0.0494206357
+          },
+          {
+            "day_offset": 60,
+            "value": 0.0499104495
+          },
+          {
+            "day_offset": 88,
+            "value": 0.045629513
+          },
+          {
+            "day_offset": 164,
+            "value": 0.0533221687
+          },
+          {
+            "day_offset": 301,
+            "value": 0.0302263246
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.2334420612
+          },
+          {
+            "day_offset": 34,
+            "value": 0.2442770897
+          },
+          {
+            "day_offset": 47,
+            "value": 0.2767954097
+          },
+          {
+            "day_offset": 60,
+            "value": 0.2745615463
+          },
+          {
+            "day_offset": 88,
+            "value": 0.3114050529
+          },
+          {
+            "day_offset": 164,
+            "value": 0.2684327242
+          },
+          {
+            "day_offset": 301,
+            "value": 0.2722265434
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0437328284,
+        "volatility": 0.2351742966
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 433381569,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          34,
+          47,
+          60,
+          88,
+          164,
+          301
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              34,
+              47,
+              60,
+              88,
+              164
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 301
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.770467786666,
+          "drift_initial_standard_deviation": 0.012542365672,
+          "drift_innovation_standard_deviation": 0.016859704423,
+          "log_volatility_phi": 0.497848191584,
+          "log_volatility_initial_standard_deviation": 0.054762387059,
+          "log_volatility_innovation_standard_deviation": 0.093363380525
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.770467786666,
+          "initial_standard_deviation": 0.012542365672,
+          "innovation_standard_deviation": 0.016859704423,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.497848191584,
+          "initial_log_standard_deviation": 0.054762387059,
+          "log_innovation_standard_deviation": 0.093363380525,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-COPPER",
+      "initial_spot": 105.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0377013617
+          },
+          {
+            "day_offset": 43,
+            "value": 0.0292708972
+          },
+          {
+            "day_offset": 45,
+            "value": 0.0060160042
+          },
+          {
+            "day_offset": 83,
+            "value": 0.0075480589
+          },
+          {
+            "day_offset": 90,
+            "value": 0.0378743635
+          },
+          {
+            "day_offset": 180,
+            "value": 0.0577120025
+          },
+          {
+            "day_offset": 318,
+            "value": 0.0745226506
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.2529530238
+          },
+          {
+            "day_offset": 43,
+            "value": 0.2571938306
+          },
+          {
+            "day_offset": 45,
+            "value": 0.2656299411
+          },
+          {
+            "day_offset": 83,
+            "value": 0.2789276906
+          },
+          {
+            "day_offset": 90,
+            "value": 0.2603058669
+          },
+          {
+            "day_offset": 180,
+            "value": 0.257682313
+          },
+          {
+            "day_offset": 318,
+            "value": 0.2883645844
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0432906091,
+        "volatility": 0.2595764216
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 4035141297,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          43,
+          45,
+          83,
+          90,
+          180,
+          318
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              43,
+              45,
+              83,
+              90,
+              180
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 318
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.844284576213,
+          "drift_initial_standard_deviation": 0.005468965445,
+          "drift_innovation_standard_deviation": 0.02025098311,
+          "log_volatility_phi": 0.584488757007,
+          "log_volatility_initial_standard_deviation": 0.028936711831,
+          "log_volatility_innovation_standard_deviation": 0.089501871336
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.844284576213,
+          "initial_standard_deviation": 0.005468965445,
+          "innovation_standard_deviation": 0.02025098311,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.584488757007,
+          "initial_log_standard_deviation": 0.028936711831,
+          "log_innovation_standard_deviation": 0.089501871336,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-ZINC",
+      "initial_spot": 92.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0435295626
+          },
+          {
+            "day_offset": 43,
+            "value": 0.0456665585
+          },
+          {
+            "day_offset": 115,
+            "value": 0.0517124942
+          },
+          {
+            "day_offset": 123,
+            "value": 0.0380829606
+          },
+          {
+            "day_offset": 125,
+            "value": 0.043580813
+          },
+          {
+            "day_offset": 177,
+            "value": 0.0480839415
+          },
+          {
+            "day_offset": 286,
+            "value": 0.0489673933
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.2097777503
+          },
+          {
+            "day_offset": 43,
+            "value": 0.1632598464
+          },
+          {
+            "day_offset": 115,
+            "value": 0.2066525088
+          },
+          {
+            "day_offset": 123,
+            "value": 0.2396379831
+          },
+          {
+            "day_offset": 125,
+            "value": 0.2504269941
+          },
+          {
+            "day_offset": 177,
+            "value": 0.2481526649
+          },
+          {
+            "day_offset": 286,
+            "value": 0.1889941641
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0439017633,
+        "volatility": 0.2154615218
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 2389200395,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          43,
+          115,
+          123,
+          125,
+          177,
+          286
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              43,
+              115,
+              123,
+              125,
+              177
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 286
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.696547887835,
+          "drift_initial_standard_deviation": 0.002109296453,
+          "drift_innovation_standard_deviation": 0.007416432687,
+          "log_volatility_phi": 0.541598880169,
+          "log_volatility_initial_standard_deviation": 0.101747179816,
+          "log_volatility_innovation_standard_deviation": 0.132690682206
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.696547887835,
+          "initial_standard_deviation": 0.002109296453,
+          "innovation_standard_deviation": 0.007416432687,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.541598880169,
+          "initial_log_standard_deviation": 0.101747179816,
+          "log_innovation_standard_deviation": 0.132690682206,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-LEAD",
+      "initial_spot": 88.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0323922605
+          },
+          {
+            "day_offset": 44,
+            "value": 0.004542574
+          },
+          {
+            "day_offset": 102,
+            "value": 0.0346237403
+          },
+          {
+            "day_offset": 161,
+            "value": 0.0762769181
+          },
+          {
+            "day_offset": 162,
+            "value": 0.0700371633
+          },
+          {
+            "day_offset": 171,
+            "value": 0.0618434251
+          },
+          {
+            "day_offset": 193,
+            "value": 0.0395998528
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.1832468119
+          },
+          {
+            "day_offset": 44,
+            "value": 0.1580459775
+          },
+          {
+            "day_offset": 102,
+            "value": 0.1409662158
+          },
+          {
+            "day_offset": 161,
+            "value": 0.1488532624
+          },
+          {
+            "day_offset": 162,
+            "value": 0.1487582713
+          },
+          {
+            "day_offset": 171,
+            "value": 0.1326695331
+          },
+          {
+            "day_offset": 193,
+            "value": 0.2123576143
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.037427714,
+        "volatility": 0.1992056796
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 662501608,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          44,
+          102,
+          161,
+          162,
+          171,
+          193
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              44,
+              102,
+              161,
+              162,
+              171
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 193
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.447603349539,
+          "drift_initial_standard_deviation": 0.00678637833,
+          "drift_innovation_standard_deviation": 0.027993227394,
+          "log_volatility_phi": 0.680404174438,
+          "log_volatility_initial_standard_deviation": 0.041927793452,
+          "log_volatility_innovation_standard_deviation": 0.13812277982
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.447603349539,
+          "initial_standard_deviation": 0.00678637833,
+          "innovation_standard_deviation": 0.027993227394,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.680404174438,
+          "initial_log_standard_deviation": 0.041927793452,
+          "log_innovation_standard_deviation": 0.13812277982,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-NICKEL",
+      "initial_spot": 115.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0397631893
+          },
+          {
+            "day_offset": 21,
+            "value": 0.0305470492
+          },
+          {
+            "day_offset": 38,
+            "value": 0.0782999185
+          },
+          {
+            "day_offset": 95,
+            "value": 0.0727710044
+          },
+          {
+            "day_offset": 103,
+            "value": 0.0473407684
+          },
+          {
+            "day_offset": 135,
+            "value": 0.0034927848
+          },
+          {
+            "day_offset": 193,
+            "value": 0.0149137077
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.4070364964
+          },
+          {
+            "day_offset": 21,
+            "value": 0.5319194157
+          },
+          {
+            "day_offset": 38,
+            "value": 0.4892340552
+          },
+          {
+            "day_offset": 95,
+            "value": 0.515520779
+          },
+          {
+            "day_offset": 103,
+            "value": 0.32818189
+          },
+          {
+            "day_offset": 135,
+            "value": 0.2927402279
+          },
+          {
+            "day_offset": 193,
+            "value": 0.2692880034
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0439549834,
+        "volatility": 0.3691914563
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 3068910598,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          21,
+          38,
+          95,
+          103,
+          135,
+          193
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              21,
+              38,
+              95,
+              103,
+              135
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 193
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.661314426654,
+          "drift_initial_standard_deviation": 0.007143987187,
+          "drift_innovation_standard_deviation": 0.029167238633,
+          "log_volatility_phi": 0.404674515832,
+          "log_volatility_initial_standard_deviation": 0.070154578767,
+          "log_volatility_innovation_standard_deviation": 0.188554905672
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.661314426654,
+          "initial_standard_deviation": 0.007143987187,
+          "innovation_standard_deviation": 0.029167238633,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.404674515832,
+          "initial_log_standard_deviation": 0.070154578767,
+          "log_innovation_standard_deviation": 0.188554905672,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-TIN",
+      "initial_spot": 125.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0376943034
+          },
+          {
+            "day_offset": 50,
+            "value": 0.0407270159
+          },
+          {
+            "day_offset": 52,
+            "value": 0.0084014613
+          },
+          {
+            "day_offset": 98,
+            "value": 0.0120813442
+          },
+          {
+            "day_offset": 149,
+            "value": 0.0098086935
+          },
+          {
+            "day_offset": 173,
+            "value": 0.0090713919
+          },
+          {
+            "day_offset": 204,
+            "value": 0.0163502542
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.2851129665
+          },
+          {
+            "day_offset": 50,
+            "value": 0.2953693199
+          },
+          {
+            "day_offset": 52,
+            "value": 0.2861708146
+          },
+          {
+            "day_offset": 98,
+            "value": 0.2787323598
+          },
+          {
+            "day_offset": 149,
+            "value": 0.3007276991
+          },
+          {
+            "day_offset": 173,
+            "value": 0.2751533164
+          },
+          {
+            "day_offset": 204,
+            "value": 0.2665415051
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0422351777,
+        "volatility": 0.2685242731
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 1657834205,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          50,
+          52,
+          98,
+          149,
+          173,
+          204
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              50,
+              52,
+              98,
+              149,
+              173
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 204
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.83997204873,
+          "drift_initial_standard_deviation": 0.005917906644,
+          "drift_innovation_standard_deviation": 0.017307392285,
+          "log_volatility_phi": 0.839448886242,
+          "log_volatility_initial_standard_deviation": 0.049311963508,
+          "log_volatility_innovation_standard_deviation": 0.049050810765
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.83997204873,
+          "initial_standard_deviation": 0.005917906644,
+          "innovation_standard_deviation": 0.017307392285,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.839448886242,
+          "initial_log_standard_deviation": 0.049311963508,
+          "log_innovation_standard_deviation": 0.049050810765,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-GOLD",
+      "initial_spot": 150.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0300410118
+          },
+          {
+            "day_offset": 24,
+            "value": 0.0268091
+          },
+          {
+            "day_offset": 39,
+            "value": 0.0293692687
+          },
+          {
+            "day_offset": 57,
+            "value": 0.0328186431
+          },
+          {
+            "day_offset": 129,
+            "value": 0.0440362105
+          },
+          {
+            "day_offset": 160,
+            "value": 0.042194564
+          },
+          {
+            "day_offset": 248,
+            "value": 0.0327982796
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.1571018908
+          },
+          {
+            "day_offset": 24,
+            "value": 0.1691011759
+          },
+          {
+            "day_offset": 39,
+            "value": 0.1347718719
+          },
+          {
+            "day_offset": 57,
+            "value": 0.1531265974
+          },
+          {
+            "day_offset": 129,
+            "value": 0.1618210997
+          },
+          {
+            "day_offset": 160,
+            "value": 0.1280186186
+          },
+          {
+            "day_offset": 248,
+            "value": 0.1319520449
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.040784542,
+        "volatility": 0.1631447748
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 282107093,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          24,
+          39,
+          57,
+          129,
+          160,
+          248
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              24,
+              39,
+              57,
+              129,
+              160
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 248
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.644197491312,
+          "drift_initial_standard_deviation": 0.010389290997,
+          "drift_innovation_standard_deviation": 0.006341242672,
+          "log_volatility_phi": 0.383092232788,
+          "log_volatility_initial_standard_deviation": 0.033305935066,
+          "log_volatility_innovation_standard_deviation": 0.131255544107
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.644197491312,
+          "initial_standard_deviation": 0.010389290997,
+          "innovation_standard_deviation": 0.006341242672,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.383092232788,
+          "initial_log_standard_deviation": 0.033305935066,
+          "log_innovation_standard_deviation": 0.131255544107,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-SILVER",
+      "initial_spot": 135.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0506422262
+          },
+          {
+            "day_offset": 42,
+            "value": 0.0460683157
+          },
+          {
+            "day_offset": 89,
+            "value": 0.0414195692
+          },
+          {
+            "day_offset": 92,
+            "value": 0.0447117534
+          },
+          {
+            "day_offset": 94,
+            "value": 0.0453542316
+          },
+          {
+            "day_offset": 128,
+            "value": 0.0491404382
+          },
+          {
+            "day_offset": 307,
+            "value": 0.0542538979
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.2263457553
+          },
+          {
+            "day_offset": 42,
+            "value": 0.3377160127
+          },
+          {
+            "day_offset": 89,
+            "value": 0.3957587699
+          },
+          {
+            "day_offset": 92,
+            "value": 0.3443546473
+          },
+          {
+            "day_offset": 94,
+            "value": 0.3807711465
+          },
+          {
+            "day_offset": 128,
+            "value": 0.3598881623
+          },
+          {
+            "day_offset": 307,
+            "value": 0.2531127158
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0486289677,
+        "volatility": 0.2463453911
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 3011559680,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          42,
+          89,
+          92,
+          94,
+          128,
+          307
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              42,
+              89,
+              92,
+              94,
+              128
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 307
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.554430685553,
+          "drift_initial_standard_deviation": 0.002488183548,
+          "drift_innovation_standard_deviation": 0.006379625968,
+          "log_volatility_phi": 0.463231705682,
+          "log_volatility_initial_standard_deviation": 0.039053107325,
+          "log_volatility_innovation_standard_deviation": 0.17876786178
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.554430685553,
+          "initial_standard_deviation": 0.002488183548,
+          "innovation_standard_deviation": 0.006379625968,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.463231705682,
+          "initial_log_standard_deviation": 0.039053107325,
+          "log_innovation_standard_deviation": 0.17876786178,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-PLATINUM",
+      "initial_spot": 140.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0331289368
+          },
+          {
+            "day_offset": 44,
+            "value": 0.055749676
+          },
+          {
+            "day_offset": 67,
+            "value": 0.0400813013
+          },
+          {
+            "day_offset": 70,
+            "value": 0.0699934791
+          },
+          {
+            "day_offset": 94,
+            "value": 0.0545897907
+          },
+          {
+            "day_offset": 156,
+            "value": 0.0477758882
+          },
+          {
+            "day_offset": 264,
+            "value": 0.0752050478
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.2610067545
+          },
+          {
+            "day_offset": 44,
+            "value": 0.26330302
+          },
+          {
+            "day_offset": 67,
+            "value": 0.2792337695
+          },
+          {
+            "day_offset": 70,
+            "value": 0.2453694736
+          },
+          {
+            "day_offset": 94,
+            "value": 0.2246664892
+          },
+          {
+            "day_offset": 156,
+            "value": 0.2122978237
+          },
+          {
+            "day_offset": 264,
+            "value": 0.1952781612
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0359558623,
+        "volatility": 0.2386224877
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 2959123980,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          44,
+          67,
+          70,
+          94,
+          156,
+          264
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              44,
+              67,
+              70,
+              94,
+              156
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 264
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.771022885421,
+          "drift_initial_standard_deviation": 0.010029517973,
+          "drift_innovation_standard_deviation": 0.025137777991,
+          "log_volatility_phi": 0.5207736307,
+          "log_volatility_initial_standard_deviation": 0.117208465158,
+          "log_volatility_innovation_standard_deviation": 0.100612684023
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.771022885421,
+          "initial_standard_deviation": 0.010029517973,
+          "innovation_standard_deviation": 0.025137777991,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.5207736307,
+          "initial_log_standard_deviation": 0.117208465158,
+          "log_innovation_standard_deviation": 0.100612684023,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-PALLADIUM",
+      "initial_spot": 145.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0418629735
+          },
+          {
+            "day_offset": 26,
+            "value": 0.052687676
+          },
+          {
+            "day_offset": 32,
+            "value": 0.0766934636
+          },
+          {
+            "day_offset": 51,
+            "value": 0.0746555937
+          },
+          {
+            "day_offset": 60,
+            "value": 0.0670293294
+          },
+          {
+            "day_offset": 64,
+            "value": 0.0638259067
+          },
+          {
+            "day_offset": 289,
+            "value": 0.0688828948
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.3395227504
+          },
+          {
+            "day_offset": 26,
+            "value": 0.3744000494
+          },
+          {
+            "day_offset": 32,
+            "value": 0.2932884709
+          },
+          {
+            "day_offset": 51,
+            "value": 0.3136413658
+          },
+          {
+            "day_offset": 60,
+            "value": 0.2669145086
+          },
+          {
+            "day_offset": 64,
+            "value": 0.2813175621
+          },
+          {
+            "day_offset": 289,
+            "value": 0.2770192473
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0380102809,
+        "volatility": 0.3358543269
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 1800001899,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          26,
+          32,
+          51,
+          60,
+          64,
+          289
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              26,
+              32,
+              51,
+              60,
+              64
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 289
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.74511881693,
+          "drift_initial_standard_deviation": 0.009077294014,
+          "drift_innovation_standard_deviation": 0.015926071138,
+          "log_volatility_phi": 0.382723844593,
+          "log_volatility_initial_standard_deviation": 0.066997908398,
+          "log_volatility_innovation_standard_deviation": 0.119629499633
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.74511881693,
+          "initial_standard_deviation": 0.009077294014,
+          "innovation_standard_deviation": 0.015926071138,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.382723844593,
+          "initial_log_standard_deviation": 0.066997908398,
+          "log_innovation_standard_deviation": 0.119629499633,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-COBALT",
+      "initial_spot": 98.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0591127211
+          },
+          {
+            "day_offset": 22,
+            "value": 0.0567271218
+          },
+          {
+            "day_offset": 33,
+            "value": 0.0644113186
+          },
+          {
+            "day_offset": 56,
+            "value": 0.0671582882
+          },
+          {
+            "day_offset": 90,
+            "value": 0.0620356449
+          },
+          {
+            "day_offset": 112,
+            "value": 0.0631479004
+          },
+          {
+            "day_offset": 271,
+            "value": 0.0485545265
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.2809912064
+          },
+          {
+            "day_offset": 22,
+            "value": 0.2927207724
+          },
+          {
+            "day_offset": 33,
+            "value": 0.3020413782
+          },
+          {
+            "day_offset": 56,
+            "value": 0.2925283101
+          },
+          {
+            "day_offset": 90,
+            "value": 0.2793407407
+          },
+          {
+            "day_offset": 112,
+            "value": 0.2831160738
+          },
+          {
+            "day_offset": 271,
+            "value": 0.297949028
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0546309579,
+        "volatility": 0.2818957738
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 1617856704,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          22,
+          33,
+          56,
+          90,
+          112,
+          271
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              22,
+              33,
+              56,
+              90,
+              112
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 271
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.683780384331,
+          "drift_initial_standard_deviation": 0.007594015948,
+          "drift_innovation_standard_deviation": 0.014037746358,
+          "log_volatility_phi": 0.610573279444,
+          "log_volatility_initial_standard_deviation": 0.039772139157,
+          "log_volatility_innovation_standard_deviation": 0.047102519032
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.683780384331,
+          "initial_standard_deviation": 0.007594015948,
+          "innovation_standard_deviation": 0.014037746358,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.610573279444,
+          "initial_log_standard_deviation": 0.039772139157,
+          "log_innovation_standard_deviation": 0.047102519032,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-MOLYBDENUM",
+      "initial_spot": 108.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0655561619
+          },
+          {
+            "day_offset": 32,
+            "value": 0.0503849766
+          },
+          {
+            "day_offset": 35,
+            "value": 0.0486438151
+          },
+          {
+            "day_offset": 42,
+            "value": 0.0455293597
+          },
+          {
+            "day_offset": 142,
+            "value": 0.0742656261
+          },
+          {
+            "day_offset": 170,
+            "value": 0.0565052591
+          },
+          {
+            "day_offset": 340,
+            "value": 0.0613875465
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.2201649424
+          },
+          {
+            "day_offset": 32,
+            "value": 0.2209873481
+          },
+          {
+            "day_offset": 35,
+            "value": 0.2136761373
+          },
+          {
+            "day_offset": 42,
+            "value": 0.3007435086
+          },
+          {
+            "day_offset": 142,
+            "value": 0.2563725176
+          },
+          {
+            "day_offset": 170,
+            "value": 0.2094011918
+          },
+          {
+            "day_offset": 340,
+            "value": 0.1815975994
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0602717923,
+        "volatility": 0.2187571476
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 4163895189,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          32,
+          35,
+          42,
+          142,
+          170,
+          340
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              32,
+              35,
+              42,
+              142,
+              170
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 340
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.821031334891,
+          "drift_initial_standard_deviation": 0.008043389186,
+          "drift_innovation_standard_deviation": 0.017623734181,
+          "log_volatility_phi": 0.891368698544,
+          "log_volatility_initial_standard_deviation": 0.027737065491,
+          "log_volatility_innovation_standard_deviation": 0.14283228511
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.821031334891,
+          "initial_standard_deviation": 0.008043389186,
+          "innovation_standard_deviation": 0.017623734181,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.891368698544,
+          "initial_log_standard_deviation": 0.027737065491,
+          "log_innovation_standard_deviation": 0.14283228511,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-IRON-ORE",
+      "initial_spot": 82.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0290584616
+          },
+          {
+            "day_offset": 23,
+            "value": 0.0236556035
+          },
+          {
+            "day_offset": 56,
+            "value": 0.0201663028
+          },
+          {
+            "day_offset": 76,
+            "value": 0.036731461
+          },
+          {
+            "day_offset": 85,
+            "value": 0.0648792807
+          },
+          {
+            "day_offset": 120,
+            "value": 0.0619391753
+          },
+          {
+            "day_offset": 247,
+            "value": 0.0243127344
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.4257132994
+          },
+          {
+            "day_offset": 23,
+            "value": 0.3704183983
+          },
+          {
+            "day_offset": 56,
+            "value": 0.3852873526
+          },
+          {
+            "day_offset": 76,
+            "value": 0.3959859908
+          },
+          {
+            "day_offset": 85,
+            "value": 0.4121001439
+          },
+          {
+            "day_offset": 120,
+            "value": 0.4069036159
+          },
+          {
+            "day_offset": 247,
+            "value": 0.4345078153
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0292720139,
+        "volatility": 0.3638503141
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 1948270881,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          23,
+          56,
+          76,
+          85,
+          120,
+          247
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              23,
+              56,
+              76,
+              85,
+              120
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 247
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.49651142346,
+          "drift_initial_standard_deviation": 0.008254924345,
+          "drift_innovation_standard_deviation": 0.013528851208,
+          "log_volatility_phi": 0.657272934768,
+          "log_volatility_initial_standard_deviation": 0.097218943101,
+          "log_volatility_innovation_standard_deviation": 0.105903060827
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.49651142346,
+          "initial_standard_deviation": 0.008254924345,
+          "innovation_standard_deviation": 0.013528851208,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.657272934768,
+          "initial_log_standard_deviation": 0.097218943101,
+          "log_innovation_standard_deviation": 0.105903060827,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-STEEL-REBAR",
+      "initial_spot": 86.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0396726134
+          },
+          {
+            "day_offset": 39,
+            "value": 0.0480981786
+          },
+          {
+            "day_offset": 104,
+            "value": 0.0486857227
+          },
+          {
+            "day_offset": 112,
+            "value": 0.0574666921
+          },
+          {
+            "day_offset": 132,
+            "value": 0.0357057816
+          },
+          {
+            "day_offset": 154,
+            "value": 0.0533522904
+          },
+          {
+            "day_offset": 188,
+            "value": 0.0584696913
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.2674924868
+          },
+          {
+            "day_offset": 39,
+            "value": 0.2915429296
+          },
+          {
+            "day_offset": 104,
+            "value": 0.3219732652
+          },
+          {
+            "day_offset": 112,
+            "value": 0.3089234854
+          },
+          {
+            "day_offset": 132,
+            "value": 0.2454493674
+          },
+          {
+            "day_offset": 154,
+            "value": 0.2364604607
+          },
+          {
+            "day_offset": 188,
+            "value": 0.1872846398
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.039042734,
+        "volatility": 0.240700657
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 3725910071,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          39,
+          104,
+          112,
+          132,
+          154,
+          188
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              39,
+              104,
+              112,
+              132,
+              154
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 188
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.487325414631,
+          "drift_initial_standard_deviation": 0.012133203223,
+          "drift_innovation_standard_deviation": 0.019644891417,
+          "log_volatility_phi": 0.578649482405,
+          "log_volatility_initial_standard_deviation": 0.08901829635,
+          "log_volatility_innovation_standard_deviation": 0.169830627237
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.487325414631,
+          "initial_standard_deviation": 0.012133203223,
+          "innovation_standard_deviation": 0.019644891417,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.578649482405,
+          "initial_log_standard_deviation": 0.08901829635,
+          "log_innovation_standard_deviation": 0.169830627237,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-LITHIUM",
+      "initial_spot": 118.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0369450957
+          },
+          {
+            "day_offset": 56,
+            "value": 0.0476768239
+          },
+          {
+            "day_offset": 73,
+            "value": 0.0431365039
+          },
+          {
+            "day_offset": 134,
+            "value": 0.0439493055
+          },
+          {
+            "day_offset": 156,
+            "value": 0.0411202576
+          },
+          {
+            "day_offset": 158,
+            "value": 0.0449480298
+          },
+          {
+            "day_offset": 274,
+            "value": 0.0517607126
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.4224069138
+          },
+          {
+            "day_offset": 56,
+            "value": 0.4151427402
+          },
+          {
+            "day_offset": 73,
+            "value": 0.3447812601
+          },
+          {
+            "day_offset": 134,
+            "value": 0.409181527
+          },
+          {
+            "day_offset": 156,
+            "value": 0.3854460436
+          },
+          {
+            "day_offset": 158,
+            "value": 0.4519716094
+          },
+          {
+            "day_offset": 274,
+            "value": 0.4015612531
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0482288578,
+        "volatility": 0.4147722222
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 2325706719,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          56,
+          73,
+          134,
+          156,
+          158,
+          274
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              56,
+              73,
+              134,
+              156,
+              158
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 274
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.460242468829,
+          "drift_initial_standard_deviation": 0.014719141725,
+          "drift_innovation_standard_deviation": 0.007824540131,
+          "log_volatility_phi": 0.529530096654,
+          "log_volatility_initial_standard_deviation": 0.057014722766,
+          "log_volatility_innovation_standard_deviation": 0.095340040345
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.460242468829,
+          "initial_standard_deviation": 0.014719141725,
+          "innovation_standard_deviation": 0.007824540131,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.529530096654,
+          "initial_log_standard_deviation": 0.057014722766,
+          "log_innovation_standard_deviation": 0.095340040345,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-URANIUM",
+      "initial_spot": 128.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0301161133
+          },
+          {
+            "day_offset": 18,
+            "value": 0.0160236469
+          },
+          {
+            "day_offset": 64,
+            "value": 0.0319763597
+          },
+          {
+            "day_offset": 66,
+            "value": 0.0420428435
+          },
+          {
+            "day_offset": 117,
+            "value": 0.0264281439
+          },
+          {
+            "day_offset": 145,
+            "value": 0.0273299116
+          },
+          {
+            "day_offset": 317,
+            "value": 0.0367984167
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.2706797638
+          },
+          {
+            "day_offset": 18,
+            "value": 0.2357296922
+          },
+          {
+            "day_offset": 64,
+            "value": 0.1946607822
+          },
+          {
+            "day_offset": 66,
+            "value": 0.2228485774
+          },
+          {
+            "day_offset": 117,
+            "value": 0.1971650967
+          },
+          {
+            "day_offset": 145,
+            "value": 0.2276657323
+          },
+          {
+            "day_offset": 317,
+            "value": 0.3029221767
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0403260145,
+        "volatility": 0.256724018
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 878884501,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          18,
+          64,
+          66,
+          117,
+          145,
+          317
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              18,
+              64,
+              66,
+              117,
+              145
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 317
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.599296299822,
+          "drift_initial_standard_deviation": 0.013951119795,
+          "drift_innovation_standard_deviation": 0.012819348839,
+          "log_volatility_phi": 0.359936455375,
+          "log_volatility_initial_standard_deviation": 0.097169897303,
+          "log_volatility_innovation_standard_deviation": 0.114871670064
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.599296299822,
+          "initial_standard_deviation": 0.013951119795,
+          "innovation_standard_deviation": 0.012819348839,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.359936455375,
+          "initial_log_standard_deviation": 0.097169897303,
+          "log_innovation_standard_deviation": 0.114871670064,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-RHODIUM",
+      "initial_spot": 160.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0226723629
+          },
+          {
+            "day_offset": 38,
+            "value": -0.0319038265
+          },
+          {
+            "day_offset": 113,
+            "value": -0.0044625767
+          },
+          {
+            "day_offset": 137,
+            "value": 0.0169907594
+          },
+          {
+            "day_offset": 149,
+            "value": 0.0228137653
+          },
+          {
+            "day_offset": 173,
+            "value": 0.0197408221
+          },
+          {
+            "day_offset": 273,
+            "value": 0.0234907086
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.444430728
+          },
+          {
+            "day_offset": 38,
+            "value": 0.5054045111
+          },
+          {
+            "day_offset": 113,
+            "value": 0.4873218359
+          },
+          {
+            "day_offset": 137,
+            "value": 0.5135956807
+          },
+          {
+            "day_offset": 149,
+            "value": 0.464080356
+          },
+          {
+            "day_offset": 173,
+            "value": 0.4604123928
+          },
+          {
+            "day_offset": 273,
+            "value": 0.4578563087
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0230939183,
+        "volatility": 0.4345795604
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 448129463,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          38,
+          113,
+          137,
+          149,
+          173,
+          273
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              38,
+              113,
+              137,
+              149,
+              173
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 273
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.582311130094,
+          "drift_initial_standard_deviation": 0.002150702549,
+          "drift_innovation_standard_deviation": 0.015330761297,
+          "log_volatility_phi": 0.868970217096,
+          "log_volatility_initial_standard_deviation": 0.038604817928,
+          "log_volatility_innovation_standard_deviation": 0.094460275192
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.582311130094,
+          "initial_standard_deviation": 0.002150702549,
+          "innovation_standard_deviation": 0.015330761297,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.868970217096,
+          "initial_log_standard_deviation": 0.038604817928,
+          "log_innovation_standard_deviation": 0.094460275192,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-MAGNESIUM",
+      "initial_spot": 94.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0276718903
+          },
+          {
+            "day_offset": 21,
+            "value": 0.0627746469
+          },
+          {
+            "day_offset": 63,
+            "value": 0.040748882
+          },
+          {
+            "day_offset": 80,
+            "value": 0.0126279138
+          },
+          {
+            "day_offset": 103,
+            "value": -0.008013274
+          },
+          {
+            "day_offset": 179,
+            "value": -0.0121520923
+          },
+          {
+            "day_offset": 346,
+            "value": -0.0100633286
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.2055327232
+          },
+          {
+            "day_offset": 21,
+            "value": 0.2221412752
+          },
+          {
+            "day_offset": 63,
+            "value": 0.2145834178
+          },
+          {
+            "day_offset": 80,
+            "value": 0.1991298026
+          },
+          {
+            "day_offset": 103,
+            "value": 0.202280419
+          },
+          {
+            "day_offset": 179,
+            "value": 0.2201060534
+          },
+          {
+            "day_offset": 346,
+            "value": 0.2307585915
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0279660751,
+        "volatility": 0.2213816401
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 1774497703,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          21,
+          63,
+          80,
+          103,
+          179,
+          346
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              21,
+              63,
+              80,
+              103,
+              179
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 346
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.391865969368,
+          "drift_initial_standard_deviation": 0.007099302166,
+          "drift_innovation_standard_deviation": 0.024769260168,
+          "log_volatility_phi": 0.40239900201,
+          "log_volatility_initial_standard_deviation": 0.069619305914,
+          "log_volatility_innovation_standard_deviation": 0.061623334233
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.391865969368,
+          "initial_standard_deviation": 0.007099302166,
+          "innovation_standard_deviation": 0.024769260168,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.40239900201,
+          "initial_log_standard_deviation": 0.069619305914,
+          "log_innovation_standard_deviation": 0.061623334233,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-MANGANESE",
+      "initial_spot": 90.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0160515562
+          },
+          {
+            "day_offset": 39,
+            "value": 0.0385733303
+          },
+          {
+            "day_offset": 56,
+            "value": 0.0311073196
+          },
+          {
+            "day_offset": 100,
+            "value": 0.0023828973
+          },
+          {
+            "day_offset": 134,
+            "value": 0.0390900077
+          },
+          {
+            "day_offset": 170,
+            "value": 0.0524692332
+          },
+          {
+            "day_offset": 291,
+            "value": 0.0385103268
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.2351937216
+          },
+          {
+            "day_offset": 39,
+            "value": 0.2039796058
+          },
+          {
+            "day_offset": 56,
+            "value": 0.2247149798
+          },
+          {
+            "day_offset": 100,
+            "value": 0.1822334429
+          },
+          {
+            "day_offset": 134,
+            "value": 0.1843428965
+          },
+          {
+            "day_offset": 170,
+            "value": 0.1663498445
+          },
+          {
+            "day_offset": 291,
+            "value": 0.2077903399
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0279754287,
+        "volatility": 0.2317705863
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 2818638477,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          39,
+          56,
+          100,
+          134,
+          170,
+          291
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              39,
+              56,
+              100,
+              134,
+              170
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 291
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.529293270048,
+          "drift_initial_standard_deviation": 0.009091279399,
+          "drift_innovation_standard_deviation": 0.017077785729,
+          "log_volatility_phi": 0.643569508841,
+          "log_volatility_initial_standard_deviation": 0.062009583896,
+          "log_volatility_innovation_standard_deviation": 0.194150364082
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.529293270048,
+          "initial_standard_deviation": 0.009091279399,
+          "innovation_standard_deviation": 0.017077785729,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.643569508841,
+          "initial_log_standard_deviation": 0.062009583896,
+          "log_innovation_standard_deviation": 0.194150364082,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-CHROMIUM",
+      "initial_spot": 102.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.016791562
+          },
+          {
+            "day_offset": 102,
+            "value": 0.0603871154
+          },
+          {
+            "day_offset": 142,
+            "value": 0.0682934877
+          },
+          {
+            "day_offset": 157,
+            "value": 0.0333272632
+          },
+          {
+            "day_offset": 177,
+            "value": 0.0108427368
+          },
+          {
+            "day_offset": 178,
+            "value": 0.0145701645
+          },
+          {
+            "day_offset": 344,
+            "value": -0.0213230692
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.1905261084
+          },
+          {
+            "day_offset": 102,
+            "value": 0.1845661433
+          },
+          {
+            "day_offset": 142,
+            "value": 0.1961797926
+          },
+          {
+            "day_offset": 157,
+            "value": 0.1939561023
+          },
+          {
+            "day_offset": 177,
+            "value": 0.2021983263
+          },
+          {
+            "day_offset": 178,
+            "value": 0.1996202098
+          },
+          {
+            "day_offset": 344,
+            "value": 0.1998087303
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0285737457,
+        "volatility": 0.1905614249
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 3917555808,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          102,
+          142,
+          157,
+          177,
+          178,
+          344
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              102,
+              142,
+              157,
+              177,
+              178
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 344
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.547596995917,
+          "drift_initial_standard_deviation": 0.007192658001,
+          "drift_innovation_standard_deviation": 0.027916667632,
+          "log_volatility_phi": 0.874576481752,
+          "log_volatility_initial_standard_deviation": 0.055446574155,
+          "log_volatility_innovation_standard_deviation": 0.05312078001
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.547596995917,
+          "initial_standard_deviation": 0.007192658001,
+          "innovation_standard_deviation": 0.027916667632,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.874576481752,
+          "initial_log_standard_deviation": 0.055446574155,
+          "log_innovation_standard_deviation": 0.05312078001,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-VANADIUM",
+      "initial_spot": 96.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0474905023
+          },
+          {
+            "day_offset": 23,
+            "value": 0.0466047785
+          },
+          {
+            "day_offset": 53,
+            "value": 0.0376723411
+          },
+          {
+            "day_offset": 62,
+            "value": 0.0662181053
+          },
+          {
+            "day_offset": 71,
+            "value": 0.0688983482
+          },
+          {
+            "day_offset": 163,
+            "value": 0.0817675416
+          },
+          {
+            "day_offset": 340,
+            "value": 0.0571601592
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.2584345395
+          },
+          {
+            "day_offset": 23,
+            "value": 0.2651746945
+          },
+          {
+            "day_offset": 53,
+            "value": 0.2714820943
+          },
+          {
+            "day_offset": 62,
+            "value": 0.2590956761
+          },
+          {
+            "day_offset": 71,
+            "value": 0.2402653328
+          },
+          {
+            "day_offset": 163,
+            "value": 0.2460276811
+          },
+          {
+            "day_offset": 340,
+            "value": 0.2518790663
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.046471161,
+        "volatility": 0.2668457638
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 187674965,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          23,
+          53,
+          62,
+          71,
+          163,
+          340
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              23,
+              53,
+              62,
+              71,
+              163
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 340
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.826042553724,
+          "drift_initial_standard_deviation": 0.011342228257,
+          "drift_innovation_standard_deviation": 0.028287927618,
+          "log_volatility_phi": 0.583460951055,
+          "log_volatility_initial_standard_deviation": 0.070208535849,
+          "log_volatility_innovation_standard_deviation": 0.065593626704
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.826042553724,
+          "initial_standard_deviation": 0.011342228257,
+          "innovation_standard_deviation": 0.028287927618,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.583460951055,
+          "initial_log_standard_deviation": 0.070208535849,
+          "log_innovation_standard_deviation": 0.065593626704,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    },
+    {
+      "underlying_id": "SYNTH-METAL-TUNGSTEN",
+      "initial_spot": 112.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.0541711537
+          },
+          {
+            "day_offset": 17,
+            "value": 0.0314237829
+          },
+          {
+            "day_offset": 79,
+            "value": 0.0829749315
+          },
+          {
+            "day_offset": 92,
+            "value": 0.0923019699
+          },
+          {
+            "day_offset": 110,
+            "value": 0.0767717746
+          },
+          {
+            "day_offset": 148,
+            "value": 0.0565825482
+          },
+          {
+            "day_offset": 257,
+            "value": 0.0082598404
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {
+            "day_offset": 0,
+            "value": 0.271387794
+          },
+          {
+            "day_offset": 17,
+            "value": 0.1977685589
+          },
+          {
+            "day_offset": 79,
+            "value": 0.2214696963
+          },
+          {
+            "day_offset": 92,
+            "value": 0.250597856
+          },
+          {
+            "day_offset": 110,
+            "value": 0.2381749414
+          },
+          {
+            "day_offset": 148,
+            "value": 0.2292522549
+          },
+          {
+            "day_offset": 257,
+            "value": 0.2186197434
+          }
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "physical_sampling_anchor": {
+        "drift": 0.0448776862,
+        "volatility": 0.2358596779
+      },
+      "physical_sampling_parameters": {
+        "sampling_seed": 109606303,
+        "sampling_seed_hard_bounds": [
+          1,
+          4294967295
+        ],
+        "resample_attempt": 0,
+        "stream_namespace": "sha256(underlying_sampling_seed,underlying_id,parameter,node_index)",
+        "node_offsets_calendar_days": [
+          0,
+          17,
+          79,
+          92,
+          110,
+          148,
+          257
+        ],
+        "node_offset_distribution": {
+          "node_count": 7,
+          "initial_offset": 0,
+          "interior": {
+            "distribution": "discrete_uniform_without_replacement",
+            "hard_bounds": [
+              14,
+              181
+            ],
+            "realized_values": [
+              17,
+              79,
+              92,
+              110,
+              148
+            ]
+          },
+          "terminal": {
+            "distribution": "discrete_uniform",
+            "hard_bounds": [
+              182,
+              365
+            ],
+            "realized_value": 257
+          }
+        },
+        "realized_hyperparameters": {
+          "drift_phi": 0.699656813254,
+          "drift_initial_standard_deviation": 0.00958240473,
+          "drift_innovation_standard_deviation": 0.026041889695,
+          "log_volatility_phi": 0.779373510805,
+          "log_volatility_initial_standard_deviation": 0.098465645073,
+          "log_volatility_innovation_standard_deviation": 0.139024492223
+        },
+        "drift_distribution": {
+          "process": "bounded_mean_reverting_gaussian_nodes",
+          "long_run_mean": "physical_sampling_anchor.drift",
+          "autoregressive_coefficient": 0.699656813254,
+          "initial_standard_deviation": 0.00958240473,
+          "innovation_standard_deviation": 0.026041889695,
+          "bounds": [
+            -0.05,
+            0.15
+          ]
+        },
+        "volatility_distribution": {
+          "process": "bounded_mean_reverting_lognormal_nodes",
+          "long_run_log_mean": "log(physical_sampling_anchor.volatility)",
+          "autoregressive_coefficient": 0.779373510805,
+          "initial_log_standard_deviation": 0.098465645073,
+          "log_innovation_standard_deviation": 0.139024492223,
+          "bounds": [
+            0.05,
+            0.8
+          ]
+        }
+      }
+    }
+  ],
+  "underlying_simulation": {
+    "dependence_spec_id": "SYNTH-METALS-P-SPOT-FACTOR-v1",
+    "measure": "P",
+    "driver_order": [
+      "SYNTH-METAL-ALUMINUM",
+      "SYNTH-METAL-COPPER",
+      "SYNTH-METAL-ZINC",
+      "SYNTH-METAL-LEAD",
+      "SYNTH-METAL-NICKEL",
+      "SYNTH-METAL-TIN",
+      "SYNTH-METAL-GOLD",
+      "SYNTH-METAL-SILVER",
+      "SYNTH-METAL-PLATINUM",
+      "SYNTH-METAL-PALLADIUM",
+      "SYNTH-METAL-COBALT",
+      "SYNTH-METAL-MOLYBDENUM",
+      "SYNTH-METAL-IRON-ORE",
+      "SYNTH-METAL-STEEL-REBAR",
+      "SYNTH-METAL-LITHIUM",
+      "SYNTH-METAL-URANIUM",
+      "SYNTH-METAL-RHODIUM",
+      "SYNTH-METAL-MAGNESIUM",
+      "SYNTH-METAL-MANGANESE",
+      "SYNTH-METAL-CHROMIUM",
+      "SYNTH-METAL-VANADIUM",
+      "SYNTH-METAL-TUNGSTEN"
+    ],
+    "formulation": "factor_loading",
+    "factor_loading_matrix": [
+      [
+        0.55,
+        0.15,
+        0.05
+      ],
+      [
+        0.62,
+        0.12,
+        0.08
+      ],
+      [
+        0.57,
+        0.1,
+        0.06
+      ],
+      [
+        0.5,
+        0.08,
+        0.05
+      ],
+      [
+        0.58,
+        0.1,
+        0.2
+      ],
+      [
+        0.52,
+        0.12,
+        0.15
+      ],
+      [
+        0.12,
+        0.66,
+        0.04
+      ],
+      [
+        0.18,
+        0.61,
+        0.06
+      ],
+      [
+        0.15,
+        0.58,
+        0.08
+      ],
+      [
+        0.1,
+        0.54,
+        0.12
+      ],
+      [
+        0.28,
+        0.1,
+        0.58
+      ],
+      [
+        0.48,
+        0.12,
+        0.2
+      ],
+      [
+        0.64,
+        0.04,
+        0.12
+      ],
+      [
+        0.6,
+        0.05,
+        0.1
+      ],
+      [
+        0.18,
+        0.08,
+        0.7
+      ],
+      [
+        0.2,
+        0.35,
+        0.28
+      ],
+      [
+        0.08,
+        0.52,
+        0.18
+      ],
+      [
+        0.49,
+        0.08,
+        0.22
+      ],
+      [
+        0.5,
+        0.07,
+        0.24
+      ],
+      [
+        0.53,
+        0.08,
+        0.16
+      ],
+      [
+        0.46,
+        0.09,
+        0.32
+      ],
+      [
+        0.44,
+        0.1,
+        0.27
+      ]
+    ],
+    "idiosyncratic_diagonal": "derive_from_row_norms",
+    "matrix_dtype": "float64",
+    "factorization_method": "factor_loading_direct",
+    "factorization_order": "declared_driver_order",
+    "time_grid": "business_daily",
+    "regime_id": "constant-metals-22-liquid-chain"
+  },
+  "option_chain": {
+    "chain_id": "METALS-LIQUID-STATIC-GRID-v1",
+    "expiry_days": [
+      30,
+      60,
+      90,
+      180,
+      270,
+      365
+    ],
+    "moneyness_grid": [
+      0.7,
+      0.8,
+      0.85,
+      0.9,
+      0.95,
+      1.0,
+      1.05,
+      1.1,
+      1.15,
+      1.2,
+      1.3
+    ],
+    "call_put": [
+      "call",
+      "put"
+    ],
+    "listing_rule": "snapshot_start",
+    "roll_rule": "static",
+    "strike_increment": 0.5,
+    "strike_rounding": "ROUND_HALF_EVEN",
+    "exercise_style": "european",
+    "settlement_type": "cash",
+    "contract_multiplier": 100,
+    "liquidity_filter": {
+      "type": "listing_moneyness_band_and_max_expiry",
+      "max_expiry_days": 180,
+      "min_moneyness": 0.85,
+      "max_moneyness": 1.15,
+      "boundary": "inclusive"
+    }
+  },
+  "quote_model": {
+    "relative_half_spread": 0.0025,
+    "minimum_half_spread": 0.005,
+    "bid_ask_noise": {
+      "type": "clipped_gaussian_half_spread_multiplier",
+      "standard_deviation": 0.2,
+      "minimum_multiplier": 0.5,
+      "maximum_multiplier": 1.5,
+      "stream_namespace": "option-bid-ask-noise-v1"
+    },
+    "null_policy": "no-null-for-required-snapshot-fields"
+  },
+  "physical_function_sampling": {
+    "parameter_generator_seed": 20260806,
+    "parameter_generator_seed_hard_bounds": [
+      1,
+      4294967295
+    ],
+    "sampling_seed": 2504254580,
+    "rng": {
+      "uniform": "QuantLib.MersenneTwisterUniformRng/sha256-partitioned-v1",
+      "gaussian": "QuantLib.BoxMullerMersenneTwisterGaussianRng/sha256-partitioned-v1"
+    },
+    "sampling_seed_distribution": {
+      "distribution": "discrete_uniform",
+      "hard_bounds": [
+        1,
+        4294967295
+      ],
+      "generator_seed": 20260806,
+      "realized_value": 2504254580
+    },
+    "underlying_sampling_seed_distribution": {
+      "distribution": "discrete_uniform",
+      "hard_bounds": [
+        1,
+        4294967295
+      ],
+      "generator_seed": 2504254580,
+      "partition": "underlying_id",
+      "uniqueness": "enforced_across_underlyings"
+    },
+    "per_underlying_node_offset_distribution": {
+      "node_count": 7,
+      "initial_offset": 0,
+      "interior_distribution": "discrete_uniform_without_replacement",
+      "interior_hard_bounds": [
+        14,
+        181
+      ],
+      "terminal_distribution": "discrete_uniform",
+      "terminal_hard_bounds": [
+        182,
+        365
+      ],
+      "grid_uniqueness": "enforced_across_underlyings"
+    },
+    "hyperparameter_distributions": {
+      "drift_phi": {
+        "distribution": "continuous_uniform",
+        "hard_bounds": [
+          0.35,
+          0.85
+        ]
+      },
+      "drift_initial_standard_deviation": {
+        "distribution": "continuous_uniform",
+        "hard_bounds": [
+          0.002,
+          0.015
+        ]
+      },
+      "drift_innovation_standard_deviation": {
+        "distribution": "continuous_uniform",
+        "hard_bounds": [
+          0.005,
+          0.03
+        ]
+      },
+      "log_volatility_phi": {
+        "distribution": "continuous_uniform",
+        "hard_bounds": [
+          0.35,
+          0.9
+        ]
+      },
+      "log_volatility_initial_standard_deviation": {
+        "distribution": "continuous_uniform",
+        "hard_bounds": [
+          0.02,
+          0.12
+        ]
+      },
+      "log_volatility_innovation_standard_deviation": {
+        "distribution": "continuous_uniform",
+        "hard_bounds": [
+          0.04,
+          0.2
+        ]
+      }
+    },
+    "hyperparameter_uniqueness": "each realized scalar differs by underlying",
+    "drift_value_hard_bounds": [
+      -0.05,
+      0.15
+    ],
+    "volatility_value_hard_bounds": [
+      0.05,
+      0.8
+    ],
+    "stream_partition": "global_sampling_seed -> per-underlying sampling seed; then sha256(underlying_sampling_seed,underlying_id,purpose,candidate_or_node)",
+    "materialization": "sample-once-and-freeze-nodes-in-config"
+  },
+  "q_pricing": {
+    "risk_neutral_measure_id": "USD-MONEY-MARKET-Q-v1",
+    "numeraire_id": "USD-MONEY-MARKET-ACCOUNT-v1",
+    "rate_path_id": "USD-FLAT-CONTINUOUS-RATE-v1",
+    "measure_change": "girsanov_drift_only",
+    "volatility_mapping": "same_deterministic_diffusion"
+  }
+}

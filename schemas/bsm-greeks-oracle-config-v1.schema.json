@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bsm-greeks-oracle-config-v1.schema.json",
+  "title": "Trusted market-implied BSM Greeks oracle method config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "oracle_config_schema_version",
+    "verifier_id",
+    "quantlib_version",
+    "pricing_engine",
+    "iv_method_id",
+    "greeks_method_id",
+    "combined_method_id",
+    "pricing_measure_id",
+    "numeraire_id",
+    "day_count",
+    "rate_compounding",
+    "iterations",
+    "volatility_bracket",
+    "canonical_precision",
+    "canonical_rounding"
+  ],
+  "properties": {
+    "oracle_config_schema_version": {"const": "bsm-greeks-oracle-config-v1.0.0"},
+    "verifier_id": {"const": "quantlib-bsm-market-implied-greeks-verifier-v1"},
+    "quantlib_version": {"const": "1.39"},
+    "pricing_engine": {"const": "QuantLib.AnalyticEuropeanEngine"},
+    "iv_method_id": {"const": "bsm-bisection-float64-80-v1"},
+    "greeks_method_id": {"const": "bsm-analytic-float64-greeks-v1"},
+    "combined_method_id": {"const": "bsm-mid-iv-bisection80-analytic-greeks-v1"},
+    "pricing_measure_id": {"const": "USD-MONEY-MARKET-Q-v1"},
+    "numeraire_id": {"const": "USD-MONEY-MARKET-ACCOUNT-v1"},
+    "day_count": {"const": "Actual365Fixed"},
+    "rate_compounding": {"const": "continuous"},
+    "iterations": {"const": 80},
+    "volatility_bracket": {
+      "type": "array",
+      "prefixItems": [{"const": 0.000001}, {"const": 5.0}],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "canonical_precision": {"const": 8},
+    "canonical_rounding": {"const": "ROUND_HALF_EVEN"}
+  }
+}

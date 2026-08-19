@@ -83,6 +83,12 @@ $$
 `driver_order` 恰好只含这 22 个 underlying IDs。`market.underlying_dependence` 保存
 $\Lambda/D/R$，不建立 solver-visible view；1,232 个 option contracts 不进入相关矩阵。
 
+$S_t>0$ 是 USD/underlying-unit 计价的 synthetic ex-dividend spot。Physical drift/volatility
+分别是 $\mathbb P$ 下年化瞬时期望价格收益率（year$^{-1}$）与年化瞬时收益标准差
+（year$^{-1/2}$）；calendar clock 使用 Actual/365 Fixed。在每个 transition 已知当前 22 维
+published close state、日期、冻结 deterministic functions 与 P spec；同一日期的 shocks 按
+$\Lambda/D/R$ 联合，不同日期 namespaces 表示独立 Brownian increments。
+
 每个 underlying 的 annualized instantaneous `physical_drift` 和
 `physical_volatility` 都是 calendar-day-offset piecewise-linear functions。脚本先用记录的
 parameter-generator seed `20260806` 在 `[1, 4294967295]` 内抽得 global sampling seed
@@ -97,9 +103,20 @@ seed 全部保存在对应 underlying 的 `physical_sampling_parameters`。Drift
 snapshot replay 只读取 frozen nodes，不会重新抽样。
 
 `2026-08-03` 的 OHLC 是精确 initial condition $S(t_0)=S_0$；没有从虚构的前一日先走一步。
+该 frozen config 的所有 `initial_spot` 都已与价格 quantum 对齐，所以 initial
+canonicalization 不改变 $S_0$。
 之后每个 observation interval 对 drift 精确积分取平均，对 variance 精确积分取 RMS，再
-调用 QuantLib 的 flat-coefficient GBM exact transition。周末跨度按 Actual/365 calendar
-time 处理。
+调用 QuantLib 的 flat-coefficient GBM exact proposal transition。周末跨度按 Actual/365
+calendar time 处理。Proposal 经 8 位 decimal `ROUND_HALF_EVEN` 后成为 published close，
+并作为下一 interval 的 restart state；因此该 frozen snapshot 重放的是 rounded-state
+Markov chain，而不是保留未舍入 latent close 的 continuous-state GBM。
+
+Snapshot 采用显式 no-gap convention：`open = previous published close`。`high/low` 来自
+独立 `separate_synthetic_range-v1` heuristic shock，只满足必要的 OHLC 顺序与正值约束，
+并非同一 intraperiod path、Brownian bridge 或 exact range law。Volume 使用独立 uniform
+rule；这些字段不应作为 barrier、realized-range、overnight-gap 或真实流动性任务的真值。
+`adjusted_close = close`、`dividend = 0`、`corporate_action = none` 也是独立常量规则，不把
+该 close series 变成 total-return index。
 
 ## Liquid option chain
 
@@ -146,8 +163,8 @@ $\sigma_{Q,\mathrm{eff}}=\sqrt{(T-t)^{-1}\int_t^T\sigma_Q^2(u)du}$ 在 European 
 
 每条 quote 都在 private `market.option_pricing_audit` 中保存未舍入理论价，并用
 `QuantLib.VanillaOption.impliedVolatility` 对实际 canonical mid 反解 IV（bracket
-`[1e-6, 4.0]`，accuracy `1e-12`，最多 1,000 evaluations）。59,860 条为 `CONVERGED`；
-508 条临近到期、深度价内 quote 因 8 位 mid 落在所声明有限-vol bracket 的可达价格区间
+`[1e-6, 4.0]`，accuracy `1e-12`，最多 1,000 evaluations）。59,836 条为 `CONVERGED`；
+532 条临近到期、深度价内 quote 因 8 位 mid 落在所声明有限-vol bracket 的可达价格区间
 之外而记为 `NO_FINITE_IV`，不会用 hidden pricing volatility 填充假答案。该 audit table
 没有 solver-visible view。
 
@@ -167,6 +184,11 @@ Solver 可读 views：
 Private authoring/audit tables（包括 dependence、candidate-grid liquidity rule、quote-noise
 contract、Q pricing/IV audit、run lineage）没有对应 solver view。当前 `pricing_metadata` 仍是项目早期的
 过渡公开合同；更严格的 public/private pricing metadata split 属于后续阶段。
+
+这是不可变的 config `1.5.0` 历史 demo，保留 private authoring IV audit 只为重放与维护。
+当前 writable authoring config `1.6.0+` 不再生成 IV answers；accepted D4 Greeks task 从新的
+config `1.7.0` P/Q parent 导出独立 public child，并不修改或直接交付本文件。详见
+[`task_packages/README.md`](../../task_packages/README.md)。
 
 ## Read-only queries
 

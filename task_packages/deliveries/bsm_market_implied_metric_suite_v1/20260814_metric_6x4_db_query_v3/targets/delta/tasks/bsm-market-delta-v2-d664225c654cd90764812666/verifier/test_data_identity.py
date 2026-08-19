@@ -1,0 +1,14 @@
+import json
+
+from verifier.runtime import bsm_metric_logical_checksum, digest_file
+
+
+def test_public_data_identity(package_root, oracle_config):
+    manifest = json.loads(
+        (package_root / "delivery_manifest.json").read_text(encoding="utf-8")
+    )
+    database = package_root / "task.duckdb"
+    assert bsm_metric_logical_checksum(database, oracle_config) == (
+        manifest["public_child_snapshot"]["logical_checksum"]
+    )
+    assert digest_file(database) == manifest["artifacts"]["task.duckdb"]

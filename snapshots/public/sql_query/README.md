@@ -92,6 +92,9 @@ tool output 或 Solver 可访问的数据文件。默认日期的 56 条 Gold op
 ## Expected semantics
 
 - `option_chain.sql` 返回已挂牌且当日未到期的 contracts，不会动态重建 strike grid。
+- `underlying_daily` close 是 GBM proposal 按 8 位 decimal 量化后的 restart state；路径合同是
+  rounded-state Markov chain。`open = previous published close`，`high/low` 是独立
+  synthetic-range heuristic，不是 intraperiod path/range law。
 - `mid = settlement_price` 是经过 8-decimal canonicalization 的 BSM analytic NPV。
 - Bid/ask quote noise 只改变 half-spread，所以所有 rows 满足
   `0 <= bid <= mid <= ask`。
@@ -117,3 +120,7 @@ tool output 或 Solver 可访问的数据文件。默认日期的 56 条 Gold op
 - `underlying_dynamics_authoring_audit.sql` 应返回 22 行，每行各有 7 个 drift nodes 与 7 个
   volatility nodes，且两个 day-0 match 标志都为 true；sampling seeds/hyperparameters 的
   完整 provenance 在 generator config，不作为 Solver task input。
+
+以上计数和审计语义只描述 checked-in 的历史 config `1.5.0` authoring demo。Current
+`1.6.0+` materialization 不写 authoring IV answers；accepted D4 agent task 使用独立三关系
+DuckDB 并由 trusted adapters 读取，不复用本目录的 authoring-audit SQL。

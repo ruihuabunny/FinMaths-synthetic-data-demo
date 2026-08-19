@@ -1,6 +1,6 @@
 # 金融数学与衍生品市场的确定性 ORM、Task Mutation 与 Curriculum 框架
 
-**六维 Task Grammar、受约束 Mutation、同币种联合市场模拟、Adaptive Curriculum、冻结市场快照与 Pytest Hard Verification**
+**七维 Task Grammar、受约束 Mutation、同币种联合市场模拟、Arbitrage Finding、Adaptive Curriculum、冻结市场快照与 Pytest Hard Verification**
 
 *A Deterministic ORM Hard-Verifier Framework for Financial Mathematics and Derivatives Markets*
 
@@ -10,21 +10,47 @@
 
 ---
 
+## 当前仓库实现状态（2026-08-17）
+
+本文是完整目标框架，不表示每个产品、模型、套利层级或训练导出都已落地。当前仓库已经
+实现 config `1.6.0` authoring/IV 边界、config `1.7.0` measure-qualified P/Q dependence、
+七维 design catalog（现有 BSM tasks 固定 `F0`）、独立 public-child exporter，以及
+`bsm_market_implied_greeks_v1` 三关系 DuckDB、trusted query/submit adapters、标准库
+80-step IV + Greeks solver、独立 QuantLib verifier 和隔离 release views。当前维护的冻结
+portable artifacts 是 100-task combined v2 delivery，以及 static v2 / DuckDB-query v3 两个
+各 24-task 的 6×4 metric suites。
+
+仓库内 checked-in `snapshots/public/quantlib_bsm_smoke_v1.duckdb` 仍是不可变的 config
+`1.5.0` 历史 demo，只含 P dependence 和 private authoring IV audit；新任务从另一个冻结的
+config `1.7.0` P/Q parent 构建，不原地迁移该文件。Phase F batch runner 与 BSM-specific
+nine-field dataset exporter 已实现。当前唯一 model family 已显式登记为 `tdgbm_bsm`
+（`M=0`）；semantic TaskSpec v3、exact executable-capability sidecar、authoring backend
+dispatch，以及 family-aware curriculum/mutation 路径已经实现。Design catalog 不授予执行
+能力，旧 TaskSpec/config/artifact 均通过 adapter 保持不变。L3 Monte Carlo 只有目录骨架；
+第二个 model family、L4--L8、basket/index/spread joint payoff、F2A+ 套利业务与跨
+task-family 通用 training exporter 仍未实现。当前精确边界以
+[主 README](../README.md)、[model-family 说明](../src/synthetic_derivatives/model_families/README.md)
+和 [package 说明](../task_packages/README.md) 为准。
+
 ## 摘要
 
 本文给出金融数学与衍生品市场任务的独立数据方案。与普通统计/数据科学领域不同，出题端以固定版本的 QuantLib 作为统一市场数据生成器：在固定 generator configuration、seed 与 RNG 下生成 underlying daily panel、完整 option daily chain 及 pricing metadata，materialize 后立即冻结为只读 market snapshot。Greeks、implied volatility、smile/surface、VaR 与 ES 不再分别造数据，而是从同一快照派生 task variants。对于同币种多资产市场，所有资产定义在共同风险中性测度 $\mathbb Q$、共同 numeraire 与共享利率路径下；每个资产的完整 option surface 由一个合法且内部一致的边际 pricing model 生成，再以对称、单位对角且半正定的相关矩阵对 underlying/model drivers 进行联合耦合。Derivative contracts 本身不占相关矩阵的行列。随后固定定价模型、underlying dependence、day-count、Greek convention、IV 求根算法、smile/surface 拟合方法、VaR/ES 定义、dtype、操作/归约顺序与 canonical output schema，使 solver 与 verifier 在同一 method contract 下生成逐字段唯一的规范答案。
 
-Solver 的核心训练目标是自己实现 Greeks、implied volatility 与 volatility smile/surface 计算。其执行环境不得调用 QuantLib、py_vollib、mibian、rateslib 等现成衍生品定价接口，也不得用封装好的 IV/Greek/smile API 绕过推导；允许的基础数值原语由 task contract 明确列出。Trusted verifier 不受这一限制：它直接以 `pytest` 调用固定版本且与题目方法一致的权威数值/金融包复算标准答案，再强制转换为题目指定 dtype 并按 canonical schema 序列化。Hard verifier 不设置绝对或相对 tolerance，而是逐字段执行 exact equality；全部测试通过时 outcome reward 为 $1$，否则为 $0$。
+Solver 的核心训练目标是自己实现 Greeks、implied volatility、volatility smile/surface 与 arbitrage search 计算。其执行环境不得调用 QuantLib、py_vollib、mibian、rateslib 等现成衍生品定价接口，也不得用封装好的 IV/Greek/smile API 绕过推导；允许的基础数值原语由 task contract 明确列出。Trusted verifier 不受这一限制：它直接以 `pytest` 调用固定版本且与题目方法一致的权威数值/金融包复算标准答案，再强制转换为题目指定 dtype 并按 canonical schema 序列化。Hard verifier 不设置绝对或相对 tolerance，而是逐字段执行 exact equality；全部测试通过时 outcome reward 为 $1$，否则为 $0$。
 
-在此基础上，本文进一步把任务表示为六维坐标 $\tau=(L,P,M,A,D,R)$：推理复杂度、产品族、模型假设、数值方法、数据/工具环境与风险输出。Task-space registry 规定合法组合，mutation engine 沿一个或少数坐标以及联合依赖配置生成带 lineage 的受控变体，curriculum scheduler 再根据 rollout 的分项通过率与错误类型调整采样分布。六维坐标同时充当难度描述、task mutation grammar 与能力归因工具；最终 reward 仍由逐字段 all-pass hard verifier 给出，不因 curriculum 引入主观软分。本阶段明确排除 FX、quanto、cross-currency derivatives、多币种利率与 numeraire conversion。
+在此基础上，本文进一步把任务表示为七维坐标 $\tau=(L,P,M,A,D,R,F)$：推理复杂度、产品族、模型假设、数值方法、数据/工具环境、风险输出与 arbitrage-finding 难度。$F$ 轴按 frozen snapshot 中 pricing-model 来源数量、候选数据规模、mutated 数据数量与类型，以及需要扫描的 no-arbitrage invariant families 分级；从 F2 起再用 A/B 后缀区分“判断套利并分类”和“判断套利并求 maximal spread”。Task-space registry 规定合法组合，mutation engine 沿一个或少数坐标以及联合依赖配置生成带 lineage 的受控变体，curriculum scheduler 再根据 rollout 的分项通过率与错误类型调整采样分布。七维坐标同时充当难度描述、task mutation grammar 与能力归因工具；`arbitrage_finding` 的 LLM 输出保留完整 trajectory，F0/F1 的 ORM 验收 `(arbitrage_opportunity: bool)`，F2A--F6A 验收 `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR calendar)`，F2B--F6B 验收 `(arbitrage_opportunity: bool, maximal_spread: float)`，且都不对 trajectory 内容打分。最终 reward 仍由 all-pass hard verifier 给出，不因 curriculum 引入主观软分。本阶段明确排除 FX、quanto、cross-currency derivatives、多币种利率与 numeraire conversion。
 
-**关键词：** financial derivatives；multi-asset simulator；correlation matrix；risk-neutral measure；task grammar；task mutation；curriculum learning；Greeks；implied volatility；volatility smile；synthetic market data；pytest；outcome reward model；hard verifier
+**关键词：** financial derivatives；multi-asset simulator；correlation matrix；risk-neutral measure；task grammar；task mutation；arbitrage finding；curriculum learning；Greeks；implied volatility；volatility smile；synthetic market data；pytest；outcome reward model；hard verifier
 
 ## 最终设计结论
 
 #### 最终方案
 
-金融衍生品市场单独建域：authoring 端用 pinned QuantLib 统一生成 underlying daily prices、option daily prices 与定价元数据；每个 variant 固定 generator、seed 与全部市场约定，生成后冻结 snapshot；Greeks/IV/smile/surface/VaR/ES 都从该快照派生。同币种多资产 snapshot 使用共同 $\mathbb Q$、共同 numeraire、共享利率路径与合法边际模型，并以合法相关矩阵耦合 underlying/model drivers，而不是 derivative contracts。每个任务再注册为六维坐标 $\tau=(L,P,M,A,D,R)$。Task-space registry 定义各级含义与 compatibility constraints；mutation engine 产生可追踪变体；curriculum scheduler 根据模型 mastery 选择训练分布。Task contract 同时约束 solver 与 verifier 的公式/算法、dtype、操作顺序和输出 schema；solver 禁止调用现成 Greeks/IV/smile 包，trusted verifier 用 `pytest` 调固定版本、同方法的金融包复算并以 `==` 精确验收。全部 tests pass 才有 $R_{\mathrm{ORM}}=1$。
+实现层对下面的目标设计增加一道独立门禁：`task_space` 只判断结构兼容；完整 semantic
+TaskSpec 还必须匹配已实现 model family 与 exact executable capability，scheduler 才能采样。
+因此规划中的模型或任务不会因为出现在 catalog/curriculum 中而自动变成 runtime 能力。
+
+金融衍生品市场单独建域：authoring 端用 pinned QuantLib 统一生成 underlying daily prices、option daily prices 与定价元数据；每个 variant 固定 generator、seed 与全部市场约定，生成后冻结 snapshot；Greeks/IV/smile/surface/VaR/ES 都从该快照派生。同币种多资产 snapshot 使用共同 $\mathbb Q$、共同 numeraire、共享利率路径与合法边际模型，并以合法相关矩阵耦合 underlying/model drivers，而不是 derivative contracts。每个任务再注册为七维坐标 $\tau=(L,P,M,A,D,R,F)$，其中 $F$ 单独刻画在 mutated frozen snapshot 中发现套利的难度。Task-space registry 定义各级含义与 compatibility constraints；mutation engine 产生可追踪变体；curriculum scheduler 根据模型 mastery 选择训练分布。Task contract 同时约束 solver 与 verifier 的公式/算法、dtype、操作顺序和输出 schema；solver 禁止调用现成 Greeks/IV/smile 包，trusted verifier 用 `pytest` 调固定版本、同方法的金融包复算并以 `==` 精确验收。`arbitrage_finding` 要求 LLM 生成完整 trajectory；F0/F1 的 outcome ORM 比较 bool，F2A--F6A 比较 bool 与 cross-sectional/calendar 类型集合，F2B--F6B 比较 bool 与 maximal spread。全部适用 tests pass 才有 $R_{\mathrm{ORM}}=1$。
 
 ### 为什么金融子域允许造数据
 
@@ -119,7 +145,7 @@ $$
 | `option_contracts` | 稳定 `option_id`、underlying、call/put、frozen absolute strike、expiry、exercise/settlement/multiplier，以及 listing date/spot/moneyness provenance。 |
 | `option_chain_specs` | `chain_id`、candidate expiry 与 strike/moneyness grid、call/put、listing/roll rule、strike increment/rounding、liquidity filter、quote model 和合约约定；属于 private authoring provenance。 |
 
-`underlying_daily` 中用于历史收益、VaR/ES 的路径属于物理测度 $\mathbb P$；`option_daily` 的定价属于风险中性测度 $\mathbb Q$。两者可共享当日 spot、variance state 与市场日期，但 drift、风险溢价及模型参数必须分别保存为 `physical_dynamics` 与 `pricing_dynamics`。$\mathbb P$ 与 $\mathbb Q$ 下的 underlying dependence 使用 measure-qualified spec id；不得把历史相关参数无声明地复用到风险中性定价。当前 authoring simulator materialize `measure=P` 的 cross-asset `underlying_dependence`；config `1.5.0` 已为 single-asset vanilla margins 声明共同 $\mathbb Q$/numeraire/rate-path identity 和 drift-only Girsanov diffusion mapping，而 multi-asset $\mathbb Q$ dependence 仍属于后续阶段。如果某题只需 flat rate/dividend，可以把完整 curves 简化为固定 $r,q$，但简化规则本身仍是合同字段。
+`underlying_daily` 中用于历史收益、VaR/ES 的路径属于物理测度 $\mathbb P$；`option_daily` 的定价属于风险中性测度 $\mathbb Q$。两者可共享当日 spot、variance state 与市场日期，但 drift、风险溢价及模型参数必须分别保存为 `physical_dynamics` 与 `pricing_dynamics`。$\mathbb P$ 与 $\mathbb Q$ 下的 underlying dependence 使用 measure-qualified spec id；不得把历史相关参数无声明地复用到风险中性定价。当前 config `1.7.0` authoring simulator 同时 materialize 独立 P/Q dependence identities；Q row 显式引用 source P spec、drift-only mapping、共同 $\mathbb Q$/numeraire/rate-path identity，并在这一 baseline 下保存相同 Brownian covariance。只有 P spec 生成 historical path shock，Q spec 只声明 pricing/joint-market provenance。若某题只需 flat rate/dividend，可以把完整 curves 简化为固定 $r,q$，但简化规则本身仍是合同字段。
 
 Authoring pipeline 固定为：QuantLib 先在共同时间网格上生成全部 underlying path/state，再对每个 valuation date、underlying 与 strike--maturity grid $\mathcal{K}\times\mathcal{T}$ 用指定 QuantLib pricing engine 生成 option chain，最后按题面精度量化并冻结。题目的 IV 真值必须从 solver 实际可见的、已量化 option price 按指定求根法重新反解，不能直接拿 QuantLib 内部未公开的 latent volatility 作答案。这样一套数据即可派生 Greeks、IV、smile/surface、underlying VaR/ES、option-portfolio VaR/ES 以及同一联合过程下的 basket/index/spread variants；不需要维护彼此不一致的独立“Greeks 数据表”或“VaR 数据表”。
 
@@ -132,16 +158,25 @@ increment 与 listing/roll rules 冻结为 private chain spec；moneyness 模式
 留给 exchange-profile 阶段。Config `1.4.0` 进一步把该网格定义为 candidate grid，并按
 listing-moneyness inclusive band 与 maximum expiry 只 materialize 流动性较好的合约；
 side-specific deterministic quote noise 只乘在 BSM bid/ask half-spread 上，不改变
-`mid = settlement_price`。Config `1.5.0` 进一步移除 legacy `base_implied_volatility`
-与 smile：physical drift/volatility 节点从声明的概率分布抽样一次后冻结；在明确的
+`mid = settlement_price`。冻结的 config `1.5.0` public demo 移除 legacy
+`base_implied_volatility` 与 smile：physical drift/volatility 节点从声明的概率分布抽样
+一次后冻结；在明确的
 drift-only Girsanov baseline 中，Q drift 改为 $r-q$ 且 deterministic diffusion 满足
 $\sigma_Q(t)=\sigma_P(t)$。每个 valuation-to-expiry interval 对 $\sigma_Q^2$ 精确积分并
 取 constant-equivalent RMS，再用 QuantLib analytic BSM 定价；最终 IV 则从实际已量化
-canonical mid 调用 QuantLib 反解并写入 private audit。当前 public profile 使用 22 个 underlying，每个实际保留
+canonical mid 调用 QuantLib 反解并写入 private audit。该历史 public profile 使用 22 个 underlying，每个实际保留
 4 expiries × 7 strikes × call/put，共 1,232 个固定合约，65 个 business dates 内生成
 60,368 条 expiry 前 quotes。各期限来自同一个 deterministic-time-varying-diffusion BSM
 marginal model，而不是 `physical volatility + 0.02` 或逐 quote latent smile。Option
-contracts 不加入 correlation matrix；multi-asset Q-dependence 仍是下一阶段。
+contracts 不加入 correlation matrix。Historical close 生成在每个区间先执行精确积分的
+lognormal proposal，再把 proposal 按价格 quantum 量化；published close 是下一期 restart
+state。因此 materialized history 是 rounded-state Markov chain，不是隐藏未舍入状态的
+continuous-state GBM。`open = previous published close` 是 no-gap convention；`high/low`
+来自独立 synthetic-range heuristic，volume 来自独立 activity rule，不提供 intraperiod
+path、range 或市场微观结构真值。Config `1.6.0+` 已把 IV inversion 移出 authoring；
+config `1.7.0` 已加入完整 P/Q dependence pair。当前 D4 golden task 只把 P/Q identities 与
+joint-market policy 作为 provenance，单资产 vanilla IV/Greeks 仍不读取 cross-asset
+correlation；多资产联合 payoff 定价仍是后续阶段。
 
 ### 同币种 Conditional-Independent Baseline 与相关矩阵扰动
 
@@ -243,7 +278,7 @@ D_v^{\mathrm{mkt}},q_v,\tau_v,C_v,O_v,V_v,S_v,\Pi_v
 \right),
 $$
 
-其中 $q_v$ 是 problem/query，$\tau_v=(L_v,P_v,M_v,A_v,D_v,R_v)$ 是六维任务坐标，$C_v$ 是 convention contract。这里坐标分量 $D_v$ 表示 data/tool axis，不是 market snapshot $D_v^{\mathrm{mkt}}$。
+其中 $q_v$ 是 problem/query，$\tau_v=(L_v,P_v,M_v,A_v,D_v,R_v,F_v)$ 是七维任务坐标，$C_v$ 是 convention contract。这里坐标分量 $D_v$ 表示 data/tool axis，不是 market snapshot $D_v^{\mathrm{mkt}}$；$F_v$ 表示 arbitrage-finding axis，不是 filtration。
 
 $O_v$ 是 output contract，$V_v$ 是 verifier contract，$S_v$ 是 target skills，$\Pi_v$ 是 parent/child id、engine id、operator 与 seed 构成的 mutation provenance。旧式 model/method contract 被拆入 $M_v$ 与 $A_v$，从而可以分别归因“模型假设错误”和“数值方法错误”。
 
@@ -263,13 +298,14 @@ $O_v$ 是 output contract，$V_v$ 是 verifier contract，$S_v$ 是 target skill
 | Snapshot schema      | `underlying_daily`、`option_daily`、`pricing_metadata`、`underlying_dependence`、`option_contracts`、`option_chain_specs` 的字段、类型、主键、null policy、单位与可见性。  |
 | Market state         | asset/underlying id、spot/forward、strike、maturity、共享 rate path、dividend、curve 与 quote definition。                 |
 | Clock convention     | valuation date、calendar、business-day adjustment、day-count、time-to-expiry。                                             |
-| Pricing model/method | Black–Scholes–Merton、Black-76、tree、PDE、Monte Carlo 等唯一模型与唯一 engine/method。                                    |
+| Pricing model/method | Black–Scholes–Merton、Black-76、tree、PDE、Monte Carlo 等；单模型 task 固定唯一模型与 engine/method，多模型 task（包括 F4A/F4B 及更高 base level）则为每个 coherent partition 固定唯一 model id、engine/method 与 row-routing rule。 |
 | Greek definition     | spot/forward Greek、holding-what-fixed、analytic/finite-difference/MC estimator、bump/stencil 与 scaling。                 |
 | IV method            | objective price、vol bracket、algorithm id、initial state、固定迭代次数或确定性停止规则、fallback 与 failure output。      |
 | Smile/surface method | moneyness coordinate、basis、weights、fit objective、linear-algebra routine、regularization、interpolation/extrapolation。 |
+| Arbitrage finding    | $F$ level、$\chi_F$、source-model partitions、parent/child snapshot ids、逐 cell mutation manifest、单位名义套利模板，以及最终 ORM projection；B 类另需 spread currency/definition 与 argmax reduction order。 |
 | Randomness           | generator seed、RNG、independent draw order、correlation factorization/order；MC 还需冻结 shocks/path order、variance reduction 与 reduction order。 |
 | Numerics             | dtype、运算与归约顺序、工作精度、必要的显式 cast checkpoints 与 non-convergence output。                                    |
-| Submission           | JSON/table fields、row order、units、目标 dtype、canonical representation 与 serialization order。                         |
+| Submission           | JSON/table fields、row order、units、目标 dtype、canonical representation 与 serialization order；`arbitrage_finding` 另需完整 trajectory，最终 `Outcome.orm_answer` 按 level 为 `(bool)`、`(bool, ordered enum array)` 或 `(bool, float)`。 |
 
 金融衍生品 task contract 的必需字段
 
@@ -283,15 +319,15 @@ $O_v$ 是 output contract，$V_v$ 是 verifier contract，$S_v$ 是 target skill
 - Delta/Gamma 对 spot 还是 forward，是否包含 discount/dividend factor；
 - rate 与 dividend 是连续复利、简单利率还是离散复利。
 
-## 六维 Task Grammar 与难度空间
+## 七维 Task Grammar 与难度空间
 
 任务不再只标为“简单/中等/困难”，而是使用可解释坐标：
 
 $$
-\boxed{\tau=(L_{\mathrm{reasoning}},P_{\mathrm{product}},M_{\mathrm{model}},A_{\mathrm{method}},D_{\mathrm{data/tool}},R_{\mathrm{risk}})}.
+\boxed{\tau=(L_{\mathrm{reasoning}},P_{\mathrm{product}},M_{\mathrm{model}},A_{\mathrm{method}},D_{\mathrm{data/tool}},R_{\mathrm{risk}},F_{\mathrm{arbitrage\ finding}})}.
 $$
 
-六个轴相互独立但不做无条件笛卡尔积。每个 variant 必须通过 compatibility registry，或被明确标记为“识别不兼容”的 adversarial task。
+七个轴相互独立但不做无条件笛卡尔积。每个 variant 必须通过 compatibility registry，或被明确标记为“识别不兼容”的 adversarial task。
 
 ### 推理复杂度轴 $L$
 
@@ -367,7 +403,7 @@ CIR 通常描述短利率而非 equity spot。任务必须分别声明 spot、vo
 | D1 | 单张结构化表 | 读取、筛选、类型转换 |
 | D2 | 多张关联表 | join market、contract、curve、position |
 | D3 | 原始 option chain | 清洗、构造 forward、反求 IV |
-| D4 | DuckDB market snapshot | SQL 查询、期限匹配、curve interpolation |
+| D4 | DuckDB market snapshot | SQL 或受计数 trusted relation adapters、跨关系读取、期限匹配、curve interpolation；是否暴露 raw connection 由 runtime contract 决定 |
 | D5 | 缺失值和异常值 | arbitrage filter、stale quote、确定性修复 |
 | D6 | 隐藏产品标签 | 根据 legs/payoff 识别交易结构 |
 | D7 | 完整 agent environment | 查询、写代码、执行、诊断、修复、保存 artifact |
@@ -388,6 +424,138 @@ CIR 通常描述短利率而非 equity spot。任务必须分别声明 spot、vo
 | R8 | Model risk | model-to-model price/Greek difference |
 | R9 | 完整风险报告 | structured JSON/table + explanation + artifacts |
 
+### 套利发现轴 $F_{\mathrm{arbitrage\ finding}}$
+
+$F$ 是正式的第七个难度维度，刻画 solver 在 mutated frozen snapshot 中搜索可执行静态套利
+的复杂度。它不替代模型轴 $M$：$M$ 描述单个 pricing model 的数学复杂度，$F$ 描述同一
+搜索 universe 中 pricing-model 来源的异质性、候选数据量以及 snapshot mutation 的数量和
+类型。每个 $F$ variant 还必须冻结下面的原始计数与输出合同，而不能只保存 level：
+
+$$
+\chi_F=(n_{\mathrm{models}},n_{\mathrm{candidate\ rows}},n_{\mathrm{mutated\ cells}},
+n_{\mathrm{mutation\ target\ types}},n_{\mathrm{invariant\ families}},o_F),
+\qquad o_F\in\{\texttt{bool},\texttt{bool+type},\texttt{bool+spread}\}.
+$$
+
+| Level | Pricing-model 来源 | Snapshot mutation 与搜索范围 | ORM 验收答案 |
+|---|---|---|---|
+| F0 | 该轴默认不激活；arbitrage task 采用单一模型 | 小型 clean snapshot，`mutated_cells=0`，作为无套利负对照 | `(arbitrage_opportunity: bool)` |
+| F1 | 单一模型，如全量 BSM | 小型候选集；1 个 cell、1 种 target type、1 个 invariant family | `(arbitrage_opportunity: bool)` |
+| F2A | 单一模型 | 完整 option chain；至多 1 个隐藏的 option-price 或 underlying-spot point mutation | `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR calendar)` |
+| F2B | 与 F2A 相同 | 与 F2A 相同；增加 exact argmax/reduction 要求 | `(arbitrage_opportunity: bool, maximal_spread: float)` |
+| F3A | 单一模型 | 多个 mutated cells、多个 target types 与 invariant families | `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR calendar)` |
+| F3B | 与 F3A 相同 | 与 F3A 相同；增加 exact argmax/reduction 要求 | `(arbitrage_opportunity: bool, maximal_spread: float)` |
+| F4A | 多个 coherent marginal pricing models | 各模型分区显式；少量 mutation 混入跨模型候选集 | `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR calendar)` |
+| F4B | 与 F4A 相同 | 与 F4A 相同；增加 exact argmax/reduction 要求 | `(arbitrage_opportunity: bool, maximal_spread: float)` |
+| F5A | 多个 pricing models | 大型 snapshot；多个 mutated cells、target types、产品族与期限 | `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR calendar)` |
+| F5B | 与 F5A 相同 | 与 F5A 相同；增加 exact argmax/reduction 要求 | `(arbitrage_opportunity: bool, maximal_spread: float)` |
+| F6A | 多模型、多资产 joint snapshot | 跨 quote/contract/tradeable funding tables 的多类型 mutation 与大规模候选集 | `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR calendar)` |
+| F6B | 与 F6A 相同 | 与 F6A 相同；增加 exact argmax/reduction 要求 | `(arbitrage_opportunity: bool, maximal_spread: float)` |
+
+因此 A/B 不是新的第八轴，而是 $F$ 轴内部的两种 outcome projection。F2A/F2B、...、F6A/F6B
+可以共享完全相同的 frozen child snapshot、候选模板和 mutation lineage，只改变 $o_F$；A 类
+测试“是否能发现套利，并把所有已发现类型归为 cross-sectional 和/或 calendar”，B 类测试
+“是否能按冻结归约合同求出最大 spread”。这些 levels 形成部分序而不是简单总序：例如 F3A 的
+搜索范围可以大于 F2B，但两者验收的第二字段不同，curriculum 应分别记录 detection/type
+mastery 与 spread mastery。
+
+$F$ level 只表示搜索与输出难度，不能泄露分类标签。除明确的 F0 clean negative control 外，
+F1 及所有 A/B levels 都必须同时包含 matched positive 与 negative children：positive mutation
+故意跨越套利边界；negative child 可以是同分布的 clean subset，后续版本也可以加入仍保持全部
+声明 no-arbitrage invariants 的 mutation。因此 `mutated_cells>0` 或某个 $F$ level 本身不推出
+`arbitrage_opportunity=true`；dataset manifest 还需按 level 记录但不向 solver 泄露 label
+balance。
+
+多 pricing-model 来源只能来自 parent snapshot 中各自 coherent 且标识清楚的 underlying/product
+分区；同一 payoff 不能仅因两个模型给出不同理论值就被判为套利。只有 solver 实际可交易、
+currency/underlying/payoff/expiry/settlement 可按冻结模板比较或复制的报价才能进入 candidate
+set。对 `pricing_model_id`、seed 或 correlation provenance 等不可交易元数据的 mutation 只构成
+consistency task，不构成 `arbitrage_finding`，除非另外给出由它导致的可交易价格与复制关系。
+
+Authoring 先选择一个通过全部 no-arbitrage checks 的 frozen parent snapshot，再以
+copy-on-write 生成 child snapshot。母快照及其 id/revision 必须保持只读且 byte-identical；
+child 获得新的 snapshot id/revision/lineage，按 $F$ contract 变异指定数量和类型的
+solver-visible 数据后再次冻结。允许的 target types 只包括能够进入声明交易策略的报价或
+payoff 定义，例如 option bid/ask、可交易 spot/forward、可交易 funding instrument quote，
+以及 strike/expiry/settlement 等 contract fields。Solver 默认只看到 frozen child、公开交易
+约定和难度 metadata；parent snapshot 与逐 cell before/after mutation manifest 属于 private
+authoring provenance，不能通过直接 diff 泄露答案。
+
+每个候选套利模板 $j$ 都固定为单位名义本金，并在声明的 bid/ask、funding、transaction-cost、
+exercise 与 settlement 约定下计算 present-value spread $s_j$；模板本身必须保证其到期净
+payoff 对所有声明的可达状态非负。所有 levels 都固定候选模板、枚举顺序和 bool 判定规则；
+只有 B 类额外固定 dtype、spread 运算顺序、argmax/reduction order 与 float serialization。
+内部 task truth 定义为
+
+$$
+s_{\max}=\max\left(0,\max_j s_j\right),\qquad
+\texttt{arbitrage\_opportunity}=(s_{\max}>0).
+$$
+
+每个候选模板还必须在 authoring 时被唯一路由到下列类型之一：
+
+- `cross-sectional`：在同一 valuation time 下，对同一 maturity/settlement bucket 内的
+  可交易 claims 进行 bounds、parity、strike shape、same-maturity replication 或其他横截面比较；
+- `calendar`：候选策略或复制关系跨越两个或以上 maturity/cashflow dates，并使用
+  声明的 funding、carry、exercise 与 settlement 合同将不同日期的价值放到同一基准下比较。
+
+对 F2A--F6A，`arbitrage_type` 是所有 $s_j>0$ 候选模板类型的并集，序列化为固定顺序
+`["cross-sectional", "calendar"]` 的子序列。因此只有四个 canonical 结果：`[]`、
+`["cross-sectional"]`、`["calendar"]` 或 `["cross-sectional", "calendar"]`。这一数组
+表示 AND/OR，不得用顺序不定的 set 或自由文本替代。并且必须满足
+
+$$
+\texttt{arbitrage\_opportunity}
+=\left(\lvert\texttt{arbitrage\_type}\rvert>0\right).
+$$
+
+这个类型集合由 verifier 从 solver-visible child 和冻结候选模板重算，不得从 mutation
+intention 或 private expected violation id 直接复制。F2A--F6A 不得包含无法归入这两类
+的 positive 候选模板；如果后续需要第三种类型，必须版本化扩展 output contract。
+
+令
+
+$$
+\begin{aligned}
+\mathcal F_{\mathrm{bool}}
+&=\{F0,F1\},\\
+\mathcal F_{\mathrm{type}}
+&=\{F2A,F3A,F4A,F5A,F6A\},\\
+\mathcal F_{\mathrm{spread}}
+&=\{F2B,F3B,F4B,F5B,F6B\}.
+\end{aligned}
+$$
+
+则 ORM answer contract 为
+
+$$
+Y_F=
+\begin{cases}
+(\texttt{arbitrage\_opportunity}:\texttt{bool}),
+&F\in\mathcal F_{\mathrm{bool}},\\
+(\texttt{arbitrage\_opportunity}:\texttt{bool},\
+ \texttt{arbitrage\_type}:\texttt{ordered enum array}),
+&F\in\mathcal F_{\mathrm{type}},\\
+(\texttt{arbitrage\_opportunity}:\texttt{bool},\
+ \texttt{maximal\_spread}:\texttt{float}),
+&F\in\mathcal F_{\mathrm{spread}}.
+\end{cases}
+$$
+
+生成器必须让全部样本远离零判定边界，B 类还必须远离 float canonicalization 边界。无套利时
+F0/F1 canonical answer 为 `(false)`，A 类为 `(false, [])`，B 类为 `(false, 0.0)`。B 类有套利时
+`maximal_spread` 是共同货币下每单位名义本金的最大 canonical spread，禁止通过放大仓位制造
+无穷结果。这里 `(bool)` 表示 schema 中的一字段 typed tuple，`arbitrage_type` 表示
+上述固定顺序的 typed enum array，二者都不是未定义的自由文本；其括号、boolean token
+与 serialization 同样由 manifest 冻结。
+
+LLM 仍须输出完整九字段 trajectory，并在 `Outcome` 中按 $Y_F$ 给出最终验收答案。
+`arbitrage_finding` 的 ORM reward projection 只抽取并 exact-compare 对应的一字段或二字段
+tuple；trajectory 由 episode schema 收集，用于训练、能力归因和审计，但不与 hidden oracle
+trajectory 比较，也不增加 ORM 验收字段。LLM 不需要在最终答案中输出 argmax instrument、
+portfolio legs 或套利证明；A 类必须输出 `arbitrage_type` 但不需要输出
+`maximal_spread`，后者只由 hidden verifier 按冻结模板复算。
+
 ## 产品—模型—方法 Compatibility Registry
 
 | 产品/模型 | Analytic | Root finding | Fourier | Tree/PDE | Monte Carlo |
@@ -405,6 +573,11 @@ CIR 通常描述短利率而非 equity spot。任务必须分别声明 spot、vo
 
 Generator 只从 registry 采样合法组合。故意违反 compatibility 时，target 必须改成 method/model mismatch classification 或 pipeline repair，不能把伪任务当成数值定价题。
 
+对 F4A/F4B 及更高 base level 的多模型 snapshot，registry 先逐一验证每个 source-model partition 的
+product--model--method compatibility，再验证跨 partition 的候选套利模板只连接经济上可比较
+或可静态复制的 claims。模型异质性只增加搜索与路由难度，不豁免共同 currency、numeraire、
+valuation timestamp、rate-path context 和 settlement convention。
+
 ## 受约束 Task Mutation Engine
 
 母题 $\tau_0$ 通过 mutation operator $\mu$ 变为
@@ -415,14 +588,15 @@ $$
 
 并在生成 snapshot 与 answer 前执行 compatibility check。Mutation 类型包括：
 
-- **单轴上调/下调：** 只改变 $(L,P,M,A,D,R)$ 中一个坐标；
+- **单轴上调/下调：** 只改变 $(L,P,M,A,D,R,F)$ 中一个坐标；
 - **同级替换：** 难度近似不变但切换产品、模型或方法；
 - **单轴反事实：** 其余输入保持不变，用于能力归因；
 - **多轴组合：** 构造后期 curriculum 的完整 workflow；
 - **错误定向 mutation：** 根据 rollout 的 sign、convention、calibration、tool-use 等错误生成 adversarial variants；
+- **`arbitrage_finding`：** 从合法 frozen parent snapshot 复制出具有新身份的 child，按目标 $F$ level 变异规定数量与类型的公开可交易数据并再次冻结；F0/F1 ORM 验收 canonical bool，F2A--F6A 验收 bool 与 canonical `arbitrage_type`，F2B--F6B 验收 bool 与 maximal spread，禁止原地修改母快照；
 - **不兼容 mutation：** 故意制造 product--model--method mismatch，目标是识别并拒绝错误设定。
 
-对于联合市场，mutation engine 还可以在不改变六维坐标编号的情况下，对 `underlying_dependence` 子合同执行受约束 mutation：
+对于联合市场，mutation engine 还可以在不改变七维坐标编号的情况下，对 `underlying_dependence` 子合同执行受约束 mutation：
 
 - 资产数量、underlying/model driver order 与边际模型组合；derivative contracts 不进入矩阵；
 - identity、full、block 或 factor-implied correlation structure；
@@ -433,7 +607,7 @@ $$
 - 单轴反事实：固定全部 marginal snapshots，只改变一个合法 correlation entry 或 $\Lambda_t$ factor loading；
 - adversarial mutation：边际 option surfaces 全部合法，但完整 underlying correlation matrix 非 PSD，或联合衍生品价格来自不一致的 underlying-dependence snapshot。
 
-合法 mutation 必须保持共同 $\mathbb Q$、numeraire、共享 rate path 和所有 marginal model snapshots 不变，除非 operator 明确声明这些字段也是 mutation target。非法样本必须记录被破坏的唯一约束，避免同时制造多个无法归因的错误。
+合法 mutation 必须保持共同 $\mathbb Q$、numeraire、共享 rate path 和所有 marginal model snapshots 不变，除非 operator 明确声明这些字段也是 mutation target。普通 adversarial task 应只破坏一个可归因约束；`arbitrage_finding` 可按 $F$ level 破坏多个约束，但必须逐 cell 保存完整 mutation set 与预期受影响的 invariant families，不能混入未登记的第三类异常。
 
 每个 child task 必须保存：
 
@@ -442,14 +616,22 @@ $$
   "parent_task_id": "task_0001",
   "child_task_id": "task_0001_m03",
   "operator": "change_model_assumption",
-  "before": {"L": 1, "P": 0, "M": 0, "A": 0, "D": 0, "R": 1},
-  "after":  {"L": 1, "P": 0, "M": 2, "A": 3, "D": 0, "R": 1},
+  "before": {"L": 1, "P": 0, "M": 0, "A": 0, "D": 0, "R": 1, "F": "F0"},
+  "after":  {"L": 1, "P": 0, "M": 2, "A": 3, "D": 0, "R": 1, "F": "F0"},
   "seed": 20260804,
   "engine_id": "deterministic-task-mutation-v1"
 }
 ```
 
-这使 mutation pair 成为因果式能力对照：原题通过而只改 $M$ 后失败，主要指向 model-assumption gap；只改 $D$ 后失败，主要指向 data/tool-use gap。该结论是受控归因而非绝对因果证明，但比无结构题库的总体准确率更可解释。
+`arbitrage_finding` child 还必须在 private authoring provenance 中保存
+`parent_snapshot_id`、`child_snapshot_id`、$\chi_F$、
+全部 source pricing-model ids、逐 cell 的 table/row/field/before/after/target type、候选套利模板
+版本；B 类另存 maximal-spread reduction order。同一 snapshot 的 A/B pair 只改变 $o_F$，
+不得重新抽样 mutation。这使 mutation pair 成为因果式能力对照：原题通过而
+只改 $M$ 后失败，主要指向 model-assumption gap；只改 $D$ 后失败，主要指向 data/tool-use
+gap；提高 base level 后失败主要指向套利搜索或模型路由能力，而同级 A 通过、B 失败则主要
+指向 maximal-spread 归约能力。该结论
+是受控归因而非绝对因果证明，但比无结构题库的总体准确率更可解释。
 
 ## Adaptive Curriculum
 
@@ -457,14 +639,15 @@ $$
 
 | Stage | 主要采样空间 | 训练目标 |
 |---|---|---|
-| 0 数值与约定冷启动 | L0 × P0 × M0 × A0 × D0 × R0 | dtype、discounting、sign、units、schema |
-| 1 完整 vanilla | L1 × P0 × M0 × A0--A2 × D0--D1 × R1 | price、IV、完整 Greeks |
-| 2 多腿组合 | L2 × P1--P5 × M0 × A0--A2 × D1--D2 × R2--R3 | 结构识别、聚合、payoff、复制恒等式 |
-| 3 IV/smile/期限结构 | L3 × P0--P4 × M0--M3 × A1/A7 × D2--D4 × R1/R7 | IV inversion、smile/surface、calendar |
-| 4 非 BS dynamics | L3--L4 × P0--P5 × M1--M6 × A3--A7 × D2--D4 × R4/R7/R8 | model--product--method matching、校准、model risk |
-| 5 Exotic/path-dependent | L3--L5 × P6--P7 × M0--M6 × A4--A6 × D3--D5 × R4--R8 | barrier、monitoring、path construction |
-| 6 随机利率/同币种多资产/hybrid | L4--L5 × P0--P8 × M0--M8 × A3--A8 × D3--D7 × R4--R9 | 共享利率路径、PSD 相关结构、联合定价、joint calibration |
-| 7 Agentic risk workflow | L5--L6 × P0--P8 × M0--M9 × A0--A8 × D4--D8 × R5--R9 | DuckDB→识别→校准→定价→风险→artifact |
+| 0 数值与约定冷启动 | L0 × P0 × M0 × A0 × D0 × R0 × F0 | dtype、discounting、sign、units、schema |
+| 1 完整 vanilla | L1 × P0 × M0 × A0--A2 × D0--D1 × R1 × F0 | price、IV、完整 Greeks |
+| 2 多腿组合 | L2 × P1--P5 × M0 × A0--A2 × D1--D2 × R2--R3 × F0 | 结构识别、聚合、payoff、复制恒等式 |
+| 3 IV/smile/期限结构 | L3 × P0--P4 × M0--M3 × A1/A7 × D2--D4 × R1/R7 × F0 | IV inversion、smile/surface、calendar |
+| 4 非 BS dynamics | L3--L4 × P0--P5 × M1--M6 × A3--A7 × D2--D4 × R4/R7/R8 × F0 | model--product--method matching、校准、model risk |
+| 5 Exotic/path-dependent | L3--L5 × P6--P7 × M0--M6 × A4--A6 × D3--D5 × R4--R8 × F0 | barrier、monitoring、path construction |
+| 6 随机利率/同币种多资产/hybrid | L4--L5 × P0--P8 × M0--M8 × A3--A8 × D3--D7 × R4--R9 × F0 | 共享利率路径、PSD 相关结构、联合定价、joint calibration |
+| 7 Arbitrage finding | L2--L6 × P0--P8 × M0--M9 × A0--A8 × D1--D8 × R2--R9 × {F1, F2A/F2B, ..., F6A/F6B} | 先学 bool detection，A variant 再学 cross-sectional/calendar 分类，B variant 学 maximal spread |
+| 8 Agentic risk workflow | L5--L6 × P0--P8 × M0--M9 × A0--A8 × D4--D8 × R5--R9 × {F0, F1, F2A/F2B, ..., F6A/F6B} | DuckDB→识别→校准/套利扫描→定价→风险→artifact |
 
 Stage 4 的推荐内部顺序为：
 
@@ -494,15 +677,17 @@ $$
 | B1 | BS + IV + complete Greeks | 测试逆问题与多字段 all-pass |
 | B2 | straddle/spread/butterfly/CNO/ANO | 测试结构识别、聚合与静态复制 |
 | B3 | multi-asset option chains + mixture/Heston + PSD correlation + DuckDB | 展示联合市场与完整 agentic workflow |
+| B4 | mutated frozen snapshots；先 F1/F2A，再做同 snapshot 的 F2B，随后逐级推进 F3A/F3B--F5A/F5B | 将 bool detection、cross-sectional/calendar 分类与 maximal-spread 归约拆开评估 |
 
 冻结基础模型即可先评估 `pass@1`、`pass@N`、verifier-guided retry、分层成功率、失败类型、固定 seed 重跑一致性与 verifier mutation-test 拦截率。若中间难度存在 rollout variance 且 retry 明显提升，就说明该环境具有可探索、可验证的 reward landscape。
 
 ## 工程模块与仓库边界
 
-三个一等模块必须职责分离：
+当前实现把 model identity/capability 与三个 workflow 模块分离：
 
 | 模块 | 回答的问题 | 不负责什么 |
 |---|---|---|
+| `model_families` | 哪个 stochastic model identity 已实现；哪个 exact semantic task 有 implementation evidence | 不实现 pricing/solver/verifier numerics，不替代 Agent runtime profile |
 | `task_space` | 哪些坐标和组合合法 | 不生成任务、不决定采样 |
 | `mutation` | 如何从母题生成有 lineage 的变体 | 不根据模型表现安排训练 |
 | `curriculum` | 当前采样哪些任务、权重是多少 | 不修改任务本身 |
@@ -510,9 +695,9 @@ $$
 建议核心目录：
 
 ```text
-configs/{task_space,mutations,curricula}/
+configs/{model_families,task_space,mutations,curricula}/
 datasets/{generated/{base,mutated,splits},manifests/{tasks,lineage,curricula}}/
-src/synthetic_derivatives/{task_space,mutation,curriculum,authoring,solver,training,verifier}/
+src/synthetic_derivatives/{model_families,task_space,mutation,curriculum,authoring,solver,training,verifier}/
 schemas/{task,difficulty,mutation,curriculum,manifest,snapshot,trajectory,submission}.schema.json
 tests/{unit,integration,verifier_robustness,public}/
 runs/{rollouts,evaluations,curriculum_state}/
@@ -522,7 +707,7 @@ runs/{rollouts,evaluations,curriculum_state}/
 
 $$
 \text{Base Task}\rightarrow\text{Mutation Engine}\rightarrow\text{Candidate Pool}
-\rightarrow\text{Curriculum Scheduler}\rightarrow\text{Solver Rollout}
+\rightarrow\text{Executable Capability Gate}\rightarrow\text{Curriculum Scheduler}\rightarrow\text{Solver Rollout}
 \rightarrow\text{Hard Verifier}\rightarrow\text{Mastery Update}.
 $$
 
@@ -538,6 +723,7 @@ $$
 | Implied volatility        | 指定 Newton/bisection/Brent、bracket、初值与迭代规则                          | package pricing function 加同一 root algorithm，或调用算法完全匹配的 pinned solver。        |
 | Smile fit                 | 指定坐标、design matrix、OLS/WLS/regularization 与线性代数例程                | NumPy/SciPy/statsmodels 中同一 routine、参数、row 与 coefficient order。                    |
 | Multi-leg portfolios      | straddle/spread/butterfly/condor/CNO/ANO 的 legs、方向、payoff 与 Greeks 聚合 | 各腿同方法 oracle 加权求和，并检查静态复制、breakeven 与 payoff identity。                  |
+| Arbitrage finding         | 输出完整 trajectory；F0/F1 给 `(arbitrage_opportunity: bool)`，F2A--F6A 再给 canonical `arbitrage_type`，F2B--F6B 改为给 `maximal_spread` | 重放 frozen parent-to-child mutation 与单位名义模板；ORM 按 $F$ exact-compare 一字段或二字段 tuple，不比较 trajectory。 |
 | Joint multi-asset pricing | 读取共同 $\mathbb Q$/rate path、按固定 $R_t$ 构造联合 shocks、计算 basket/index/spread payoff | 同一 joint process、driver order、factorization 与冻结 paths 下的 package/reference oracle。 |
 | Joint-consistency detection | 检查矩阵 symmetry/diagonal/PSD、dependence id 与联合定价来源；定位唯一违规约束 | pytest 精确检查 eigen/factorization contract、lineage 与 joint-pricing provenance。          |
 | Exotic/path-dependent     | barrier/touch/Asian 等指定 monitoring、path 与 boundary 逻辑                  | QuantLib 同模型同 engine，或同一冻结 path/grid 的 reference implementation。                |
@@ -567,15 +753,19 @@ $$
 
 | 字段                   | 金融衍生品含义                                                                                           |
 |:-----------------------|:---------------------------------------------------------------------------------------------------------|
-| Problem                | instrument、冻结 market snapshot、joint-dependence snapshot 与 price/Greek/IV/smile 目标。              |
-| Context                | 六维坐标、共同 $\mathbb Q$/numeraire/rate path、marginal models、$R_t$、day-count、method、seed 与 package policy。 |
+| Problem                | instrument、冻结 market snapshot、joint-dependence snapshot 与 price/Greek/IV/smile/arbitrage-finding 目标。              |
+| Context                | 七维坐标、共同 $\mathbb Q$/numeraire/rate path、marginal models、$R_t$、$\chi_F$、day-count、method、seed 与 package policy。 |
 | Assumptions            | coherent marginal models、合法或故意破坏的 joint structure、quote validity、root existence 与 no-arbitrage scope。 |
 | Skills                 | derive formula、identify structure/model、root solve、differentiate、calibrate、query tools、check invariants。 |
 | Evidence               | 输入 snapshot、真实 tool output、iteration trace、residuals 与 fitted artifacts。                        |
 | Intermediate Reasoning | state–action–observation–next-state trajectory，不包含 hidden oracle。                                   |
 | Verification           | import/method audit、pytest package recomputation、canonical exact equality、invariants 与 test report。 |
 | Confidence             | convergence flag、residual、stability 与 verified/unverified 状态。                                      |
-| Outcome                | canonical numeric/table answer、tests pass/fail 与 terminal reward。                                     |
+| Outcome                | canonical numeric/table answer、tests pass/fail 与 terminal reward；`arbitrage_finding` 按 $F$ 必含最终 `(bool)`、`(bool, ordered enum array)` 或 `(bool, float)` tuple。 |
+
+`arbitrage_finding` 的九字段仍全部由 LLM 生成并保存；其中 Evidence、Intermediate Reasoning、
+Verification 等字段可包含查询、扫描和自检轨迹。Trajectory collector 负责 episode schema，
+而 outcome ORM 不为这些自由度较高的字段构造 hidden reference，也不按其内容加减 reward。
 
 ### 推荐 trajectory
 
@@ -621,6 +811,24 @@ $$
 \texttt{canonical(package\_oracle)}.
 $$
 
+`arbitrage_finding` 使用更窄且由 level 决定 schema 的 outcome projection。设 $\pi_F$ 只读取
+LLM 完整 trajectory 中 `Outcome.orm_answer`：当 $F\in\mathcal F_{\mathrm{bool}}$ 时读取一字段
+bool tuple，当 $F\in\mathcal F_{\mathrm{type}}$ 时读取 bool/ordered-enum-array 二字段 tuple，当
+$F\in\mathcal F_{\mathrm{spread}}$ 时读取 bool/float 二字段 tuple。答案比较统一为
+
+$$
+\texttt{canonical}\!\left(\pi_F(\texttt{submission})\right)
+=
+\texttt{canonical}\!\left(Y_F\right).
+$$
+
+bool 始终按 canonical boolean 比较；A 类的第二个字段按固定 enum 与顺序逐项 exact-compare；
+B 类的第二个字段按 manifest 指定 dtype、运算顺序与 float serialization 生成后
+exact-compare。若 A 类缺少 `arbitrage_type`、类型顺序错误、类型与 bool 不一致或多输出
+`maximal_spread`，或 B 类缺少 `maximal_spread`，schema 不匹配并直接失败。完整 trajectory
+仍是 LLM episode 输出，但 $\pi_F$ 不读取其余八个字段，也不读取 `Outcome` 中
+ORM answer 以外的解释或 artifact。
+
 因此 verifier 不调用 `pytest.approx`、`math.isclose`、`numpy.isclose` 或 `allclose`，也不保存 `atol`/`rtol`。若 schema 本身要求定点 decimal，该定点表示属于输出类型而不是 verifier tolerance；数值算法内部的停止规则同样属于 method contract。
 
 ### 测试层
@@ -637,8 +845,9 @@ $$
 | Correlation validity | $D_t\succeq0$ 且为对角矩阵，$R_t=\Lambda_t\Lambda_t^\top+D_t$，并精确满足 symmetry、单位对角、元素界与 PSD/PD policy。 |
 | Import compliance    | 无禁止库、无隐藏文件访问、无动态安装/网络加载。                                             |
 | Method identity      | solver 声明的 method id、关键 method artifacts 与 verifier contract 精确一致。              |
-| Difficulty identity  | $(L,P,M,A,D,R)$ 坐标、compatibility decision 与 task-family id 精确一致。                 |
+| Difficulty identity  | $(L,P,M,A,D,R,F)$ 坐标、compatibility decision 与 task-family id 精确一致。                 |
 | Mutation lineage     | parent/child/engine/operator/seed 完整，child snapshot 可重放。                            |
+| Arbitrage ORM answer | 按 $F$ 仅抽取 `Outcome.orm_answer` 的 `(bool)`、`(bool, ordered enum array)` 或 `(bool, float)`；与 verifier 重放得到的 $Y_F$ exact equality。 |
 | Price                | package oracle 与提交值经过共同 canonicalization 后字符串完全相等。                         |
 | Greeks               | method、definition、scaling 与 canonical value 逐字段完全相等。                             |
 | Implied volatility   | 同一 root method 产生的 canonical IV、status 与 iteration contract 完全相等。               |
@@ -651,6 +860,10 @@ $$
 
 金融 hard verifier 的 pytest tests
 
+对 `arbitrage_finding`，表中除 `Arbitrage ORM answer` 外的适用检查都只作为发布前 gate、
+运行环境诊断或 trajectory audit，不进入 $R_{\mathrm{ORM}}^{\mathrm{arb}}$；不能因为 trajectory
+schema、文字解释、method declaration 或 artifact 的差异改变该任务的 outcome reward。
+
 ### 二值 Outcome Reward
 
 $$
@@ -662,6 +875,23 @@ R_{\mathrm{ORM}}
 $$
 
 单项测试的偏差和错误类型可以记录进 diagnostics，但任何一项失败都不能被其他正确项或长推理过程抵消。若任务希望分阶段 curriculum，应拆成多个独立 variants，而不是把 hard verifier 改成主观加权分。
+
+上式适用于普通 task family。对 `arbitrage_finding`，发布前的 snapshot identity、lineage、
+模板合法性与重放检查仍须全部通过，但它们属于 authoring/infrastructure gate；发布后的 outcome
+reward 只由 tuple 决定：
+
+$$
+R_{\mathrm{ORM}}^{\mathrm{arb}}
+=\mathbf{1}\!\left\{
+\texttt{canonical}\!\left(\pi_F(\texttt{submission})\right)
+=\texttt{canonical}\!\left(Y_F\right)
+\right\}.
+$$
+
+因此 trajectory 的长短、措辞、所选中间路径或是否显式写出 argmax portfolio 都不改变
+`arbitrage_finding` 的 ORM reward；但 LLM 仍按 trajectory schema 输出完整 episode。A 类的
+ORM 读取 `arbitrage_type` 而不读取 maximal spread，B 类则读取 maximal spread 而不读取
+`arbitrage_type`。
 
 ## 防止绕过与数据污染
 
@@ -711,13 +941,16 @@ Package oracle 本身不自动解决语义和方法错配。Authoring 时必须�
 15. 固定全部 marginal inputs，只切换 identity matrix 与合法非对角 $R_t$，确认每个单资产边际 price/surface 保持不变；
 16. 将一个非对角 underlying 相关项或联合定价 dependence id 故意改错，确认 joint-consistency test 拒绝样本；
 17. 把 put--call parity、strike monotonicity/convexity 与 calendar consistency 作为边际模型实现的 sanity checks，而不是重复的 generator 构造约束。
+18. 对 `arbitrage_finding` 确认 parent snapshot 保持 byte-identical、child 使用新 snapshot identity，并精确核对 $\chi_F$、source-model partitions 及逐 cell mutation manifest；
+19. 逐个验证单位名义套利模板的 payoff 非负性与交易/结算可执行性，并拒绝位于零判定边界附近的样本；B 类还须按冻结 dtype、枚举和 reduction order 重放 $s_{\max}$，并拒绝 float canonicalization 边界样本；
+20. 保持最终 ORM answer 不变而任意改变 trajectory 文本，确认 $R_{\mathrm{ORM}}^{\mathrm{arb}}$ 不变；对 A 类翻转 boolean、遗漏/错序/错分 `arbitrage_type` 或额外提交 spread 均应失败，对 B 类翻转 boolean、遗漏 spread 或改变 spread 最后一位均应失败。
 
 ### 发布门槛
 
 一个金融衍生品 variant 只有同时满足下列条件才可发布：
 
 - generator/seed/RNG/config 完整且 snapshot 已冻结；
-- 六维坐标、task-family id、compatibility decision 与 mutation lineage 完整；
+- 七维坐标、task-family id、compatibility decision 与 mutation lineage 完整；`arbitrage_finding` 还须包含 $\chi_F$、source-model routing、mutation manifest、套利模板及与 A/B level 一致的一字段或二字段 ORM projection；
 - instrument、model、calendar、day-count 与 Greek/IV/smile conventions 无歧义；
 - 同币种 scope、共同 $\mathbb Q$/numeraire/rate path、coherent marginal models 与 underlying-dependence contract 无歧义；
 - underlying 相关矩阵合法、不包含 derivative ids，且所有多资产 payoff 由同一 joint underlying process 与 dependence snapshot 定价；
@@ -731,7 +964,7 @@ Package oracle 本身不自动解决语义和方法错配。Authoring 时必须�
 
 #### 一句话总结
 
-金融衍生品市场：**出题端用 pinned QuantLib 统一生成并冻结 underlying/option snapshot；同币种多资产市场由 coherent marginal pricing models、共同 $\mathbb Q$/numeraire、共享利率路径与 underlying-driver PSD correlation perturbation 组成，derivative contracts 不进入相关矩阵，single-asset consistency 由边际模型继承，多资产 payoff 必须由同一 joint underlying process 定价；以 $\tau=(L,P,M,A,D,R)$ 定义 task grammar；通过 compatibility-constrained mutation 扩题，通过 adaptive curriculum 按 mastery 采样；LLM 必须手搓规定方法，pytest 以相同模型、相关结构、方法、dtype、操作顺序和 schema 复算并 exact equality 验收。最终 reward 始终是 all-pass 的二值 ORM；六维 diagnostics 只用于能力归因、task mutation 与 curriculum 调度，不引入 verifier tolerance。本阶段不考虑 FX、quanto 或 cross-currency derivatives。**
+金融衍生品市场：**出题端用 pinned QuantLib 统一生成并冻结 underlying/option snapshot；同币种多资产市场由 coherent marginal pricing models、共同 $\mathbb Q$/numeraire、共享利率路径与 underlying-driver PSD correlation perturbation 组成，derivative contracts 不进入相关矩阵，single-asset consistency 由边际模型继承，多资产 payoff 必须由同一 joint underlying process 定价；以 $\tau=(L,P,M,A,D,R,F)$ 定义七维 task grammar，其中 $F$ 按 pricing-model 来源、候选数据量及 snapshot mutation 的数量与类型控制 arbitrage-finding 难度，并从 F2 起用 A/B pair 分离 type classification 与 exact spread reduction；通过 compatibility-constrained mutation 扩题，通过 adaptive curriculum 按 mastery 采样；LLM 必须手搓规定方法并输出完整 trajectory。普通任务由 pytest 按相同模型、方法、dtype、操作顺序和 schema exact equality 验收；`arbitrage_finding` 的 F0/F1 ORM 验收 `(arbitrage_opportunity: bool)`，F2A--F6A 验收 `(arbitrage_opportunity: bool, arbitrage_type: cross-sectional AND/OR calendar)`，F2B--F6B 验收 `(arbitrage_opportunity: bool, maximal_spread: float)`，trajectory 不参与该 outcome equality。最终 reward 始终是二值 ORM；七维 diagnostics 只用于能力归因、task mutation 与 curriculum 调度，不引入 verifier tolerance。本阶段不考虑 FX、quanto 或 cross-currency derivatives。**
 
 ## 参考资料
 

@@ -1,0 +1,60 @@
+{
+  "profile_kind": "global_allowlist",
+  "profile_id": "solver-global-v1",
+  "environment_id": "solver-bsm-greeks-py312-v1",
+  "python_version": "3.12",
+  "allowed_direct_imports": [
+    "dataclasses",
+    "datetime",
+    "decimal",
+    "hashlib",
+    "itertools",
+    "json",
+    "math",
+    "typing"
+  ],
+  "trusted_tools": {
+    "query_greeks_task_contract_v1": 2,
+    "query_greeks_task_inputs_v1": 2,
+    "submit_greeks_submission_v1": 1
+  },
+  "filesystem": {
+    "read": ["public/*"],
+    "write": ["submission/*"]
+  },
+  "network": false,
+  "dynamic_installation": false,
+  "process_spawning": false,
+  "resource_budget": {
+    "vcpu": 2,
+    "memory_mib": 2048,
+    "wall_clock_seconds": 900,
+    "trusted_query_calls": 4,
+    "submission_calls": 1,
+    "submission_bytes": 10485760
+  },
+  "denied_imports": [
+    "QuantLib",
+    "duckdb",
+    "mibian",
+    "numpy",
+    "pandas",
+    "py_vollib",
+    "rateslib",
+    "requests",
+    "scipy",
+    "socket",
+    "subprocess",
+    "urllib"
+  ],
+  "denied_operations": [
+    "raw_database_connection",
+    "duckdb_attach_copy_install_load",
+    "dynamic_import",
+    "dynamic_package_installation",
+    "network_access",
+    "process_spawn",
+    "undeclared_filesystem_access",
+    "verifier_reference_or_private_access"
+  ]
+}

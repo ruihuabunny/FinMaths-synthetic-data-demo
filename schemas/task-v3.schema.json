@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task-v3.schema.json",
+  "title": "Semantic derivatives task identity v3",
+  "$comment": "This semantic TaskSpec version is independent of package, runtime, toolset, and DuckDB query protocol versions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "model_family_id",
+    "task_family_id",
+    "task_kind_id",
+    "solver_interface_id",
+    "coordinates",
+    "snapshot_id",
+    "snapshot_revision",
+    "method_id",
+    "output_contract_id"
+  ],
+  "properties": {
+    "task_id": {"type": "string", "minLength": 1},
+    "model_family_id": {"type": "string", "minLength": 1},
+    "task_family_id": {"type": "string", "minLength": 1},
+    "task_kind_id": {"type": "string", "minLength": 1},
+    "solver_interface_id": {"type": "string", "minLength": 1},
+    "coordinates": {"$ref": "difficulty-v2.schema.json"},
+    "snapshot_id": {"type": "string", "minLength": 1},
+    "snapshot_revision": {"type": "integer", "minimum": 1},
+    "method_id": {"type": "string", "minLength": 1},
+    "output_contract_id": {"type": "string", "minLength": 1}
+  }
+}

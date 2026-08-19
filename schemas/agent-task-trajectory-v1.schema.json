@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-task-trajectory-v1.schema.json",
+  "title": "Observable agent task trajectory event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["step_id", "event_type", "summary", "status"],
+  "properties": {
+    "step_id": {"type": "integer", "minimum": 1},
+    "event_type": {"enum": ["observation", "action", "tool_result", "decision", "artifact", "submission"]},
+    "tool_name": {"type": ["string", "null"]},
+    "public_reference": {"type": ["string", "null"]},
+    "summary": {"type": "string", "minLength": 1},
+    "status": {"enum": ["started", "completed", "failed"]},
+    "digest": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+  }
+}

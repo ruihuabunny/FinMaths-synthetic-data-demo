@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "family-mutation-v1.schema.json",
+  "title": "Family-aware semantic task mutation and lineage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task", "lineage"],
+  "properties": {
+    "task": {"$ref": "task-v3.schema.json"},
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parent_task_id",
+        "child_task_id",
+        "operator",
+        "before_identity",
+        "after_identity",
+        "seed",
+        "engine_id",
+        "capability_registry_id",
+        "compatibility_rule_id"
+      ],
+      "properties": {
+        "parent_task_id": {"type": "string", "minLength": 1},
+        "child_task_id": {"type": "string", "minLength": 1},
+        "operator": {"type": "string", "minLength": 1},
+        "before_identity": {"$ref": "#/$defs/semanticIdentity"},
+        "after_identity": {"$ref": "#/$defs/semanticIdentity"},
+        "seed": {"type": "integer", "minimum": 0},
+        "engine_id": {"type": "string", "minLength": 1},
+        "capability_registry_id": {"type": "string", "minLength": 1},
+        "compatibility_rule_id": {"type": "string", "minLength": 1}
+      }
+    }
+  },
+  "$defs": {
+    "semanticIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model_family_id",
+        "task_family_id",
+        "task_kind_id",
+        "solver_interface_id",
+        "coordinates",
+        "snapshot_id",
+        "snapshot_revision",
+        "method_id",
+        "output_contract_id"
+      ],
+      "properties": {
+        "model_family_id": {"type": "string", "minLength": 1},
+        "task_family_id": {"type": "string", "minLength": 1},
+        "task_kind_id": {"type": "string", "minLength": 1},
+        "solver_interface_id": {"type": "string", "minLength": 1},
+        "coordinates": {"$ref": "difficulty-v2.schema.json"},
+        "snapshot_id": {"type": "string", "minLength": 1},
+        "snapshot_revision": {"type": "integer", "minimum": 1},
+        "method_id": {"type": "string", "minLength": 1},
+        "output_contract_id": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

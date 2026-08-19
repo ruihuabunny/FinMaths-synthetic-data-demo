@@ -1,4 +1,9 @@
-"""DuckDB schema and transactional incremental insert primitives."""
+"""Define DuckDB storage, visibility views, and deterministic MERGE contracts.
+
+Schema 2.6 adds private bridge and volume observation-law tables while still
+creating the legacy ``option_pricing_audit`` table so existing databases remain
+readable. Current authoring cannot stage new IV-answer rows into that table.
+"""
 
 from __future__ import annotations
 
@@ -8,11 +13,18 @@ from typing import Any, Sequence
 import duckdb
 
 
-SCHEMA_VERSION = "2.4.0"
-# The 2.1--2.4 changes are additive: private dependence, chain and quote-pricing
-# provenance plus nullable contract/filter/quote metadata are added without
-# rewriting existing market observations.
-MIGRATABLE_SCHEMA_VERSIONS = {"2.0.0", "2.1.0", "2.2.0", "2.3.0"}
+SCHEMA_VERSION = "2.6.0"
+# Schema 2.5 replaced the dependence table; schema 2.6 only adds private
+# observation-law tables and revision counts. Existing observations are never
+# rewritten or retrofitted with a new law.
+MIGRATABLE_SCHEMA_VERSIONS = {
+    "2.0.0",
+    "2.1.0",
+    "2.2.0",
+    "2.3.0",
+    "2.4.0",
+    "2.5.0",
+}
 
 SCHEMA_BOOTSTRAP = r"""
 CREATE SCHEMA IF NOT EXISTS metadata;
@@ -68,6 +80,8 @@ CREATE TABLE IF NOT EXISTS metadata.snapshot_revisions (
     pricing_metadata_count BIGINT NOT NULL,
     underlying_dependence_count BIGINT NOT NULL DEFAULT 0,
     option_chain_spec_count BIGINT NOT NULL DEFAULT 0,
+    intraday_bridge_spec_count BIGINT NOT NULL DEFAULT 0,
+    underlying_volume_model_count BIGINT NOT NULL DEFAULT 0,
     option_pricing_audit_count BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     PRIMARY KEY (snapshot_id, revision)
@@ -83,8 +97,8 @@ CREATE TABLE IF NOT EXISTS market.underlyings (
     physical_volatility DOUBLE NOT NULL CHECK (physical_volatility > 0),
     risk_free_rate DOUBLE NOT NULL,
     dividend_yield DOUBLE NOT NULL,
-    -- Deprecated latent input for config <=1.4. Config 1.5 derives quote IV from
-    -- the canonical price and leaves this private legacy column NULL.
+    -- Deprecated latent input for config <=1.4. Config 1.5+ derives Q pricing
+    -- volatility from the declared diffusion and leaves this legacy column NULL.
     base_implied_volatility DOUBLE CHECK (
         base_implied_volatility IS NULL OR base_implied_volatility > 0
     ),
@@ -93,11 +107,19 @@ CREATE TABLE IF NOT EXISTS market.underlyings (
     PRIMARY KEY (snapshot_id, underlying_id)
 );
 
--- Private P-measure DGP.  Deliberately omitted from solver_visible views.
+-- Measure-qualified underlying/model-driver dependence. Config 1.7 writes a
+-- P/Q pair; legacy configs write one P row. Q mapping columns are forbidden on
+-- P and mandatory on Q.
 CREATE TABLE IF NOT EXISTS market.underlying_dependence (
     snapshot_id VARCHAR NOT NULL,
     dependence_spec_id VARCHAR NOT NULL,
-    measure VARCHAR NOT NULL CHECK (measure = 'P'),
+    measure VARCHAR NOT NULL CHECK (measure IN ('P', 'Q')),
+    source_dependence_spec_id VARCHAR,
+    mapping_id VARCHAR,
+    mapping_type VARCHAR,
+    risk_neutral_measure_id VARCHAR,
+    numeraire_id VARCHAR,
+    rate_path_id VARCHAR,
     driver_order JSON NOT NULL,
     formulation VARCHAR NOT NULL CHECK (formulation = 'factor_loading'),
     factor_loading_matrix JSON NOT NULL,
@@ -112,7 +134,70 @@ CREATE TABLE IF NOT EXISTS market.underlying_dependence (
     regime_id VARCHAR NOT NULL,
     generator_config_id VARCHAR NOT NULL,
     created_run_id VARCHAR NOT NULL,
+    CHECK (
+        (measure = 'P'
+            AND source_dependence_spec_id IS NULL
+            AND mapping_id IS NULL
+            AND mapping_type IS NULL
+            AND risk_neutral_measure_id IS NULL
+            AND numeraire_id IS NULL
+            AND rate_path_id IS NULL)
+        OR
+        (measure = 'Q'
+            AND source_dependence_spec_id IS NOT NULL
+            AND mapping_id IS NOT NULL
+            AND mapping_type = 'girsanov_drift_only_same_brownian_covariance'
+            AND risk_neutral_measure_id IS NOT NULL
+            AND numeraire_id IS NOT NULL
+            AND rate_path_id IS NOT NULL)
+    ),
     PRIMARY KEY (snapshot_id, dependence_spec_id)
+);
+
+-- Private config-1.8 observation law. Deliberately omitted from solver views.
+CREATE TABLE IF NOT EXISTS market.intraday_bridge_specs (
+    snapshot_id VARCHAR NOT NULL,
+    bridge_spec_id VARCHAR NOT NULL CHECK (length(bridge_spec_id) > 0),
+    method VARCHAR NOT NULL CHECK (method = 'log_price_brownian_bridge'),
+    steps INTEGER NOT NULL CHECK (steps BETWEEN 2 AND 4096),
+    grid VARCHAR NOT NULL CHECK (grid = 'uniform_calendar_fraction'),
+    variance_clock VARCHAR NOT NULL CHECK (variance_clock = 'integrated_variance'),
+    endpoint_policy VARCHAR NOT NULL CHECK (
+        endpoint_policy = 'published_quantized_open_close'
+    ),
+    extrema_policy VARCHAR NOT NULL CHECK (
+        extrema_policy = 'quantized_discrete_grid_only'
+    ),
+    cross_asset_policy VARCHAR NOT NULL CHECK (
+        cross_asset_policy = 'marginal_independent_given_close_endpoints'
+    ),
+    stream_namespace VARCHAR NOT NULL CHECK (length(stream_namespace) > 0),
+    generator_config_id VARCHAR NOT NULL,
+    created_run_id VARCHAR NOT NULL,
+    PRIMARY KEY (snapshot_id, bridge_spec_id)
+);
+
+-- One private per-underlying volume parameter row under a shared model ID.
+CREATE TABLE IF NOT EXISTS market.underlying_volume_models (
+    snapshot_id VARCHAR NOT NULL,
+    volume_spec_id VARCHAR NOT NULL CHECK (length(volume_spec_id) > 0),
+    underlying_id VARCHAR NOT NULL,
+    measure VARCHAR NOT NULL CHECK (measure = 'P'),
+    method VARCHAR NOT NULL CHECK (method = 'keyed_mean_preserving_lognormal'),
+    base_volume BIGINT NOT NULL CHECK (base_volume > 0),
+    volume_log_stddev DOUBLE NOT NULL CHECK (
+        isfinite(volume_log_stddev)
+        AND volume_log_stddev BETWEEN 0 AND 2
+    ),
+    rounding VARCHAR NOT NULL CHECK (rounding = 'ROUND_HALF_EVEN_INTEGER'),
+    overflow_policy VARCHAR NOT NULL CHECK (overflow_policy = 'clip_signed_int64'),
+    dependence_policy VARCHAR NOT NULL CHECK (
+        dependence_policy = 'independent_by_underlying_date_and_from_price_streams'
+    ),
+    stream_namespace VARCHAR NOT NULL CHECK (length(stream_namespace) > 0),
+    generator_config_id VARCHAR NOT NULL,
+    created_run_id VARCHAR NOT NULL,
+    PRIMARY KEY (snapshot_id, volume_spec_id, underlying_id)
 );
 
 -- Private option-chain authoring rules. Deliberately omitted from solver views.
@@ -208,8 +293,9 @@ CREATE TABLE IF NOT EXISTS market.option_daily (
     PRIMARY KEY (snapshot_id, date, option_id)
 );
 
--- Private authoring audit. The derived quote IV is intentionally absent from
--- solver_visible.option_daily and can be reconstructed from its canonical mid.
+-- Legacy schema-2.4 authoring table. Current pipelines do not solve IV or add
+-- rows here; existing snapshots retain historical rows without exposing them
+-- through solver_visible views.
 CREATE TABLE IF NOT EXISTS market.option_pricing_audit (
     snapshot_id VARCHAR NOT NULL,
     date DATE NOT NULL,
@@ -278,15 +364,155 @@ SELECT
     settlement_price, volume, open_interest
 FROM market.option_daily;
 
+CREATE OR REPLACE VIEW solver_visible.underlying_dependence AS
+WITH measure_qualified_snapshots AS (
+    SELECT snapshot_id
+    FROM market.underlying_dependence
+    GROUP BY snapshot_id
+    HAVING sum(CASE WHEN measure = 'P' THEN 1 ELSE 0 END) = 1
+       AND sum(CASE WHEN measure = 'Q' THEN 1 ELSE 0 END) = 1
+)
+SELECT
+    dependence.snapshot_id,
+    dependence.dependence_spec_id,
+    dependence.measure,
+    dependence.source_dependence_spec_id,
+    dependence.mapping_id,
+    dependence.mapping_type,
+    dependence.risk_neutral_measure_id,
+    dependence.numeraire_id,
+    dependence.rate_path_id,
+    dependence.driver_order,
+    dependence.formulation,
+    dependence.factor_loading_matrix,
+    dependence.idiosyncratic_diagonal,
+    dependence.correlation_matrix,
+    dependence.matrix_dtype,
+    dependence.factorization_method,
+    dependence.factorization_order,
+    dependence.time_grid,
+    dependence.regime_id
+FROM market.underlying_dependence AS dependence
+JOIN measure_qualified_snapshots USING (snapshot_id);
+
 CREATE OR REPLACE VIEW solver_visible.pricing_metadata AS
 SELECT
     snapshot_id, valuation_timestamp, underlying_id, currency,
     discount_curve, risk_free_rate, dividend_curve, dividend_yield,
-    borrow_or_carry_rate, calendar, day_count, physical_dynamics,
-    pricing_dynamics, pricing_model, pricing_engine, generator_version,
-    seed, rng, input_precision, canonicalization
+    borrow_or_carry_rate, calendar, day_count,
+    json_object(
+        'measure', json_extract_string(physical_dynamics, '$.measure'),
+        'process', json_extract_string(physical_dynamics, '$.process'),
+        'time_origin', json_extract_string(physical_dynamics, '$.time_origin'),
+        'time_axis', json_extract_string(physical_dynamics, '$.time_axis'),
+        'state_precision_contract',
+            json_extract_string(physical_dynamics, '$.state_precision_contract'),
+        'drift_function', json_object(
+            'type', json_extract_string(physical_dynamics, '$.drift_function.type'),
+            'node_offsets_calendar_days',
+                json_extract(physical_dynamics, '$.drift_function.nodes[*].day_offset'),
+            'extrapolation',
+                json_extract_string(physical_dynamics, '$.drift_function.extrapolation')
+        ),
+        'volatility_function', json_object(
+            'type', json_extract_string(physical_dynamics, '$.volatility_function.type'),
+            'node_offsets_calendar_days',
+                json_extract(physical_dynamics, '$.volatility_function.nodes[*].day_offset'),
+            'extrapolation',
+                json_extract_string(physical_dynamics, '$.volatility_function.extrapolation')
+        )
+    ) AS physical_dynamics,
+    json_object(
+        'measure', json_extract_string(pricing_dynamics, '$.measure'),
+        'process', json_extract_string(pricing_dynamics, '$.process'),
+        'risk_neutral_drift',
+            json_extract_string(pricing_dynamics, '$.risk_neutral_drift'),
+        'q_pricing', json_extract(pricing_dynamics, '$.q_pricing'),
+        'underlying_dependence',
+            json_extract(pricing_dynamics, '$.underlying_dependence'),
+        'volatility_parameterization',
+            'private_deterministic_diffusion',
+        'task_input_reference', 'task-specific pricing context'
+    ) AS pricing_dynamics,
+    pricing_model, pricing_engine, generator_version,
+    NULL::UBIGINT AS seed,
+    CASE
+        WHEN rng = 'QuantLib.BoxMullerMersenneTwisterGaussianRng/semantic-keyed-authoring-streams-sha256-v2'
+        THEN NULL::VARCHAR
+        ELSE rng
+    END AS rng,
+    input_precision, canonicalization
 FROM market.pricing_metadata;
 """
+
+
+PRIVATE_METADATA_KEYS = frozenset(
+    {
+        "seed",
+        "sampling_seed",
+        "mutation_seed",
+        "parameter_generator_seed",
+        "value",
+        "drift",
+        "volatility",
+        "clean_quotes",
+        "quote_noise_realization",
+        "requested_signature",
+        "private_truth_signature",
+        "mutation_lineage",
+        "canonical_answer",
+        "bridge_spec_id",
+        "volume_spec_id",
+        "stream_namespace",
+        "base_volume",
+        "volume_log_stddev",
+        "bridge_increment",
+    }
+)
+
+
+def public_dynamics_projection(raw: dict[str, Any]) -> dict[str, Any]:
+    """Expose node locations and model semantics without private node heights."""
+
+    def function_projection(function: Any) -> dict[str, Any]:
+        if not isinstance(function, dict):
+            raise ValueError("node function metadata must be an object")
+        nodes = function.get("nodes")
+        if not isinstance(nodes, list) or not nodes:
+            raise ValueError("node function metadata requires public locations")
+        return {
+            "type": function.get("type"),
+            "node_offsets_calendar_days": [int(node["day_offset"]) for node in nodes],
+            "extrapolation": function.get("extrapolation"),
+        }
+
+    return {
+        key: raw[key]
+        for key in (
+            "measure",
+            "process",
+            "time_origin",
+            "time_axis",
+            "state_precision_contract",
+        )
+        if key in raw
+    } | {
+        "drift_function": function_projection(raw["drift_function"]),
+        "volatility_function": function_projection(raw["volatility_function"]),
+    }
+
+
+def assert_no_private_metadata_leakage(value: Any, path: str = "public") -> None:
+    """Recursively reject private values even when nested or renamed by a wrapper."""
+
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if str(key).casefold() in PRIVATE_METADATA_KEYS:
+                raise ValueError(f"private metadata field leaked at {path}.{key}")
+            assert_no_private_metadata_leakage(item, f"{path}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for index, item in enumerate(value):
+            assert_no_private_metadata_leakage(item, f"{path}[{index}]")
 
 
 @dataclass(frozen=True)
@@ -298,12 +524,38 @@ class TableSpec:
     keys: tuple[str, ...]
 
 
+# Only tables produced by the current authoring contract belong here.  The
+# schema-retained option_pricing_audit table is intentionally absent: replay
+# compares current materialized rows, while manifest counts can still report
+# historical audit rows in a legacy database.
 TABLE_SPECS = {
+    "intraday_bridge_specs": TableSpec(
+        "market.intraday_bridge_specs",
+        (
+            "snapshot_id", "bridge_spec_id", "method", "steps", "grid",
+            "variance_clock", "endpoint_policy", "extrema_policy",
+            "cross_asset_policy", "stream_namespace", "generator_config_id",
+            "created_run_id",
+        ),
+        ("snapshot_id", "bridge_spec_id"),
+    ),
+    "underlying_volume_models": TableSpec(
+        "market.underlying_volume_models",
+        (
+            "snapshot_id", "volume_spec_id", "underlying_id", "measure",
+            "method", "base_volume", "volume_log_stddev", "rounding",
+            "overflow_policy", "dependence_policy", "stream_namespace",
+            "generator_config_id", "created_run_id",
+        ),
+        ("snapshot_id", "volume_spec_id", "underlying_id"),
+    ),
     "underlying_dependence": TableSpec(
         "market.underlying_dependence",
         (
-            "snapshot_id", "dependence_spec_id", "measure", "driver_order",
-            "formulation", "factor_loading_matrix",
+            "snapshot_id", "dependence_spec_id", "measure",
+            "source_dependence_spec_id", "mapping_id", "mapping_type",
+            "risk_neutral_measure_id", "numeraire_id", "rate_path_id",
+            "driver_order", "formulation", "factor_loading_matrix",
             "idiosyncratic_diagonal", "correlation_matrix", "matrix_dtype",
             "factorization_method", "factorization_order", "time_grid",
             "regime_id", "generator_config_id", "created_run_id",
@@ -362,17 +614,6 @@ TABLE_SPECS = {
         ),
         ("snapshot_id", "date", "option_id"),
     ),
-    "option_pricing_audit": TableSpec(
-        "market.option_pricing_audit",
-        (
-            "snapshot_id", "date", "option_id", "risk_neutral_measure_id",
-            "numeraire_id", "rate_path_id", "measure_change",
-            "volatility_mapping", "q_effective_volatility",
-            "theoretical_price", "canonical_mid", "implied_volatility",
-            "iv_status", "iv_error", "iv_solver", "generated_run_id",
-        ),
-        ("snapshot_id", "date", "option_id"),
-    ),
     "pricing_metadata": TableSpec(
         "market.pricing_metadata",
         (
@@ -389,12 +630,13 @@ TABLE_SPECS = {
 
 
 def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
-    """Create the current schema or apply the supported additive migration.
+    """Create the current schema or apply the supported logical migration.
 
-    Existing 2.0--2.3 snapshots keep every market row unchanged. Migration
-    creates private provenance tables as needed, adds nullable option-contract,
-    liquidity and quote metadata plus revision counters, then advances metadata
-    to schema 2.4.
+    Existing mutable 2.0--2.5 snapshots keep every market observation unchanged.
+    Pre-2.5 dependence tables are rebuilt only to replace their P-only CHECK
+    constraint. Schema 2.6 then adds empty observation-law tables and counts; it
+    never retrofits them onto an existing path. A frozen database is never
+    migrated in place and remains readable through a read-only connection.
     """
 
     connection.execute(SCHEMA_BOOTSTRAP)
@@ -412,7 +654,66 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
         raise RuntimeError(
             f"unsupported DuckDB schema version: {current_version[0]}"
         )
+    legacy_dependence_table = False
+    if current_version and current_version[0] != SCHEMA_VERSION:
+        snapshots_table_exists = connection.execute(
+            """
+            SELECT count(*) FROM information_schema.tables
+            WHERE table_schema = 'metadata' AND table_name = 'snapshots'
+            """
+        ).fetchone()[0]
+        if snapshots_table_exists:
+            frozen_count = connection.execute(
+                "SELECT count(*) FROM metadata.snapshots WHERE status = 'FROZEN'"
+            ).fetchone()[0]
+            if frozen_count:
+                raise RuntimeError(
+                    "frozen snapshot schema is immutable; open it read-only or "
+                    "clone it before migration"
+                )
+        legacy_dependence_table = bool(
+            current_version[0] != "2.5.0"
+            and connection.execute(
+                """
+                SELECT count(*) FROM information_schema.tables
+                WHERE table_schema = 'market'
+                  AND table_name = 'underlying_dependence'
+                """
+            ).fetchone()[0]
+        )
+        if legacy_dependence_table:
+            connection.execute(
+                """
+                ALTER TABLE market.underlying_dependence
+                RENAME TO underlying_dependence_schema_2_4
+                """
+            )
     connection.execute(DDL)
+    if legacy_dependence_table:
+        connection.execute(
+            """
+            INSERT INTO market.underlying_dependence (
+                snapshot_id, dependence_spec_id, measure,
+                source_dependence_spec_id, mapping_id, mapping_type,
+                risk_neutral_measure_id, numeraire_id, rate_path_id,
+                driver_order, formulation, factor_loading_matrix,
+                idiosyncratic_diagonal, correlation_matrix, matrix_dtype,
+                factorization_method, factorization_order, time_grid,
+                regime_id, generator_config_id, created_run_id
+            )
+            SELECT
+                snapshot_id, dependence_spec_id, measure,
+                NULL, NULL, NULL, NULL, NULL, NULL,
+                driver_order, formulation, factor_loading_matrix,
+                idiosyncratic_diagonal, correlation_matrix, matrix_dtype,
+                factorization_method, factorization_order, time_grid,
+                regime_id, generator_config_id, created_run_id
+            FROM market.underlying_dependence_schema_2_4
+            """
+        )
+        connection.execute(
+            "DROP TABLE market.underlying_dependence_schema_2_4"
+        )
     connection.execute(
         """
         ALTER TABLE metadata.snapshot_revisions
@@ -424,6 +725,20 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
         """
         ALTER TABLE metadata.snapshot_revisions
         ADD COLUMN IF NOT EXISTS option_chain_spec_count BIGINT
+        DEFAULT 0
+        """
+    )
+    connection.execute(
+        """
+        ALTER TABLE metadata.snapshot_revisions
+        ADD COLUMN IF NOT EXISTS intraday_bridge_spec_count BIGINT
+        DEFAULT 0
+        """
+    )
+    connection.execute(
+        """
+        ALTER TABLE metadata.snapshot_revisions
+        ADD COLUMN IF NOT EXISTS underlying_volume_model_count BIGINT
         DEFAULT 0
         """
     )

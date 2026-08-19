@@ -10,9 +10,23 @@
 
 ---
 
+> 实现状态（2026-08-12）：本文件是说明性 design example，不是 checked-in accepted
+> package，也不是当前市场 surface 的无套利认证。实际
+> `bsm_market_implied_greeks_v1` 使用 bid/ask midpoint、8 underlyings、2 expiries、每 expiry
+> 5 strikes、paired call/put、共 160 rows 和 8-decimal outputs；它不拟合 smile，也不向
+> Solver 开放 NumPy。实际 artifact/contract 以 [`task_packages/README.md`](../../task_packages/README.md)
+> 和四个 public sources 为准；当前 package prompt 只负责路由，不重复数学合同。
+
 ## 摘要
 
-本文给出一个可直接转成 agent/RL 数据的金融衍生品确定性样例。Authoring environment 以 pinned QuantLib 为统一市场数据生成器，materialize `underlying_daily`、`option_daily` 与 `pricing_metadata`；NumPy PCG64 和 seed $20260804$ 只负责按固定顺序采样 latent smile perturbations。QuantLib 的指定 Black–Scholes–Merton process/analytic engine 生成 underlying state 与 European call prices，题面所见的 spot、rate、dividend、maturity、strike 和舍入后 call mid 随即被冻结。Solver 必须从基础数值原语自行实现 normal CDF/PDF、implied-volatility 求根、Delta/Gamma/Vega/Theta/Rho 以及 log-forward-moneyness 上的二次 smile OLS，不得调用现成 Greeks、IV、pricing 或 smile package。
+本文给出一个可转成 agent/RL 数据的金融衍生品确定性设计样例。Authoring environment
+冻结 valuation-date spot 与合约/curve 状态，再用 pinned QuantLib 的 Q-measure
+Black–Scholes–Merton analytic engine 生成 `option_daily` quotes；本例不模拟 P-measure
+underlying transition。NumPy PCG64 和 seed $20260804$ 只负责按固定顺序采样 illustrative
+latent smile perturbations。题面所见的 spot、rate、dividend、maturity、strike 和舍入后 call
+mid 随即被冻结。Solver 必须从基础数值原语自行实现 normal CDF/PDF、implied-volatility
+求根、Delta/Gamma/Vega/Theta/Rho 以及 log-forward-moneyness 上的二次 smile OLS，不得调用
+现成 Greeks、IV、pricing 或 smile package。
 
 Trusted verifier 与 solver 的权限相反。Verifier 的 pytest fixture 可以直接调用固定版本的 QuantLib 复算 analytic BSM price/Greeks，并调用 NumPy 的固定 linear-algebra routine 复算 smile coefficients；但 verifier 必须与 solver 使用同一个 80-step bisection、analytic Greek 与 normal-equation OLS method contract。双方再按固定小数位与 round-half-even 规则生成 canonical strings，pytest 逐字段执行 exact equality，不设置任何数值 tolerance。生产训练时 reference values 位于 hidden verifier 中；本文仅为说明数据结构而展示。
 
@@ -34,7 +48,7 @@ Trusted verifier 与 solver 的权限相反。Verifier 的 pytest fixture 可以
 | `notional`           | 每一单位 underlying；价格与 Greeks 均为 per-unit    |
 | `option type`        | call                                                |
 | `generator backend`  | pinned QuantLib/Python binding；版本写入 environment lock |
-| `P dynamics`         | QuantLib `BlackScholesMertonProcess`；完整 family 可保留 seeded daily path，本例只使用 valuation-date slice |
+| `P history`          | 本例只条件于 valuation-date spot，不使用或模拟 P transition；若扩展 daily history，必须另行声明 P-measure process、risk premia 与 state law |
 | `Q pricing engine`   | QuantLib analytic European BSM engine               |
 | `generator RNG`      | NumPy PCG64                                         |
 | `generator seed`     | $20260804$                                          |
@@ -57,6 +71,11 @@ Forward 用 $$F=S_0e^{(r-q)T}.$$ 在 strike 升序下定义 $k_i=\log(K_i/F)$，
 \qquad
 \varepsilon_i\overset{\mathrm{iid}}{\sim}
 \mathcal N(0,0.0015^2),$$ 并按固定顺序消耗 PCG64 random stream。随后将每个 $\sigma_i$ 注入 pinned QuantLib BSM pricing process/analytic engine 生成 call mid，并舍入到小数点后八位。Latent $\sigma_i$ 和 QuantLib 内部未量化 price 只用于 authoring audit；solver 输入只包含冻结后的 quote。
+
+逐 strike latent-volatility construction 本身不自动证明整张 slice 无静态套利；若把本例升级为
+可发布 market-surface task，必须另外验证 discounted bounds、strike monotonicity/convexity、
+put-call parity（若 puts 可交易）及声明坐标下适用的跨期限条件。当前 accepted D4 task 不把
+此 illustrative smile 当作生成模型。
 
 ### Solver-visible option chain
 
@@ -306,7 +325,11 @@ Agent 使用 seed 重跑 latent generator，并用未舍入 BSM prices 解 IV。
 
 ### 负轨迹 E：擅自改用 Newton 或提前停止
 
-Agent 改用 Newton、Brent，或在 residual 看起来足够小时提前停止。即使结果数值很接近，method id、iteration count 或 canonical output 仍与合同不一致，`test_method_contract` 或 IV exact-equality test 失败；正确 repair 是执行完整的 80-step bisection，而不是给 verifier 增加 tolerance。
+Agent 改用 Newton、Brent，或在 residual 看起来足够小时提前停止。若 method/source 可观察，
+policy test 会拒绝；若它导致不同 canonical output，IV exact-equality test 会失败。若不同实现
+在 12 位输出下恰好完全相同，单凭 submission 不能反推出内部 iteration schedule，semantic
+verifier 不应声称能区分这种不可观察差异。正确实现仍是执行完整 80-step bisection，而不是
+给 verifier 增加 tolerance。
 
 ## 落库对象
 

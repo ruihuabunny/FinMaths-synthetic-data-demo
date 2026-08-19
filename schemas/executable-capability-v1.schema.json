@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "executable-capability-v1.schema.json",
+  "title": "Fail-closed executable derivatives capability registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "registry_id", "capabilities"],
+  "properties": {
+    "schema_version": {"const": "executable-capability-registry-v1.0.0"},
+    "registry_id": {"type": "string", "minLength": 1},
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/capability"}
+    }
+  },
+  "$defs": {
+    "nullableId": {"type": ["string", "null"], "minLength": 1},
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authoring_backend_id",
+        "solver_id",
+        "verifier_id",
+        "package_materializer_id",
+        "runtime_contract_id",
+        "test_ids"
+      ],
+      "properties": {
+        "authoring_backend_id": {"$ref": "#/$defs/nullableId"},
+        "solver_id": {"$ref": "#/$defs/nullableId"},
+        "verifier_id": {"$ref": "#/$defs/nullableId"},
+        "package_materializer_id": {"$ref": "#/$defs/nullableId"},
+        "runtime_contract_id": {"$ref": "#/$defs/nullableId"},
+        "test_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model_family_id",
+        "task_family_id",
+        "task_kind_id",
+        "method_id",
+        "solver_interface_id",
+        "catalog_task_family_id",
+        "status",
+        "output_contract_id",
+        "legacy_identity_ids",
+        "evidence"
+      ],
+      "properties": {
+        "model_family_id": {"type": "string", "minLength": 1},
+        "task_family_id": {"type": "string", "minLength": 1},
+        "task_kind_id": {"type": "string", "minLength": 1},
+        "method_id": {"type": "string", "minLength": 1},
+        "solver_interface_id": {"type": "string", "minLength": 1},
+        "catalog_task_family_id": {"type": "string", "minLength": 1},
+        "status": {
+          "enum": ["catalog_only", "library_implemented", "portable_verified"]
+        },
+        "output_contract_id": {"type": "string", "minLength": 1},
+        "legacy_identity_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "evidence": {"$ref": "#/$defs/evidence"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"status": {"const": "library_implemented"}}},
+          "then": {
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "authoring_backend_id": {"type": "string", "minLength": 1},
+                  "solver_id": {"type": "string", "minLength": 1},
+                  "verifier_id": {"type": "string", "minLength": 1},
+                  "package_materializer_id": {"type": "null"},
+                  "runtime_contract_id": {"type": "null"},
+                  "test_ids": {"minItems": 1}
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {"properties": {"status": {"const": "portable_verified"}}},
+          "then": {
+            "properties": {
+              "evidence": {
+                "properties": {
+                  "authoring_backend_id": {"type": "string", "minLength": 1},
+                  "solver_id": {"type": "string", "minLength": 1},
+                  "verifier_id": {"type": "string", "minLength": 1},
+                  "package_materializer_id": {"type": "string", "minLength": 1},
+                  "runtime_contract_id": {"type": "string", "minLength": 1},
+                  "test_ids": {"minItems": 1}
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-task-runtime-contract-v3.schema.json",
+  "title": "Effective solver runtime capability contract for DuckDB query tasks",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "runtime_contract_schema_version",
+    "host_protocol",
+    "environment_id",
+    "profile_id",
+    "global_profile_id",
+    "task_overlay_id",
+    "python_version",
+    "allowed_direct_imports",
+    "trusted_tools",
+    "filesystem",
+    "network",
+    "dynamic_installation",
+    "process_spawning",
+    "resource_budget",
+    "denied_imports",
+    "denied_operations"
+  ],
+  "properties": {
+    "runtime_contract_schema_version": {
+      "const": "agent-task-runtime-contract-v3.0.0"
+    },
+    "host_protocol": {
+      "const": "read-only-duckdb-query-schema-submit-v3"
+    },
+    "environment_id": {
+      "const": "solver-bsm-greeks-py312-v1"
+    },
+    "profile_id": {
+      "const": "bsm-greeks-effective-v3"
+    },
+    "global_profile_id": {
+      "const": "solver-global-v3"
+    },
+    "task_overlay_id": {
+      "const": "bsm-greeks-overlay-v3"
+    },
+    "python_version": {
+      "const": "3.12"
+    },
+    "allowed_direct_imports": {
+      "const": [
+        "dataclasses",
+        "datetime",
+        "decimal",
+        "hashlib",
+        "itertools",
+        "json",
+        "math",
+        "typing"
+      ]
+    },
+    "trusted_tools": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "max_calls"
+          ],
+          "properties": {
+            "name": {
+              "const": "query_public_duckdb_v3"
+            },
+            "max_calls": {
+              "const": 10
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "max_calls"
+          ],
+          "properties": {
+            "name": {
+              "const": "submit_greeks_submission_v3"
+            },
+            "max_calls": {
+              "const": 1
+            }
+          }
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "filesystem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "read",
+        "write"
+      ],
+      "properties": {
+        "read": {
+          "const": [
+            "public/*"
+          ]
+        },
+        "write": {
+          "const": [
+            "submission/*"
+          ]
+        }
+      }
+    },
+    "network": {
+      "const": false
+    },
+    "dynamic_installation": {
+      "const": false
+    },
+    "process_spawning": {
+      "const": false
+    },
+    "resource_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vcpu",
+        "memory_mib",
+        "wall_clock_seconds",
+        "trusted_query_calls",
+        "submission_calls",
+        "submission_bytes",
+        "query_result_rows",
+        "query_result_bytes",
+        "query_timeout_seconds",
+        "duckdb_memory_mib"
+      ],
+      "properties": {
+        "vcpu": {
+          "const": 1
+        },
+        "memory_mib": {
+          "const": 1024
+        },
+        "wall_clock_seconds": {
+          "const": 600
+        },
+        "trusted_query_calls": {
+          "const": 10
+        },
+        "submission_calls": {
+          "const": 1
+        },
+        "submission_bytes": {
+          "const": 5242880
+        },
+        "query_result_rows": {
+          "const": 1000
+        },
+        "query_result_bytes": {
+          "const": 1048576
+        },
+        "query_timeout_seconds": {
+          "const": 5
+        },
+        "duckdb_memory_mib": {
+          "const": 256
+        }
+      }
+    },
+    "denied_imports": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "allOf": [
+        {
+          "contains": {
+            "const": "duckdb"
+          }
+        }
+      ]
+    },
+    "denied_operations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "allOf": [
+        {
+          "contains": {
+            "const": "raw_database_connection"
+          }
+        },
+        {
+          "contains": {
+            "const": "duckdb_write_or_external_access"
+          }
+        },
+        {
+          "contains": {
+            "const": "undeclared_filesystem_access"
+          }
+        },
+        {
+          "contains": {
+            "const": "network_access"
+          }
+        },
+        {
+          "contains": {
+            "const": "process_spawn"
+          }
+        },
+        {
+          "contains": {
+            "const": "dynamic_import"
+          }
+        },
+        {
+          "contains": {
+            "const": "dynamic_package_installation"
+          }
+        },
+        {
+          "contains": {
+            "const": "verifier_reference_or_private_access"
+          }
+        }
+      ]
+    }
+  }
+}

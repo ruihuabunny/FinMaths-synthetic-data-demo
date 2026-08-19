@@ -1,0 +1,403 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agent-task-portable-toolset-v3.schema.json",
+  "title": "Portable read-only DuckDB BSM metric trusted toolset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "toolset_schema_version",
+    "host_protocol",
+    "task_id",
+    "path_base",
+    "call_policy",
+    "tools"
+  ],
+  "properties": {
+    "toolset_schema_version": {
+      "const": "bsm-greeks-portable-toolset-v3.0.0"
+    },
+    "host_protocol": {
+      "const": "read-only-duckdb-query-schema-submit-v3"
+    },
+    "task_id": {
+      "$ref": "#/$defs/metricTaskId"
+    },
+    "path_base": {
+      "const": "task_root"
+    },
+    "call_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "query_calls_minimum",
+        "query_calls_maximum",
+        "submission_calls",
+        "queries_after_submission"
+      ],
+      "properties": {
+        "query_calls_minimum": {
+          "const": 1
+        },
+        "query_calls_maximum": {
+          "const": 10
+        },
+        "submission_calls": {
+          "const": 1
+        },
+        "queries_after_submission": {
+          "const": false
+        }
+      }
+    },
+    "tools": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/duckdbQuery"
+        },
+        {
+          "$ref": "#/$defs/submissionSink"
+        }
+      ],
+      "items": false,
+      "minItems": 2,
+      "maxItems": 2
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "metricTaskId": {
+      "type": "string",
+      "pattern": "^bsm-market-(?:iv|delta|gamma|vega-1volpt|theta-1calendar-day|rho-1pct)-v2-[0-9a-f]{24}$"
+    },
+    "queryArgumentsSchema": {
+      "const": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sql"
+        ],
+        "properties": {
+          "sql": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
+          }
+        }
+      }
+    },
+    "queryResponseSchema": {
+      "const": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "columns",
+          "rows",
+          "row_count",
+          "truncated"
+        ],
+        "properties": {
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rows": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "row_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "databaseBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "schema_version"
+      ],
+      "properties": {
+        "path": {
+          "const": "task.duckdb"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "schema_version": {
+          "const": "bsm-market-metric-task-duckdb-v2.0.0"
+        }
+      }
+    },
+    "queryContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed_schemas",
+        "allowed_relations",
+        "safe_information_schema_relations",
+        "statement_types",
+        "serialization",
+        "limits"
+      ],
+      "properties": {
+        "allowed_schemas": {
+          "const": [
+            "metadata",
+            "solver_visible",
+            "information_schema"
+          ]
+        },
+        "allowed_relations": {
+          "const": [
+            "metadata.public_task",
+            "solver_visible.underlying_market_inputs",
+            "solver_visible.option_quote_inputs"
+          ]
+        },
+        "safe_information_schema_relations": {
+          "const": [
+            "columns",
+            "schemata",
+            "tables",
+            "views"
+          ]
+        },
+        "statement_types": {
+          "const": [
+            "SELECT",
+            "SHOW_TABLES",
+            "DESCRIBE"
+          ]
+        },
+        "serialization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "date",
+            "decimal",
+            "integer",
+            "double",
+            "boolean",
+            "varchar",
+            "null",
+            "column_order",
+            "row_order"
+          ],
+          "properties": {
+            "date": {
+              "const": "iso-8601-date-string"
+            },
+            "decimal": {
+              "const": "exact-decimal-string"
+            },
+            "integer": {
+              "const": "json-number"
+            },
+            "double": {
+              "const": "json-number"
+            },
+            "boolean": {
+              "const": "json-boolean"
+            },
+            "varchar": {
+              "const": "json-string"
+            },
+            "null": {
+              "const": "json-null"
+            },
+            "column_order": {
+              "const": "query-result"
+            },
+            "row_order": {
+              "const": "query-result-no-order-guarantee-without-order-by"
+            }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sql_characters",
+            "query_calls_minimum",
+            "query_calls_maximum",
+            "result_rows",
+            "result_bytes",
+            "timeout_seconds",
+            "memory_limit"
+          ],
+          "properties": {
+            "sql_characters": {
+              "const": 20000
+            },
+            "query_calls_minimum": {
+              "const": 1
+            },
+            "query_calls_maximum": {
+              "const": 10
+            },
+            "result_rows": {
+              "const": 1000
+            },
+            "result_bytes": {
+              "const": 1048576
+            },
+            "timeout_seconds": {
+              "const": 5
+            },
+            "memory_limit": {
+              "const": "256MiB"
+            }
+          }
+        }
+      }
+    },
+    "duckdbQuery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "max_calls",
+        "database_binding",
+        "arguments_schema",
+        "response_schema",
+        "query_contract"
+      ],
+      "properties": {
+        "name": {
+          "const": "query_public_duckdb_v3"
+        },
+        "kind": {
+          "const": "restricted_duckdb_query"
+        },
+        "max_calls": {
+          "const": 10
+        },
+        "database_binding": {
+          "$ref": "#/$defs/databaseBinding"
+        },
+        "arguments_schema": {
+          "$ref": "#/$defs/queryArgumentsSchema"
+        },
+        "response_schema": {
+          "$ref": "#/$defs/queryResponseSchema"
+        },
+        "query_contract": {
+          "$ref": "#/$defs/queryContract"
+        }
+      }
+    },
+    "submissionBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rows_field",
+        "row_id_field",
+        "row_identity",
+        "row_order",
+        "reject_duplicate_row_ids",
+        "reject_missing_row_ids",
+        "reject_extra_row_ids"
+      ],
+      "properties": {
+        "rows_field": {
+          "const": "rows"
+        },
+        "row_id_field": {
+          "const": "row_id"
+        },
+        "row_identity": {
+          "const": "set"
+        },
+        "row_order": {
+          "const": "unordered-key-aligned"
+        },
+        "reject_duplicate_row_ids": {
+          "const": true
+        },
+        "reject_missing_row_ids": {
+          "const": true
+        },
+        "reject_extra_row_ids": {
+          "const": true
+        }
+      }
+    },
+    "submissionSink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "kind",
+        "max_calls",
+        "submission_schema_path",
+        "submission_schema_digest",
+        "submission_schema_dialect",
+        "task_id_constraint",
+        "submission_binding",
+        "canonical_serialization"
+      ],
+      "properties": {
+        "name": {
+          "const": "submit_greeks_submission_v3"
+        },
+        "kind": {
+          "const": "schema_validated_submission_sink"
+        },
+        "max_calls": {
+          "const": 1
+        },
+        "submission_schema_path": {
+          "const": "evaluation_view/public/submission.schema.json"
+        },
+        "submission_schema_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "submission_schema_dialect": {
+          "const": "https://json-schema.org/draft/2020-12/schema"
+        },
+        "task_id_constraint": {
+          "$ref": "#/$defs/metricTaskId"
+        },
+        "submission_binding": {
+          "$ref": "#/$defs/submissionBinding"
+        },
+        "canonical_serialization": {
+          "const": "utf8-sort-keys-compact-newline-v1"
+        }
+      }
+    }
+  }
+}

@@ -1,9 +1,31 @@
 """Compatibility-constrained task mutation with deterministic lineage."""
 
 from synthetic_derivatives.mutation.engine import (
-    MutatedTask,
+    FamilyAwareMutationEngine,
+    FamilyMutationEngine,
     MutationEngine,
-    MutationLineage,
+)
+from synthetic_derivatives.mutation.models import (
+    FamilyLineage,
+    FamilyMutatedTask,
+    FamilyOperator,
+    Lineage,
+    MutatedTask,
+    Operator,
 )
 
-__all__ = ["MutatedTask", "MutationEngine", "MutationLineage"]
+# Preserve the existing package-level name while exposing the focused model name.
+MutationLineage = Lineage
+
+__all__ = [
+    "FamilyAwareMutationEngine",
+    "FamilyLineage",
+    "FamilyMutatedTask",
+    "FamilyMutationEngine",
+    "FamilyOperator",
+    "Lineage",
+    "MutatedTask",
+    "MutationEngine",
+    "MutationLineage",
+    "Operator",
+]

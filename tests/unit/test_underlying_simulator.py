@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import math
+import statistics
 from copy import deepcopy
+from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -11,10 +13,22 @@ from typing import Any
 import duckdb
 import pytest
 
-from synthetic_derivatives.authoring.config import load_generator_config
+from synthetic_derivatives.authoring.config import (
+    DeterministicFunction,
+    DeterministicFunctionNode,
+    load_generator_config,
+)
+from synthetic_derivatives.authoring.generator_common import (
+    SIGNED_INT64_MAX,
+    keyed_mean_preserving_lognormal_int64,
+)
 from synthetic_derivatives.authoring.option_daily_generator import OptionDailyGenerator
 from synthetic_derivatives.authoring.pipeline import AuthoringPipeline
-from synthetic_derivatives.authoring.schema import SCHEMA_VERSION, initialize_schema
+from synthetic_derivatives.authoring.schema import (
+    SCHEMA_VERSION,
+    TABLE_SPECS,
+    initialize_schema,
+)
 from synthetic_derivatives.authoring.underlying_daily_generator import (
     UnderlyingDailyGenerator,
 )
@@ -70,6 +84,12 @@ def _rewrite(path: Path, raw: dict[str, Any], *, name: str) -> Path:
     target = path.parent / name
     target.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
     return target
+
+
+def _bridge_template(repository_root: Path) -> Path:
+    return repository_root / (
+        "authoring/templates/quantlib_bsm_brownian_bridge_volume.template.json"
+    )
 
 
 def test_factor_loading_config_derives_diagonal_and_correlation_matrix(
@@ -160,10 +180,16 @@ def test_authoring_schema_migrates_additively_from_v2(
                 "PRAGMA table_info('market.option_chain_specs')"
             ).fetchall()
         }
+        dependence_columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info('market.underlying_dependence')"
+            ).fetchall()
+        }
     finally:
         connection.close()
 
-    assert current_version == SCHEMA_VERSION == "2.4.0"
+    assert current_version == SCHEMA_VERSION == "2.6.0"
     assert dependence_table_count == 1
     assert option_chain_table_count == 1
     assert "underlying_dependence_count" in revision_columns
@@ -172,7 +198,129 @@ def test_authoring_schema_migrates_additively_from_v2(
         "chain_id", "listing_date", "listing_spot", "strike_moneyness"
     } <= option_contract_columns
     assert {"liquidity_filter", "quote_model"} <= option_chain_columns
+    assert {
+        "source_dependence_spec_id",
+        "mapping_id",
+        "mapping_type",
+        "risk_neutral_measure_id",
+        "numeraire_id",
+        "rate_path_id",
+    } <= dependence_columns
     assert "option_pricing_audit_count" in revision_columns
+    assert "intraday_bridge_spec_count" in revision_columns
+    assert "underlying_volume_model_count" in revision_columns
+
+
+def test_schema_24_dependence_row_migrates_without_changing_logical_values(
+    tmp_path: Path, smoke_config_path: Path
+) -> None:
+    config_path = _factor_config(
+        tmp_path, smoke_config_path, name="schema-24-source.json", business_days=2
+    )
+    database = tmp_path / "schema-24-source.duckdb"
+    with AuthoringPipeline(database, load_generator_config(config_path)) as pipeline:
+        pipeline.create_smoke_snapshot()
+
+    connection = duckdb.connect(str(database))
+    try:
+        legacy_columns = (
+            "snapshot_id, dependence_spec_id, measure, driver_order, formulation, "
+            "factor_loading_matrix, idiosyncratic_diagonal, correlation_matrix, "
+            "matrix_dtype, factorization_method, factorization_order, time_grid, "
+            "regime_id, generator_config_id, created_run_id"
+        )
+        before = connection.execute(
+            f"SELECT {legacy_columns} FROM market.underlying_dependence"
+        ).fetchall()
+        connection.execute(
+            "UPDATE metadata.schema_versions SET schema_version = '2.4.0'"
+        )
+        connection.execute(
+            "UPDATE metadata.snapshots SET schema_version = '2.4.0'"
+        )
+
+        initialize_schema(connection)
+
+        after = connection.execute(
+            f"SELECT {legacy_columns} FROM market.underlying_dependence"
+        ).fetchall()
+        q_mapping_values = connection.execute(
+            """
+            SELECT source_dependence_spec_id, mapping_id, mapping_type,
+                   risk_neutral_measure_id, numeraire_id, rate_path_id
+            FROM market.underlying_dependence
+            """
+        ).fetchone()
+        current_version = connection.execute(
+            """
+            SELECT schema_version FROM metadata.schema_versions
+            ORDER BY applied_at DESC, schema_version DESC LIMIT 1
+            """
+        ).fetchone()[0]
+    finally:
+        connection.close()
+
+    assert after == before
+    assert q_mapping_values == (None, None, None, None, None, None)
+    assert current_version == "2.6.0"
+
+
+def test_schema_25_migration_preserves_pq_rows_and_adds_empty_observation_tables(
+    tmp_path: Path, repository_root: Path
+) -> None:
+    config = replace(
+        load_generator_config(_bridge_template(repository_root)),
+        business_days=2,
+    )
+    database = tmp_path / "schema-25-source.duckdb"
+    with AuthoringPipeline(database, config) as pipeline:
+        pipeline.create_smoke_snapshot()
+
+    connection = duckdb.connect(str(database))
+    try:
+        dependence_columns = TABLE_SPECS["underlying_dependence"].columns[:-1]
+        before = connection.execute(
+            f"""
+            SELECT {', '.join(dependence_columns)}
+            FROM market.underlying_dependence ORDER BY measure
+            """
+        ).fetchall()
+        path_before = connection.execute(
+            "SELECT * EXCLUDE (generated_run_id) FROM market.underlying_daily ORDER BY ALL"
+        ).fetchall()
+        connection.execute("DROP TABLE market.intraday_bridge_specs")
+        connection.execute("DROP TABLE market.underlying_volume_models")
+        connection.execute(
+            "UPDATE metadata.schema_versions SET schema_version = '2.5.0'"
+        )
+        connection.execute(
+            "UPDATE metadata.snapshots SET schema_version = '2.5.0'"
+        )
+
+        initialize_schema(connection)
+
+        after = connection.execute(
+            f"""
+            SELECT {', '.join(dependence_columns)}
+            FROM market.underlying_dependence ORDER BY measure
+            """
+        ).fetchall()
+        path_after = connection.execute(
+            "SELECT * EXCLUDE (generated_run_id) FROM market.underlying_daily ORDER BY ALL"
+        ).fetchall()
+        observation_counts = connection.execute(
+            """
+            SELECT
+                (SELECT count(*) FROM market.intraday_bridge_specs),
+                (SELECT count(*) FROM market.underlying_volume_models)
+            """
+        ).fetchone()
+    finally:
+        connection.close()
+
+    assert after == before
+    assert path_after == path_before
+    assert observation_counts == (0, 0)
 
 
 @pytest.mark.parametrize(
@@ -273,6 +421,9 @@ def test_pipeline_persists_private_underlying_dependence_contract(
               AND table_name = 'underlying_dependence'
             """
         ).fetchone()[0]
+        solver_row_count = pipeline.connection.execute(
+            "SELECT count(*) FROM solver_visible.underlying_dependence"
+        ).fetchone()[0]
 
     assert result["table_stats"]["underlying_dependence"]["inserted"] == 1
     assert result["summary"]["underlying_dependence_count"] == 1
@@ -283,7 +434,8 @@ def test_pipeline_persists_private_underlying_dependence_contract(
     assert json.loads(row[4]) == [[1.0, 0.4], [0.4, 1.0]]
     assert physical_dynamics["dependence_spec_id"] == "SYNTH-P-SPOT-FACTOR-v1"
     assert physical_dynamics["measure"] == "P"
-    assert solver_view_count == 0
+    assert solver_view_count == 1
+    assert solver_row_count == 0
 
 
 def test_checked_in_correlated_underlying_template_is_runnable(
@@ -413,3 +565,210 @@ def test_option_pricing_does_not_consume_underlying_correlation(
         != negative_config.underlying_simulation.correlation_matrix
     )
     assert positive_quote == negative_quote
+
+
+def test_bridge_has_exact_endpoints_quantized_grid_and_ohlc_extrema(
+    repository_root: Path,
+) -> None:
+    config = load_generator_config(_bridge_template(repository_root))
+    generator = UnderlyingDailyGenerator(config)
+    previous_date, market_date = generator.business_dates(
+        config.start_date, 2
+    )
+    open_price = Decimal("100.00000000")
+    close_price = Decimal("103.00000000")
+
+    prices = generator.intraday_bridge_prices(
+        config.underlyings[0],
+        previous_date,
+        market_date,
+        open_price,
+        close_price,
+    )
+    row = generator.underlying_daily_row(
+        config.underlyings[0],
+        market_date,
+        previous_date,
+        open_price,
+        "bridge-test",
+    )
+
+    assert config.intraday_bridge is not None
+    assert len(prices) == config.intraday_bridge.steps + 1
+    assert prices[0] == open_price
+    assert prices[-1] == close_price
+    assert all(
+        value % config.underlying_minimum_price_increment == 0
+        for value in prices
+    )
+    replayed_prices = generator.intraday_bridge_prices(
+        config.underlyings[0], previous_date, market_date, row[3], row[6]
+    )
+    assert row[4] == max(replayed_prices)
+    assert row[5] == min(replayed_prices)
+
+
+def test_constant_volatility_bridge_midpoint_has_declared_variance(
+    repository_root: Path,
+) -> None:
+    config = load_generator_config(_bridge_template(repository_root))
+    volatility = 0.20
+    zero_log_drift = 0.5 * volatility**2
+    underlying = replace(
+        config.underlyings[0],
+        physical_drift=zero_log_drift,
+        physical_volatility=volatility,
+        physical_drift_function=DeterministicFunction(
+            "constant", (DeterministicFunctionNode(0, zero_log_drift),)
+        ),
+        physical_volatility_function=DeterministicFunction(
+            "constant", (DeterministicFunctionNode(0, volatility),)
+        ),
+    )
+    generator = UnderlyingDailyGenerator(config)
+    price = Decimal("100.00000000")
+    midpoint_logs: list[float] = []
+    assert config.intraday_bridge is not None
+    midpoint = config.intraday_bridge.steps // 2
+    for sample in range(1024):
+        previous_date = config.start_date + timedelta(days=sample * 2)
+        market_date = previous_date + timedelta(days=1)
+        prices = generator.intraday_bridge_prices(
+            underlying, previous_date, market_date, price, price
+        )
+        midpoint_logs.append(math.log(float(prices[midpoint]) / float(price)))
+
+    expected_variance = volatility**2 / 365.0 * 0.5 * (1.0 - 0.5)
+    assert statistics.fmean(midpoint_logs) == pytest.approx(0.0, abs=6e-4)
+    assert statistics.pvariance(midpoint_logs) == pytest.approx(
+        expected_variance, rel=0.16
+    )
+
+
+def test_bridge_variance_clock_integrates_piecewise_nodes_and_weekend(
+    repository_root: Path,
+) -> None:
+    config = load_generator_config(_bridge_template(repository_root))
+    generator = UnderlyingDailyGenerator(config)
+    underlying = config.underlyings[0]
+    _, variance = generator.integrated_log_moments(underlying, 20.0, 40.0)
+    expected = (
+        underlying.physical_volatility_function.interval_average(
+            20.0, 40.0, power=2
+        )
+        * 20.0
+        / 365.0
+    )
+    assert variance == pytest.approx(expected)
+
+    constant = replace(
+        underlying,
+        physical_volatility_function=DeterministicFunction(
+            "constant", (DeterministicFunctionNode(0, 0.3),)
+        ),
+    )
+    friday = config.start_date + timedelta(days=4)
+    monday = friday + timedelta(days=3)
+    _, weekend_variance = generator.integrated_log_moments(
+        constant,
+        float((friday - config.start_date).days),
+        float((monday - config.start_date).days),
+    )
+    assert weekend_variance == pytest.approx(0.3**2 * 3.0 / 365.0)
+
+
+def test_keyed_lognormal_volume_formula_rounding_bounds_and_key_order(
+    repository_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = load_generator_config(_bridge_template(repository_root))
+    generator = UnderlyingDailyGenerator(config)
+    underlying = config.underlyings[0]
+    captured: list[tuple[Any, ...]] = []
+
+    def fixed_gaussian(*parts: Any) -> float:
+        captured.append(parts)
+        return 0.5
+
+    monkeypatch.setattr(generator, "_gaussian", fixed_gaussian)
+    actual = generator.underlying_volume(underlying, config.start_date)
+    assert underlying.base_volume is not None
+    assert underlying.volume_log_stddev is not None
+    assert actual == keyed_mean_preserving_lognormal_int64(
+        underlying.base_volume, underlying.volume_log_stddev, 0.5
+    )
+    assert config.volume_model is not None
+    assert captured == [
+        (
+            config.volume_model.stream_namespace,
+            config.volume_model.volume_spec_id,
+            config.start_date,
+            underlying.underlying_id,
+        )
+    ]
+
+    no_dispersion = replace(underlying, volume_log_stddev=0.0)
+    assert generator.underlying_volume(no_dispersion, config.start_date) == (
+        underlying.base_volume
+    )
+    assert keyed_mean_preserving_lognormal_int64(
+        2, 1.0, math.log(1.25) + 0.5
+    ) == 2
+    assert keyed_mean_preserving_lognormal_int64(
+        2, 1.0, math.log(1.75) + 0.5
+    ) == 4
+    assert keyed_mean_preserving_lognormal_int64(1, 2.0, 1e100) == (
+        SIGNED_INT64_MAX
+    )
+    assert keyed_mean_preserving_lognormal_int64(1, 2.0, -1e100) == 0
+
+
+def test_bridge_contract_changes_do_not_change_close_stream(
+    repository_root: Path,
+) -> None:
+    config = load_generator_config(_bridge_template(repository_root))
+    assert config.intraday_bridge is not None
+    changed = replace(
+        config,
+        intraday_bridge=replace(config.intraday_bridge, steps=32),
+    )
+    market_date = config.start_date + timedelta(days=1)
+
+    assert UnderlyingDailyGenerator(config).underlying_close_shock(
+        config.underlyings[0].underlying_id, market_date
+    ) == UnderlyingDailyGenerator(changed).underlying_close_shock(
+        changed.underlyings[0].underlying_id, market_date
+    )
+
+
+def test_bridge_increments_use_direct_semantic_keys(
+    repository_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = load_generator_config(_bridge_template(repository_root))
+    generator = UnderlyingDailyGenerator(config)
+    assert config.intraday_bridge is not None
+    captured: list[tuple[Any, ...]] = []
+
+    def zero_gaussian(*parts: Any) -> float:
+        captured.append(parts)
+        return 0.0
+
+    monkeypatch.setattr(generator, "_gaussian", zero_gaussian)
+    previous_date, market_date = generator.business_dates(config.start_date, 2)
+    generator.intraday_bridge_prices(
+        config.underlyings[0],
+        previous_date,
+        market_date,
+        Decimal("100.00000000"),
+        Decimal("101.00000000"),
+    )
+
+    assert len(captured) == config.intraday_bridge.steps
+    assert captured[0] == (
+        config.intraday_bridge.stream_namespace,
+        config.intraday_bridge.bridge_spec_id,
+        "increment",
+        market_date,
+        config.underlyings[0].underlying_id,
+        1,
+    )
+    assert captured[-1][-1] == config.intraday_bridge.steps

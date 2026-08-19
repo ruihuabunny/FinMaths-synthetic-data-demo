@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "model-family-v1.schema.json",
+  "title": "Implemented synthetic-derivatives model-family identity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "model_family_id",
+    "underlying_dynamics_id",
+    "pricing_model_id",
+    "measure_mapping_id",
+    "state_contract_id",
+    "model_coordinate",
+    "stochastic_identity"
+  ],
+  "properties": {
+    "schema_version": {"const": "model-family-v1.0.0"},
+    "model_family_id": {"type": "string", "minLength": 1},
+    "underlying_dynamics_id": {"type": "string", "minLength": 1},
+    "pricing_model_id": {"type": "string", "minLength": 1},
+    "measure_mapping_id": {"type": "string", "minLength": 1},
+    "state_contract_id": {"type": "string", "minLength": 1},
+    "model_coordinate": {"type": "integer", "minimum": 0},
+    "stochastic_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "physical_measure_id",
+        "pricing_measure_id",
+        "numeraire_id",
+        "conditioning_information_id",
+        "time_axis_id",
+        "day_count_id",
+        "units_id",
+        "transition_id",
+        "parameter_semantics_id",
+        "dtype_id",
+        "random_ordering_id",
+        "canonicalization_id"
+      ],
+      "properties": {
+        "physical_measure_id": {"type": "string", "minLength": 1},
+        "pricing_measure_id": {"type": "string", "minLength": 1},
+        "numeraire_id": {"type": "string", "minLength": 1},
+        "conditioning_information_id": {"type": "string", "minLength": 1},
+        "time_axis_id": {"type": "string", "minLength": 1},
+        "day_count_id": {"type": "string", "minLength": 1},
+        "units_id": {"type": "string", "minLength": 1},
+        "transition_id": {"type": "string", "minLength": 1},
+        "parameter_semantics_id": {"type": "string", "minLength": 1},
+        "dtype_id": {"type": "string", "minLength": 1},
+        "random_ordering_id": {"type": "string", "minLength": 1},
+        "canonicalization_id": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": "model-family-v1.0.0",
+  "model_family_id": "tdgbm_bsm",
+  "underlying_dynamics_id": "deterministic_time_inhomogeneous_gbm_p_v1",
+  "pricing_model_id": "european_bsm_q_v1",
+  "measure_mapping_id": "girsanov_drift_only_same_diffusion_v1",
+  "state_contract_id": "tdgbm_bsm_daily_state_v1",
+  "model_coordinate": 0,
+  "stochastic_identity": {
+    "physical_measure_id": "physical-history-p-v1",
+    "pricing_measure_id": "USD-MONEY-MARKET-Q-v1",
+    "numeraire_id": "USD-MONEY-MARKET-ACCOUNT-v1",
+    "conditioning_information_id": "published-ex-dividend-close-and-frozen-contract-state-v1",
+    "time_axis_id": "calendar-date-business-observation-axis-v1",
+    "day_count_id": "Actual365Fixed",
+    "units_id": "tdgbm-bsm-market-and-unit-greeks-units-v1",
+    "transition_id": "exact-integrated-deterministic-coefficient-gbm-transition-v1",
+    "parameter_semantics_id": "physical-drift-physical-vol-pricing-vol-separated-v1",
+    "dtype_id": "authoring-decimal-boundary-binary64-numerics-v1",
+    "random_ordering_id": "partitioned-sha256-quantlib-mt-gaussian-streams-v1",
+    "canonicalization_id": "published-rounded-state-restart-and-decimal8-v1"
+  }
+}

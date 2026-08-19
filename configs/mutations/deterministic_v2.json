@@ -1,0 +1,30 @@
+{
+  "schema_version": "2.0.0",
+  "engine_id": "deterministic-task-mutation-v2",
+  "operators": [
+    {
+      "operator_id": "raise_single_axis",
+      "allowed_axes": ["L", "P", "M", "A", "D", "R"],
+      "max_changed_axes": 1,
+      "direction": "increase"
+    },
+    {
+      "operator_id": "lower_single_axis",
+      "allowed_axes": ["L", "P", "M", "A", "D", "R"],
+      "max_changed_axes": 1,
+      "direction": "decrease"
+    },
+    {
+      "operator_id": "single_axis_counterfactual",
+      "allowed_axes": ["L", "P", "M", "A", "D", "R"],
+      "max_changed_axes": 1,
+      "direction": "any"
+    },
+    {
+      "operator_id": "late_stage_multi_axis",
+      "allowed_axes": ["L", "P", "M", "A", "D", "R"],
+      "max_changed_axes": 3,
+      "direction": "any"
+    }
+  ]
+}

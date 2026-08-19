@@ -4,16 +4,73 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import date
 from decimal import Decimal, ROUND_HALF_EVEN
 from typing import Any
 
 import QuantLib as ql
 
-from synthetic_derivatives.authoring.config import GeneratorConfig
+from synthetic_derivatives.authoring.config import (
+    GeneratorConfig,
+    quantize_to_increment,
+)
 
 
 PINNED_QUANTLIB_VERSION = "1.39"
+SIGNED_INT64_MAX = 2**63 - 1
+_LOG_SIGNED_INT64_MAX = math.log(SIGNED_INT64_MAX)
+
+
+def keyed_mean_preserving_lognormal_int64(
+    base_volume: int,
+    volume_log_stddev: float,
+    gaussian: float,
+) -> int:
+    """Map one keyed Gaussian draw to the frozen signed-int64 volume law.
+
+    The boundary check intentionally happens in the binary64 log domain before
+    ``math.exp``.  Finite values below that boundary use Python's ties-to-even
+    ``round`` exactly; the final clip covers values that round to the endpoint.
+    """
+
+    if (
+        isinstance(base_volume, bool)
+        or not isinstance(base_volume, int)
+        or not 1 <= base_volume <= SIGNED_INT64_MAX
+    ):
+        raise ValueError("base_volume must be a positive signed-int64 integer")
+    if (
+        isinstance(volume_log_stddev, bool)
+        or not isinstance(volume_log_stddev, (int, float))
+        or not math.isfinite(volume_log_stddev)
+        or not 0.0 <= volume_log_stddev <= 2.0
+    ):
+        raise ValueError("volume_log_stddev must be finite and between 0 and 2")
+    if (
+        isinstance(gaussian, bool)
+        or not isinstance(gaussian, (int, float))
+        or not math.isfinite(gaussian)
+    ):
+        raise ValueError("volume Gaussian draw must be finite")
+    if volume_log_stddev == 0.0:
+        return base_volume
+
+    log_raw_volume = (
+        math.log(base_volume)
+        + volume_log_stddev * gaussian
+        - 0.5 * volume_log_stddev**2
+    )
+    if log_raw_volume >= _LOG_SIGNED_INT64_MAX:
+        return SIGNED_INT64_MAX
+    if log_raw_volume == -math.inf:
+        return 0
+    if not math.isfinite(log_raw_volume):
+        raise ValueError("volume log-domain value must not be NaN")
+
+    raw_volume = math.exp(log_raw_volume)
+    rounded = round(raw_volume)
+    return max(0, min(SIGNED_INT64_MAX, rounded))
 
 
 def canonical_json(value: Any) -> str:
@@ -73,12 +130,32 @@ class QuantLibGeneratorBase:
         self.calendar = ql.WeekendsOnly()
         self.day_count = ql.Actual365Fixed()
         self.price_quantum = price_quantum(config.quote_decimal_places)
+        self.underlying_price_increment = config.underlying_minimum_price_increment
+        self.option_price_increment = config.option_minimum_price_increment
 
     def quantize_price(self, value: float | Decimal) -> Decimal:
         """Quantize a published value using the JSON precision contract."""
 
         return quantize_price(
             value, decimal_places=self.config.quote_decimal_places
+        )
+
+    def quantize_underlying_price(self, value: float | Decimal) -> Decimal:
+        """Round one underlying price to its configured minimum increment."""
+
+        return quantize_to_increment(
+            value,
+            self.underlying_price_increment,
+            decimal_places=self.config.quote_decimal_places,
+        )
+
+    def quantize_option_price(self, value: float | Decimal) -> Decimal:
+        """Round one option quote to its configured minimum increment."""
+
+        return quantize_to_increment(
+            value,
+            self.option_price_increment,
+            decimal_places=self.config.quote_decimal_places,
         )
 
     def business_dates(self, start: date, count: int) -> list[date]:

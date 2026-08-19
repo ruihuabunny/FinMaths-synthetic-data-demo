@@ -9,7 +9,7 @@ import duckdb
 
 from synthetic_derivatives.authoring.config import load_generator_config
 from synthetic_derivatives.authoring.pipeline import AuthoringPipeline
-from synthetic_derivatives.authoring.schema import TABLE_SPECS
+from synthetic_derivatives.authoring.schema import SCHEMA_VERSION
 
 
 EXPECTED_UNDERLYING_FIELDS = {
@@ -64,6 +64,28 @@ EXPECTED_METADATA_FIELDS = {
     "canonicalization",
 }
 
+EXPECTED_DEPENDENCE_FIELDS = {
+    "snapshot_id",
+    "dependence_spec_id",
+    "measure",
+    "source_dependence_spec_id",
+    "mapping_id",
+    "mapping_type",
+    "risk_neutral_measure_id",
+    "numeraire_id",
+    "rate_path_id",
+    "driver_order",
+    "formulation",
+    "factor_loading_matrix",
+    "idiosyncratic_diagonal",
+    "correlation_matrix",
+    "matrix_dtype",
+    "factorization_method",
+    "factorization_order",
+    "time_grid",
+    "regime_id",
+}
+
 
 def _columns(connection: duckdb.DuckDBPyConnection, table: str) -> set[str]:
     return {row[0] for row in connection.execute(f"DESCRIBE {table}").fetchall()}
@@ -87,8 +109,88 @@ def test_solver_visible_views_cover_framework_fields(
         assert EXPECTED_METADATA_FIELDS <= _columns(
             connection, "solver_visible.pricing_metadata"
         )
+        dependence_columns = _columns(
+            connection, "solver_visible.underlying_dependence"
+        )
+        assert EXPECTED_DEPENDENCE_FIELDS == dependence_columns
+        assert {"seed", "generator_config_id", "created_run_id"}.isdisjoint(
+            dependence_columns
+        )
     finally:
         connection.close()
+
+
+def test_schema_26_has_private_observation_tables_without_public_views(
+    tmp_path: Path, repository_root: Path
+) -> None:
+    config = load_generator_config(
+        repository_root / (
+            "authoring/templates/quantlib_bsm_brownian_bridge_volume.template.json"
+        )
+    )
+    database = tmp_path / "schema-26-observation.duckdb"
+    with AuthoringPipeline(database, replace(config, business_days=2)) as pipeline:
+        pipeline.create_smoke_snapshot()
+
+    connection = duckdb.connect(str(database), read_only=True)
+    try:
+        schema_version = connection.execute(
+            """
+            SELECT schema_version FROM metadata.schema_versions
+            ORDER BY applied_at DESC, schema_version DESC LIMIT 1
+            """
+        ).fetchone()[0]
+        bridge_columns = _columns(connection, "market.intraday_bridge_specs")
+        volume_columns = _columns(connection, "market.underlying_volume_models")
+        revision_columns = _columns(connection, "metadata.snapshot_revisions")
+        solver_relations = {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT table_name FROM information_schema.tables
+                WHERE table_schema = 'solver_visible'
+                """
+            ).fetchall()
+        }
+    finally:
+        connection.close()
+
+    assert schema_version == SCHEMA_VERSION == "2.6.0"
+    assert bridge_columns == {
+        "snapshot_id",
+        "bridge_spec_id",
+        "method",
+        "steps",
+        "grid",
+        "variance_clock",
+        "endpoint_policy",
+        "extrema_policy",
+        "cross_asset_policy",
+        "stream_namespace",
+        "generator_config_id",
+        "created_run_id",
+    }
+    assert volume_columns == {
+        "snapshot_id",
+        "volume_spec_id",
+        "underlying_id",
+        "measure",
+        "method",
+        "base_volume",
+        "volume_log_stddev",
+        "rounding",
+        "overflow_policy",
+        "dependence_policy",
+        "stream_namespace",
+        "generator_config_id",
+        "created_run_id",
+    }
+    assert {
+        "intraday_bridge_spec_count",
+        "underlying_volume_model_count",
+    } <= revision_columns
+    assert "intraday_bridge_specs" not in solver_relations
+    assert "underlying_volume_models" not in solver_relations
 
 
 def test_checked_in_smoke_snapshot_matches_its_manifest(repository_root: Path) -> None:
@@ -196,7 +298,7 @@ def test_checked_in_snapshot_is_the_22_metal_liquid_bsm_profile(
         connection.close()
 
 
-def test_checked_in_snapshot_replays_from_current_generator_config(
+def test_current_generator_uses_new_identity_without_legacy_iv_audit(
     tmp_path: Path, repository_root: Path
 ) -> None:
     public_database = (
@@ -204,8 +306,14 @@ def test_checked_in_snapshot_replays_from_current_generator_config(
     )
     config = load_generator_config(
         repository_root
-        / "configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json"
+        / "configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json"
     )
+    public_manifest = json.loads(
+        public_database.with_suffix(".manifest.json").read_text(encoding="utf-8")
+    )
+    assert config.snapshot_id != public_manifest["snapshot_id"]
+    assert config.generator_config_id != public_manifest["generator_config_id"]
+    assert config.generator_version != public_manifest["generator_version"]
     replay_config = replace(
         config,
         business_days=2,
@@ -213,31 +321,13 @@ def test_checked_in_snapshot_replays_from_current_generator_config(
     )
     replay_database = tmp_path / "public-snapshot-replay.duckdb"
     with AuthoringPipeline(replay_database, replay_config) as pipeline:
-        pipeline.create_smoke_snapshot()
+        result = pipeline.create_smoke_snapshot()
+        audit_count = pipeline.connection.execute(
+            "SELECT count(*) FROM market.option_pricing_audit"
+        ).fetchone()[0]
 
-    connection = duckdb.connect()
-    try:
-        public_path = str(public_database).replace("'", "''")
-        replay_path = str(replay_database).replace("'", "''")
-        connection.execute(
-            f"ATTACH '{public_path}' AS public_snapshot (READ_ONLY)"
-        )
-        connection.execute(f"ATTACH '{replay_path}' AS replay (READ_ONLY)")
-        for table_name, spec in TABLE_SPECS.items():
-            logical_columns = ", ".join(spec.columns[:-1])
-            missing_rows = connection.execute(
-                f"""
-                SELECT count(*)
-                FROM (
-                    SELECT {logical_columns} FROM replay.{spec.name}
-                    EXCEPT ALL
-                    SELECT {logical_columns} FROM public_snapshot.{spec.name}
-                )
-                """
-            ).fetchone()[0]
-            assert missing_rows == 0, table_name
-    finally:
-        connection.close()
+    assert result["summary"]["option_daily_count"] > 0
+    assert result["summary"]["option_pricing_audit_count"] == audit_count == 0
 
 
 def test_checked_in_bsm_mids_satisfy_discounted_bounds_and_put_call_parity(

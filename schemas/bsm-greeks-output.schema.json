@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://synthetic-derivatives.invalid/schemas/bsm-greeks-output.schema.json",
+  "title": "Canonical analytic BSM Greeks output row",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "valuation_date",
+    "underlying_id",
+    "option_id",
+    "call_put",
+    "expiry",
+    "strike",
+    "price",
+    "delta",
+    "gamma",
+    "vega",
+    "theta",
+    "rho",
+    "method_id",
+    "convention_id",
+    "output_contract_id"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "valuation_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "underlying_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "option_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "call_put": {
+      "enum": [
+        "call",
+        "put"
+      ]
+    },
+    "expiry": {
+      "type": "string",
+      "format": "date"
+    },
+    "strike": {
+      "type": "string",
+      "pattern": "^(?:0\\.(?!00000000)[0-9]{8}|[1-9][0-9]*\\.[0-9]{8})$"
+    },
+    "price": {
+      "$ref": "#/$defs/non_negative_decimal"
+    },
+    "delta": {
+      "$ref": "#/$defs/signed_decimal"
+    },
+    "gamma": {
+      "$ref": "#/$defs/non_negative_decimal"
+    },
+    "vega": {
+      "$ref": "#/$defs/non_negative_decimal"
+    },
+    "theta": {
+      "$ref": "#/$defs/signed_decimal"
+    },
+    "rho": {
+      "$ref": "#/$defs/signed_decimal"
+    },
+    "method_id": {
+      "const": "bsm-analytic-float64-greeks-v1"
+    },
+    "convention_id": {
+      "const": "bsm-spot-greeks-actual365-flat-continuous-v1"
+    },
+    "output_contract_id": {
+      "const": "bsm-analytic-greeks-output-v1"
+    }
+  },
+  "$defs": {
+    "signed_decimal": {
+      "type": "string",
+      "pattern": "^-?(?:0|[1-9][0-9]*)\\.[0-9]{8}$",
+      "not": {
+        "const": "-0.00000000"
+      }
+    },
+    "non_negative_decimal": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.[0-9]{8}$"
+    }
+  },
+  "x-schema-version": "bsm-greeks-output-v1.0.0"
+}

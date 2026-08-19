@@ -1,4 +1,4 @@
-"""Config-driven compatibility registry for the six-dimensional task space."""
+"""Config-driven compatibility registry for the seven-dimensional task space."""
 
 from __future__ import annotations
 
@@ -9,6 +9,9 @@ from typing import Any, Mapping
 
 from synthetic_derivatives.task_space.models import (
     AXES,
+    F_LEVELS,
+    LEGACY_AXES,
+    CoordinateValue,
     TaskCoordinates,
     TaskSpec,
 )
@@ -34,7 +37,7 @@ class CompatibilityRule:
 
     rule_id: str
     task_family_id: str
-    coordinates: dict[str, frozenset[int]]
+    coordinates: dict[str, frozenset[CoordinateValue]]
     reason: str
 
     def matches(self, coordinates: TaskCoordinates) -> bool:
@@ -47,7 +50,9 @@ class CompatibilityRule:
 
 
 class TaskSpaceRegistry:
-    """Validate coordinate bounds and product/model/method compatibility."""
+    """Validate design-catalog coordinate compatibility, never capability."""
+
+    registry_role = "design_catalog"
 
     def __init__(self, raw: Mapping[str, Any]):
         """Validate and compile one task-space registry mapping.
@@ -57,26 +62,53 @@ class TaskSpaceRegistry:
         overlapping rule before a broader one.
         """
 
-        if raw.get("schema_version") != "1.0.0":
+        if raw.get("schema_version") != "2.0.0":
             raise ValueError("unsupported task-space schema_version")
         self.registry_id = str(raw["registry_id"])
         axes = raw["axes"]
         if set(axes) != set(AXES):
             raise ValueError(f"task-space axes must be exactly {AXES}")
-        self.bounds = {
-            axis: (int(axes[axis]["min"]), int(axes[axis]["max"]))
-            for axis in AXES
-        }
+        self.bounds: dict[str, tuple[int, int]] = {}
+        for axis in LEGACY_AXES:
+            minimum = axes[axis]["min"]
+            maximum = axes[axis]["max"]
+            if (
+                isinstance(minimum, bool)
+                or not isinstance(minimum, int)
+                or isinstance(maximum, bool)
+                or not isinstance(maximum, int)
+                or minimum < 0
+                or maximum < minimum
+            ):
+                raise ValueError(f"invalid numeric bounds for axis {axis}")
+            self.bounds[axis] = (minimum, maximum)
+        f_values = axes["F"].get("values")
+        if not isinstance(f_values, list) or tuple(f_values) != F_LEVELS:
+            raise ValueError("task-space F values must exactly match the runtime enum")
+        self.f_levels = F_LEVELS
         self.rules = tuple(self._parse_rule(item) for item in raw["compatibility_rules"])
         if not self.rules:
             raise ValueError("task-space registry requires compatibility rules")
         for rule in self.rules:
             for axis, values in rule.coordinates.items():
-                lower, upper = self.bounds[axis]
-                if any(value < lower or value > upper for value in values):
+                if axis == "F":
+                    invalid = [value for value in values if value not in self.f_levels]
+                    expected = str(self.f_levels)
+                else:
+                    lower, upper = self.bounds[axis]
+                    invalid = [
+                        value
+                        for value in values
+                        if not isinstance(value, int)
+                        or isinstance(value, bool)
+                        or value < lower
+                        or value > upper
+                    ]
+                    expected = f"[{lower}, {upper}]"
+                if invalid:
                     raise ValueError(
                         f"compatibility rule {rule.rule_id} has {axis} outside "
-                        f"registry bounds [{lower}, {upper}]"
+                        f"registry values {expected}"
                     )
         rule_ids = [rule.rule_id for rule in self.rules]
         if len(rule_ids) != len(set(rule_ids)):
@@ -99,10 +131,24 @@ class TaskSpaceRegistry:
         unknown = set(selectors) - set(AXES)
         if unknown:
             raise ValueError(f"unknown compatibility axes: {sorted(unknown)}")
-        coordinates = {
-            axis: frozenset(int(value) for value in selectors.get(axis, []))
-            for axis in AXES
-        }
+        coordinates: dict[str, frozenset[CoordinateValue]] = {}
+        for axis in AXES:
+            values = selectors.get(axis, [])
+            if not isinstance(values, list):
+                raise ValueError(f"compatibility selector {axis} must be a list")
+            if axis == "F":
+                if any(not isinstance(value, str) for value in values):
+                    raise ValueError("compatibility selector F requires strings")
+                coordinates[axis] = frozenset(values)
+            else:
+                if any(
+                    isinstance(value, bool) or not isinstance(value, int)
+                    for value in values
+                ):
+                    raise ValueError(
+                        f"compatibility selector {axis} requires integers"
+                    )
+                coordinates[axis] = frozenset(values)
         return CompatibilityRule(
             rule_id=str(raw["rule_id"]),
             task_family_id=str(raw["task_family_id"]),
@@ -114,7 +160,12 @@ class TaskSpaceRegistry:
         """Describe the first out-of-range axis, if any."""
 
         for axis, value in coordinates.to_dict().items():
+            if axis == "F":
+                if value not in self.f_levels:
+                    return f"F={value!r} is outside registry values {self.f_levels}"
+                continue
             lower, upper = self.bounds[axis]
+            assert isinstance(value, int)
             if not lower <= value <= upper:
                 return f"{axis}={value} is outside registry bounds [{lower}, {upper}]"
         return None

@@ -15,6 +15,8 @@
   "physical_process": "QuantLib.BlackScholesMertonProcess",
   "currency": "USD",
   "quote_decimal_places": 8,
+  "underlying_minimum_price_increment": "0.00000001",
+  "option_minimum_price_increment": "0.00000001",
   "underlyings": [
     {
       "underlying_id": "SYNTH-METAL-ALUMINUM",
