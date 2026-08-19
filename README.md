@@ -23,9 +23,9 @@ volatility 与由 solver-visible quote 反解的 implied volatility 始终是不
 | Exact executable-capability sidecar 与 legacy/metric adapters | 已实现；未知或不完整能力 fail closed | `src/synthetic_derivatives/model_families/`、`configs/task_space/executable_capabilities_v1.json` |
 | Deterministic mutation 与 adaptive curriculum | Legacy 路径保留；family-aware 路径已实现 | `src/synthetic_derivatives/mutation/`、`src/synthetic_derivatives/curriculum/` |
 | Analytic BSM、visible-price IV、market-implied unit Greeks | 已实现 | `src/synthetic_derivatives/solver/analytic_and_implied_greeks_iv/` |
-| 独立 QuantLib hard verifier 与 canonical exact comparison | 已实现 | `src/synthetic_derivatives/verifier/`、package-local verifier runtime |
+| 独立 QuantLib hard verifier、modular self-contained leaf runtime 与 canonical exact comparison | 已实现 | `src/synthetic_derivatives/verifier/`、`src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv/metric_leaf_verifier_runtime/` |
 | Combined IV+Greeks v2 portable delivery | 已实现，100 tasks | `task_packages/deliveries/bsm_market_implied_greeks_v1/` |
-| Single-metric 6×4 static-query 与 DuckDB-query v3 suites | 已实现，24 tasks each | `task_packages/deliveries/bsm_market_implied_metric_suite_v1/` |
+| Single-metric 6×4 static-query 与 DuckDB-query v3 suites | 已实现，24 tasks each；旧 monolith baseline 冻结，新 modular delivery 使用新身份 | `task_packages/deliveries/bsm_market_implied_metric_suite_v1/` |
 | BSM-specific verified training export | 已实现 | `src/synthetic_derivatives/training/bsm_market_greeks.py` |
 | L3 Monte Carlo Greeks | 仅 scaffold/计划 | `src/synthetic_derivatives/solver/mc/`；尚无 estimator、draw bank、variant 或 verifier |
 | Basket/spread joint payoff、new model families、F2A arbitrage | 尚未实现 | 仅设计或非活动计划 |

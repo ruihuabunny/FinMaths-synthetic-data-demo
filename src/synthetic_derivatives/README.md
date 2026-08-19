@@ -12,7 +12,7 @@
 | `solver/analytic_and_implied_greeks_iv/` | Stdlib analytic BSM, fixed-schedule IV and market-implied Greeks | Implemented |
 | `solver/mc/` | Planned L3 Monte Carlo boundary | Scaffold only |
 | `verifier/` | Independent pinned-QuantLib BSM/IV/Greeks verification | Implemented |
-| [`packaging_analytic_and_implied_greeks_iv/`](packaging_analytic_and_implied_greeks_iv/README.md) | Database projection, capability preflight, runtime, trusted tools, verifier leaves, views and portable suites | Implemented for v2/v3 BSM packaging |
+| [`packaging_analytic_and_implied_greeks_iv/`](packaging_analytic_and_implied_greeks_iv/README.md) | Database projection, capability preflight, runtime, trusted tools, modular self-contained verifier leaves, views and portable suites | Implemented for v2/v3 BSM packaging |
 | `training/` | Verified BSM package to nine-field JSONL | BSM-specific implementation |
 
 The package layout is also a permission model. Importability inside the developer

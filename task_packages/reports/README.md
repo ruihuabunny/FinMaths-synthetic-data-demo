@@ -4,6 +4,7 @@
 
 - [`bsm_market_implied_greeks_prompt_v2_rework.md`](bsm_market_implied_greeks_prompt_v2_rework.md)
 - [`bsm_public_duckdb_query_v3_migration.md`](bsm_public_duckdb_query_v3_migration.md)
+- [`bsm_metric_leaf_verifier_modular_runtime_migration.md`](bsm_metric_leaf_verifier_modular_runtime_migration.md)
 
 ## Historical implementation handoffs
 
@@ -14,4 +15,3 @@
 Handoffs explain the problem and intended migration; completed reports and the
 frozen delivery manifests record what was actually produced. Neither category
 replaces code, contract or verifier tests.
-

@@ -240,9 +240,10 @@ Packaging 随后冻结 prompt、effective runtime、submission schema、hidden Q
 stdlib reference solver 和 observable trajectory，并导出严格 allowlisted 的 authoring、
 train/dev、evaluation views。Evaluation view 物理上只含 manifest、prompt、runtime contract
 与 submission schema；raw DB 由 trusted host 持有。Authoring private artifact manifest 校验
-全部源制品 hash。当前仓库维护一个 100-task combined v2 portable delivery，以及 static v2
-和 DuckDB-query v3 两个各 24-task 的 6×4 metric suites；它们均为冻结制品，不由 authoring
-pipeline 原地更新。新 metric-suite materialization 先通过 `tdgbm_bsm`
+全部源制品 hash。当前仓库维护一个 100-task combined v2 portable delivery，以及多个
+各含 24 tasks 的 static-v2 / DuckDB-query-v3 6×4 metric suites；其中新的 modular-verifier
+交付使用独立身份，历史 monolithic runtime 交付继续作为只读 baseline。所有交付均为冻结
+制品，不由 authoring pipeline 原地更新。新 metric-suite materialization 先通过 `tdgbm_bsm`
 executable-capability preflight，但 accepted artifact 的 replay/verification 仍只依赖其冻结
 manifest/runtime/verifier。详见
 [`task_packages/README.md`](../../../task_packages/README.md)。

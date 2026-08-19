@@ -11,11 +11,14 @@ import sys
 import duckdb
 import pytest
 
-from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv import (
-    bsm_market_metric_verifier_runtime as runtime_v2,
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_leaf_verifier_runtime import (
+    DUCKDB_QUERY_V3_PROFILE,
+    bsm_metric_logical_checksum,
+    digest_file,
 )
-from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv import (
-    bsm_market_metric_verifier_runtime_v3 as runtime_v3,
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_leaf_verifier_runtime import (
+    profiles as runtime_profiles,
+    submission_static_v2,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts import (
     canonical_json_bytes,
@@ -30,6 +33,7 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_specs
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_verifier import (
     METRIC_VERIFIER_FILENAMES,
     expected_metric_submission_v3,
+    metric_oracle_config,
     metric_oracle_config_v3,
     metric_verifier_files_v3,
     verify_market_metric_submission_v3,
@@ -96,11 +100,9 @@ def v3_metric_leaf_tasks(
         config = metric_oracle_config_v3(spec)
         manifest = {
             "public_child_snapshot": {
-                "logical_checksum": runtime_v3.bsm_metric_logical_checksum(
-                    database, config
-                )
+                "logical_checksum": bsm_metric_logical_checksum(database, config)
             },
-            "artifacts": {"task.duckdb": runtime_v3.digest_file(database)},
+            "artifacts": {"task.duckdb": digest_file(database)},
         }
         (root / "delivery_manifest.json").write_bytes(
             canonical_json_bytes(manifest)
@@ -137,8 +139,8 @@ def test_v3_accepts_reversed_rows_and_v2_contract_stays_ordered(
     reversed_submission["rows"].reverse()
     verify_market_metric_submission_v3(root, reversed_submission, "delta")
 
-    legacy_spec = runtime_v2._METRIC_SPEC_BY_TARGET["delta"]
-    legacy_config = runtime_v2._oracle_config(legacy_spec)
+    legacy_spec = get_metric_spec("delta")
+    legacy_config = metric_oracle_config(legacy_spec)
     legacy_submission = {
         "task_id": f"bsm-market-delta-v1-{'a' * 24}",
         "submission_schema_version": legacy_spec.submission_schema_version,
@@ -149,12 +151,12 @@ def test_v3_accepts_reversed_rows_and_v2_contract_stays_ordered(
             for index in range(1, 161)
         ],
     }
-    runtime_v2.validate_market_metric_submission_contract(
+    submission_static_v2.validate_market_metric_submission_contract(
         legacy_submission, legacy_config
     )
     legacy_submission["rows"].reverse()
     with pytest.raises(ValueError, match="reordered"):
-        runtime_v2.validate_market_metric_submission_contract(
+        submission_static_v2.validate_market_metric_submission_contract(
             legacy_submission, legacy_config
         )
 
@@ -228,23 +230,29 @@ def test_v3_leaf_source_is_fixed_and_self_contained() -> None:
     assert iv_files["runtime.py"] == delta_files["runtime.py"]
     assert iv_files["oracle_config.json"] != delta_files["oracle_config.json"]
 
-    source = iv_files["runtime.py"].decode("utf-8")
-    tree = ast.parse(source)
-    imported_roots = {
-        alias.name.split(".", 1)[0]
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    } | {
-        (node.module or "").split(".", 1)[0]
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
+    python_sources = {
+        name: payload.decode("utf-8")
+        for name, payload in iv_files.items()
+        if name.endswith(".py")
     }
-    assert "synthetic_derivatives" not in imported_roots
-    assert "isclose" not in source
-    assert "pytest.approx" not in source
-    assert "set(rows_by_id) != set(aligned_ids)" in source
-    assert "actual != expected" in source
+    for name, source in python_sources.items():
+        tree = ast.parse(source, filename=name)
+        imported_roots = {
+            alias.name.split(".", 1)[0]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        } | {
+            (node.module or "").split(".", 1)[0]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.level == 0
+        }
+        assert "synthetic_derivatives" not in imported_roots, name
+        assert "isclose" not in source, name
+        assert "pytest.approx" not in source, name
+    submission_source = python_sources["_runtime/submission.py"]
+    assert "set(rows_by_id) != set(aligned_ids)" in submission_source
+    assert "actual != expected" in submission_source
 
 
 def test_v3_leaf_verifier_accepts_shuffled_submission_without_project_imports(
@@ -276,7 +284,9 @@ def test_v3_registry_and_runtime_have_all_six_exact_identities() -> None:
         spec.target for spec in METRIC_SPECS
     )
     for spec in METRIC_SPECS_DB_QUERY_V3:
-        internal = runtime_v3._spec_from_config(metric_oracle_config_v3(spec))
+        internal = runtime_profiles._spec_from_config(
+            metric_oracle_config_v3(spec), profile=DUCKDB_QUERY_V3_PROFILE
+        )
         assert internal.target == spec.target
         assert internal.method_id == spec.method_id
         assert internal.submission_schema_version == spec.submission_schema_version

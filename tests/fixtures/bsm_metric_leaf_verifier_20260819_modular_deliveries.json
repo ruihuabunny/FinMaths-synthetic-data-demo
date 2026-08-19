@@ -1,0 +1,34 @@
+{
+  "schema_version": "bsm-metric-leaf-verifier-modular-deliveries-v1.0.0",
+  "source_run_summary_digest": "933e1eff8c1b890ddfb7b006d05e00a12494f9424b2c07cc5b41b060e399fb51",
+  "added_verifier_paths": [
+    "_runtime/__init__.py",
+    "_runtime/database.py",
+    "_runtime/models.py",
+    "_runtime/oracle.py",
+    "_runtime/profile.py",
+    "_runtime/submission.py"
+  ],
+  "deliveries": {
+    "static_v2": {
+      "relative_path": "task_packages/deliveries/bsm_market_implied_metric_suite_v1/20260819_metric_6x4_static_v2_modular",
+      "delivery_id": "20260819_metric_6x4_static_v2_modular",
+      "suite_id": "bsm-market-metric-suite-v1-8915d031c4c3633070f41936",
+      "suite_schema_version": "bsm-market-metric-suite-v1.0.0",
+      "suite_manifest_sha256": "e83053ee9c8905dec742562d252fd2d32b4f7a209d32fcb447163286032ce0a7",
+      "tree_sha256": "c5136c39b49b4940e3e9e26da8d55a425a7ce97ddc5e0cb645a35cbcda757051",
+      "file_count": 607,
+      "assignment_digest": "be8ba9929d96809ebfdba7fa41d4222f160025e6be3c6c968851cc3ab9ef0d3c"
+    },
+    "duckdb_query_v3": {
+      "relative_path": "task_packages/deliveries/bsm_market_implied_metric_suite_v1/20260819_metric_6x4_db_query_v3_modular",
+      "delivery_id": "20260819_metric_6x4_db_query_v3_modular",
+      "suite_id": "bsm-market-metric-suite-v2-a87ed404711f37c633ff9feb",
+      "suite_schema_version": "bsm-market-metric-suite-v2.0.0",
+      "suite_manifest_sha256": "5b38d8b67dd0a11f925991b54f9e062cb1773ccf735ae5a863bfde236ee48ace",
+      "tree_sha256": "025942d48f67079be4ba31306b0b71ff2a6c9e823175ddedbb996d4aea78c91d",
+      "file_count": 559,
+      "assignment_digest": "f3345928c217cac55bc5079de4e4c09cd6b9378b5940f8a30b2e3ee624548fa4"
+    }
+  }
+}

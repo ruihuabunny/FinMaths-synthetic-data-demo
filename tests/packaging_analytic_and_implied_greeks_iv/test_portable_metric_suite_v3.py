@@ -14,8 +14,10 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_specs
     TARGET_ORDER,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_verifier import (
+    METRIC_VERIFIER_FILENAMES,
     expected_metric_submission,
     expected_metric_submission_v3,
+    metric_verifier_files_v3,
     verify_market_metric_submission_v3,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.portable_metric_suite import (
@@ -112,6 +114,51 @@ def test_v3_suite_has_one_database_source_and_explicit_version_dispatch(
         ).read_text(encoding="utf-8")
     with pytest.raises(ValueError, match="suite identity"):
         verify_portable_bsm_metric_suite(root)
+
+
+def test_v3_suite_binds_the_exact_modular_verifier_tree(
+    portable_metric_suite_v3: tuple[Path, Path],
+) -> None:
+    _, root = portable_metric_suite_v3
+    manifest = verify_portable_bsm_metric_suite_v3(root)
+    expected_verifier_artifacts = {
+        f"verifier/{name}" for name in METRIC_VERIFIER_FILENAMES
+    }
+    assert "verifier/_runtime/submission.py" in expected_verifier_artifacts
+
+    for assignment in manifest["assignments"]:
+        leaf = root / assignment["relative_path"]
+        verifier = leaf / "verifier"
+        actual_files = {
+            path.relative_to(verifier).as_posix()
+            for path in verifier.rglob("*")
+            if path.is_file()
+        }
+        assert actual_files == set(METRIC_VERIFIER_FILENAMES)
+
+        expected_files = metric_verifier_files_v3(assignment["target"])
+        assert all(
+            (verifier / name).read_bytes() == payload
+            for name, payload in expected_files.items()
+        )
+
+        leaf_manifest = _json(leaf / "delivery_manifest.json")
+        bound_artifacts = {
+            name
+            for name in leaf_manifest["artifacts"]
+            if name.startswith("verifier/")
+        }
+        bound_visibility = {
+            name
+            for name in leaf_manifest["artifact_visibility"]
+            if name.startswith("verifier/")
+        }
+        assert bound_artifacts == expected_verifier_artifacts
+        assert bound_visibility == expected_verifier_artifacts
+        assert {
+            leaf_manifest["artifact_visibility"][name]
+            for name in expected_verifier_artifacts
+        } == {"verifier_only"}
 
 
 def test_v3_public_contracts_validate_against_their_schemas(

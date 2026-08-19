@@ -176,6 +176,41 @@ Repackage the same frozen 24 source markets with:
 The v3 builder validates all SQL-tool, runtime, database, submission, verifier,
 manifest, uniqueness, and no-payload bindings before the atomic publish.
 
+### Modular leaf-verifier deliveries
+
+The completed leaf-runtime refactor is published under new identities; it does
+not alter either immutable `20260819_*_rerun` baseline:
+
+```text
+deliveries/bsm_market_implied_metric_suite_v1/
+├── 20260819_metric_6x4_static_v2_rerun          # frozen monolithic baseline
+├── 20260819_metric_6x4_db_query_v3_rerun        # frozen monolithic baseline
+├── 20260819_metric_6x4_static_v2_modular        # new 15-file verifier leaves
+└── 20260819_metric_6x4_db_query_v3_modular      # new 15-file verifier leaves
+```
+
+Both new suites reuse the accepted source run
+`runs/bsm_market_implied_greeks/20260819_24_tasks_authoring_refactor_rerun_parent_seed_20260806_selector_seed_0`
+and `allocation_id=20260819_metric_6x4_v1`; no market data was regenerated.
+Reproduce the static-v2 publication with a different, absent delivery ID using:
+
+```bash
+.venv/bin/python scripts/package_bsm_greeks_delivery.py \
+  --run-root runs/bsm_market_implied_greeks/20260819_24_tasks_authoring_refactor_rerun_parent_seed_20260806_selector_seed_0 \
+  --output-root task_packages/deliveries \
+  --delivery-id <new-static-v2-delivery-id> \
+  --profile configs/deliveries/bsm_market_implied_metric_suite_6x4_v1.json \
+  --allocation-id 20260819_metric_6x4_v1 \
+  --expected-source-task-count 24
+```
+
+Add `--metric-protocol v3-duckdb-query` and use a distinct new ID for v3.
+Each generated leaf has a stable `verifier/runtime.py` facade and private
+`verifier/_runtime/` modules. Every nested file is digest-bound and classified
+`verifier_only`; the leaf remains runnable outside this repository. Exact
+old/new identities and path changes are recorded in
+[`reports/bsm_metric_leaf_verifier_modular_runtime_migration.md`](reports/bsm_metric_leaf_verifier_modular_runtime_migration.md).
+
 Generate one authoring-side reference trajectory for each metric without adding
 reference files to the portable leaves:
 

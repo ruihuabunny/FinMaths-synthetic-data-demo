@@ -20,7 +20,9 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_specs
     get_metric_spec,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_verifier import (
+    METRIC_VERIFIER_FILENAMES,
     expected_metric_submission,
+    metric_verifier_files,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.portable_metric_suite import (
     PORTABLE_SUITE_STATUS,
@@ -190,6 +192,52 @@ def test_suite_is_six_unique_single_metric_leaf_tasks(
     } == {6}
 
 
+def test_new_suite_binds_the_exact_modular_verifier_tree(
+    portable_metric_suite: MetricSuiteFixture,
+) -> None:
+    root = portable_metric_suite.suite.delivery_root
+    expected_verifier_artifacts = {
+        f"verifier/{name}" for name in METRIC_VERIFIER_FILENAMES
+    }
+    assert "verifier/_runtime/submission.py" in expected_verifier_artifacts
+
+    for assignment in portable_metric_suite.suite.manifest["assignments"]:
+        leaf = root / assignment["relative_path"]
+        verifier = leaf / "verifier"
+        actual_files = {
+            path.relative_to(verifier).as_posix()
+            for path in verifier.rglob("*")
+            if path.is_file()
+        }
+        assert actual_files == set(METRIC_VERIFIER_FILENAMES)
+
+        expected_files = metric_verifier_files(assignment["target"])
+        assert all(
+            (verifier / name).read_bytes() == payload
+            for name, payload in expected_files.items()
+        )
+
+        leaf_manifest = json.loads(
+            (leaf / "delivery_manifest.json").read_text(encoding="utf-8")
+        )
+        bound_artifacts = {
+            name
+            for name in leaf_manifest["artifacts"]
+            if name.startswith("verifier/")
+        }
+        bound_visibility = {
+            name
+            for name in leaf_manifest["artifact_visibility"]
+            if name.startswith("verifier/")
+        }
+        assert bound_artifacts == expected_verifier_artifacts
+        assert bound_visibility == expected_verifier_artifacts
+        assert {
+            leaf_manifest["artifact_visibility"][name]
+            for name in expected_verifier_artifacts
+        } == {"verifier_only"}
+
+
 @pytest.mark.parametrize("target", TARGET_ORDER)
 def test_each_leaf_tools_accept_only_its_exact_metric_submission(
     portable_metric_suite: MetricSuiteFixture,
@@ -234,6 +282,36 @@ def test_suite_verifier_rejects_and_recovers_from_artifact_tampering(
             verify_portable_bsm_metric_suite(root)
     finally:
         prompt.write_bytes(original)
+    verify_portable_bsm_metric_suite(root)
+
+    nested_module = (
+        root
+        / assignment["relative_path"]
+        / "verifier/_runtime/oracle.py"
+    )
+    original = nested_module.read_bytes()
+    try:
+        nested_module.write_bytes(original + b"# tampered\n")
+        with pytest.raises(
+            ValueError,
+            match=r"artifact digest mismatch: verifier/_runtime/oracle\.py",
+        ):
+            verify_portable_bsm_metric_suite(root)
+    finally:
+        nested_module.write_bytes(original)
+    verify_portable_bsm_metric_suite(root)
+
+    unbound = (
+        root
+        / assignment["relative_path"]
+        / "verifier/_runtime/unbound.py"
+    )
+    try:
+        unbound.write_text("# unbound\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="suite tree differs from the allowlist"):
+            verify_portable_bsm_metric_suite(root)
+    finally:
+        unbound.unlink()
     verify_portable_bsm_metric_suite(root)
 
 

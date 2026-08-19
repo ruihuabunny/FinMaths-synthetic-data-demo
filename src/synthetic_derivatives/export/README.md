@@ -93,7 +93,8 @@ Generic 六关系 P2 child 仍只在 `tests/integration/` 与
 `solver_visible.option_quote_inputs`。它通过两个 data-only trusted adapters 接到标准库固定 80 步 IV +
 Greeks solver，并由 pinned QuantLib verifier exact-compare；详见
 [`task_packages/README.md`](../../../task_packages/README.md)。当前 checked-in portable artifacts
-包括 100-task combined v2 delivery，以及 static v2 / DuckDB-query v3 两个各 24-task 的 6×4
-metric suites；状态分别由其冻结 batch/suite manifest 决定，不因 repository-side model-family
+包括 100-task combined v2 delivery，以及多个各含 24 tasks 的 static-v2 / DuckDB-query-v3
+6×4 metric suites。新的 modular-verifier 交付与历史 monolithic baseline 使用不同 delivery
+identity；状态分别由其冻结 batch/suite manifest 决定，不因 repository-side model-family
 refactor 自动 promotion。Semantic TaskSpec v3 与 capability adapter 只用于新 workflow 的身份
 映射和写入前门禁，不改变 exporter 的 public rows、selection、checksum 或既有 artifact digest。
