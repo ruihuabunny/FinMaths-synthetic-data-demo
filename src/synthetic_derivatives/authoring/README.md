@@ -12,13 +12,13 @@ snapshot。Solver 不应直接导入本包，也不能访问其中的 private ge
 | 模块 | 职责 |
 |:---|:---|
 | [`backends.py`](backends.py) | 将已实现的 `tdgbm_bsm` family 显式解析为现有 underlying/option generators；未知 family 在创建 artifact 前失败。 |
-| [`config.py`](config.py) | 解析 generator config；校验 deterministic physical functions、underlying dependence、option-chain grid 和稳定 ID；规范派生 $D$ 与 $R$。 |
-| [`generator_common.py`](generator_common.py) | 两个 generator 共享的 pinned QuantLib 检查、calendar/day-count、日期转换、8 位 decimal canonicalization，以及 namespaced deterministic RNG。 |
-| [`underlying_daily_generator.py`](underlying_daily_generator.py) | 生成 underlying master、P/Q measure-qualified dependence、`underlying_daily` 和 `pricing_metadata`；只有 P spec 可生成 path shock。 |
+| [`config.py`](config.py) | 解析 generator config；校验 deterministic physical functions、P/Q dependence、option-chain、bridge/volume contracts 和稳定 ID；规范派生 $D$ 与 $R$。 |
+| [`generator_common.py`](generator_common.py) | 两个 generator 共享的 pinned QuantLib、calendar/day-count、价格 canonicalization、keyed RNG，以及 log-domain-safe signed-int64 lognormal volume helper。 |
+| [`underlying_daily_generator.py`](underlying_daily_generator.py) | 生成 underlying master、P/Q dependence、private observation specs、P-close、conditional bridge OHLC、keyed volume 和 `pricing_metadata`；只有 P spec 可生成 close shock。 |
 | [`option_daily_generator.py`](option_daily_generator.py) | 生成 private option-chain spec、冻结的 option contracts 和 Q-measure `option_daily`；不提供 underlying path/dependence API，也不生成 IV answers。 |
 | [`pipeline.py`](pipeline.py) | 通过 backend registry 编排两个 generator、DuckDB transaction、incremental MERGE、snapshot compatibility、quality gates、revision 和 manifest。 |
 | [`schema.py`](schema.py) | DuckDB DDL、additive migration、solver-visible views、table column order 和 business-key MERGE。 |
-| [`cli.py`](cli.py) | `create-smoke`、`append-dates`、`sync-config`、`sync-range`、`summary` 和 `freeze` 命令入口。 |
+| [`cli.py`](cli.py) | `create-smoke`、`append-dates`、`sync-config`、`sync-range`、`summary`、`validate` 和 `freeze` 命令入口。 |
 | [`__init__.py`](__init__.py) | 导出 `AuthoringPipeline` 与显式 authoring backend registry 类型。 |
 
 原来的单体 `generator.py` 已拆除。Product-specific generator 只共享基础设施，不互相
@@ -44,7 +44,7 @@ Family 的完整 P/Q、numeraire、day-count、state、transition、dtype 与 RN
 ```text
 validate DRAFT snapshot and immutable config
   -> UnderlyingDailyGenerator
-       -> underlying master + measure-qualified dependence specs
+       -> bridge/volume specs + underlying master + dependence specs
        -> realized P-measure underlying paths
        -> per-underlying/date pricing metadata
   -> OptionDailyGenerator
@@ -113,10 +113,37 @@ underlying minimum price increment 做 `ROUND_HALF_EVEN`，量化后的 publishe
 不是保留隐藏未舍入状态的 continuous-state GBM。这个量化 checkpoint 是 one-shot/append
 一致性的一部分，改变它必须产生新的 snapshot identity。
 
-当前 OHLC 采用显式 no-gap convention：`open = previous published close`。`high/low` 来自
-独立 `separate_synthetic_range-v1` heuristic shock，只保证必要的价格顺序与正值，不是同一
-intraperiod diffusion path 或 bridge/range law。Volume 来自单独的 deterministic uniform
-stream；这些字段都不是 spot GBM 自身的输出。
+Legacy config `1.0.0`--`1.7.0` 的 OHLC 采用 no-gap convention，`high/low` 仍来自
+`separate_synthetic_range-v1` heuristic，volume 仍来自 keyed uniform stream；这些历史
+identities 的 observation law 不会原地改变。
+
+Config `1.8.0` 使用新的 private observation identity。对相邻 observation offsets
+$a<b$，先由 piecewise-linear functions 精确计算 partial integrated log drift $M_j$ 与
+variance $A_j$，再在 64 个 uniform calendar-fraction 子区间上构造
+
+$$
+X_j=x_0+M_j+\frac{A_j}{A_m}(x_m-x_0-M_m)
++W_j-\frac{A_j}{A_m}W_m.
+$$
+
+$x_0=\log O$、$x_m=\log C$ 使用已发布、已量化 endpoints；每个 $W$ increment 按
+`(snapshot, seed, bridge namespace/spec, date, underlying, step)` 独立 keyed。Interior
+grid prices 先按 underlying tick 执行 `ROUND_HALF_EVEN`，然后连同 exact endpoints 取
+discrete high/low。Monday bar 因而覆盖 Friday--Monday 的完整三 calendar-day integrated
+drift/variance interval。Close endpoints 继续保留 P dependence；给定 endpoints 后 bridge
+residual 是 per-underlying marginal，不能解释为 cross-asset synchronous extrema 或
+continuous-time barrier truth。
+
+同一版本的 volume 为
+
+$$
+V^*=b\exp(sZ-\tfrac12s^2),
+$$
+
+其中 $Z$ 按 volume namespace/spec、date 和 underlying keyed，且与 price/option streams
+分离。实现先在 binary64 log domain 检查 signed-int64 上界，安全时调用 `math.exp`，再用
+Python `round`（ties-to-even）并 clip 到 $[0,2^{63}-1]$。初始日期也抽 volume，但没有
+虚构 bridge transition。
 
 ### Option generation
 
@@ -170,13 +197,16 @@ spread 等 joint payoff pricing 仍是独立后续阶段。
 | `1.5.0` | 增加 per-underlying sampled-and-frozen physical functions（含 seeds/hard bounds）、显式 Q mapping 与 canonical-mid QuantLib IV audit。 |
 | `1.6.0` | 从 authoring contract 移除 IV solver/answers，并分离 underlying/option minimum increments。 |
 | `1.7.0` | 增加独立 P/Q dependence identities、drift-only covariance mapping 与共同 Q context。 |
+| `1.8.0` | 增加 integrated-variance log-price Brownian bridge、keyed mean-preserving lognormal volume 与私有 observation identities。 |
 
-当前 authoring schema 为 `2.5.0`，支持 mutable `2.0.0`--`2.4.0` migration；冻结库只读
+当前 authoring schema 为 `2.6.0`，支持 mutable `2.0.0`--`2.5.0` migration；冻结库只读
 打开，绝不原地迁移。
 `market.option_chain_specs` 同时保存 liquidity filter 和完整 quote model。Private
 authoring tables 包括：
 
 - `market.underlying_dependence`
+- `market.intraday_bridge_specs`
+- `market.underlying_volume_models`
 - `market.option_chain_specs`
 - `market.option_pricing_audit`（只为 legacy `1.5.0` frozen snapshot 读取保留；当前
   `1.6.0+` materialization 不写入）
@@ -220,8 +250,8 @@ manifest/runtime/verifier。详见
 
 ```bash
 .venv/bin/python scripts/edit_snapshot.py \
-  --database /tmp/authoring-smoke.duckdb \
-  --config configs/generators/quantlib_bsm_smoke_v1.json \
+  --database /tmp/metals-tdgbm-bb-keyed-volume-v1.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v3.json \
   create-smoke
 ```
 
@@ -234,13 +264,18 @@ manifest/runtime/verifier。详见
   append-dates --days 1
 ```
 
-查看或冻结：
+只读校验、查看或冻结：
 
 ```bash
 .venv/bin/python scripts/edit_snapshot.py \
   --database /tmp/authoring-smoke.duckdb \
   --config configs/generators/quantlib_bsm_smoke_v1.json \
   summary
+
+.venv/bin/python scripts/edit_snapshot.py \
+  --database /tmp/metals-tdgbm-bb-keyed-volume-v1.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v3.json \
+  validate
 
 .venv/bin/python scripts/edit_snapshot.py \
   --database /tmp/authoring-smoke.duckdb \
@@ -263,8 +298,8 @@ option quotes。候选网格是 6 expiries × 11 moneyness × call/put，filter 
 重点测试：
 
 - [`test_underlying_simulator.py`](../../../tests/unit/test_underlying_simulator.py)：
-  $\Lambda/D/R$、stream partition、append invariance、private persistence 和 derivative
-  boundary。
+  $\Lambda/D/R$、integrated moments、bridge endpoint/covariance/weekend、volume formula、
+  stream partition、append invariance、private persistence 和 derivative boundary。
 - [`test_joint_dependence.py`](../../../tests/unit/test_joint_dependence.py)：
   P/Q mapping、拒绝面、safe projection、common-Q gate、边际 price/Greeks invariance 和
   frozen byte immutability。

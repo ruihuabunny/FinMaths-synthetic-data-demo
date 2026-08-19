@@ -26,6 +26,7 @@ from synthetic_derivatives.authoring.config import GeneratorConfig
 from synthetic_derivatives.authoring.schema import (
     SCHEMA_VERSION,
     TABLE_SPECS,
+    assert_no_private_metadata_leakage,
     initialize_schema,
     merge_rows,
 )
@@ -158,6 +159,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             # Run immutable-contract checks before creating any market rows.
             self._ensure_snapshot_is_editable()
             self._assert_underlying_dependence_is_compatible()
+            self._assert_observation_specs_are_compatible()
             self._assert_option_chain_is_compatible()
             self._assert_option_contracts_are_compatible()
             self.connection.execute(
@@ -250,6 +252,13 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         self._write_manifest(summary)
         return summary
 
+    def validate(self) -> dict[str, Any]:
+        """Run all read-only contract, replay, completeness and leakage gates."""
+
+        self._assert_snapshot_identity()
+        self._assert_quality_gates()
+        return self.summary()
+
     def _reject_legacy_authoring_iv_config(self) -> None:
         """Keep legacy IV-authored snapshot identities read-only.
 
@@ -314,7 +323,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
 
         row = self.connection.execute(
             """
-            SELECT status, generator_config_id, generator_version
+            SELECT status, generator_config_id, generator_version, seed, rng
             FROM metadata.snapshots WHERE snapshot_id = ?
             """,
             [self.config.snapshot_id],
@@ -347,6 +356,29 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             raise ValueError("generator_config_id cannot change within one snapshot")
         if row[2] != self.config.generator_version:
             raise ValueError("generator_version cannot change within one snapshot")
+        if row[3] != self.config.seed or row[4] != self.config.rng:
+            raise ValueError("snapshot seed and RNG identity cannot change")
+
+    def _assert_snapshot_identity(self) -> None:
+        """Validate the immutable catalog identity without requiring DRAFT."""
+
+        row = self.connection.execute(
+            """
+            SELECT generator_config_id, generator_version, seed, rng
+            FROM metadata.snapshots WHERE snapshot_id = ?
+            """,
+            [self.config.snapshot_id],
+        ).fetchone()
+        if row is None:
+            raise ValueError("snapshot has not been created")
+        expected = (
+            self.config.generator_config_id,
+            self.config.generator_version,
+            self.config.seed,
+            self.config.rng,
+        )
+        if tuple(row) != expected:
+            raise ValueError("snapshot catalog identity conflicts with config")
 
     def _generate_incremental_rows(
         self, dates: list[date], run_id: str
@@ -367,6 +399,12 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         underlying_dependence_rows = (
             self.underlying_generator.underlying_dependence_rows(run_id)
         )
+        intraday_bridge_spec_rows = (
+            self.underlying_generator.intraday_bridge_spec_rows(run_id)
+        )
+        underlying_volume_model_rows = (
+            self.underlying_generator.underlying_volume_model_rows(run_id)
+        )
         option_chain_spec_row = self.option_generator.option_chain_spec_row(run_id)
         # Private provenance and immutable masters are always reconstructed
         # from config. MERGE inserts them once and compatibility checks protect
@@ -381,6 +419,16 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             for template in self.config.option_templates
         ]
         stats = {
+            "intraday_bridge_specs": merge_rows(
+                self.connection,
+                TABLE_SPECS["intraday_bridge_specs"],
+                intraday_bridge_spec_rows,
+            ),
+            "underlying_volume_models": merge_rows(
+                self.connection,
+                TABLE_SPECS["underlying_volume_models"],
+                underlying_volume_model_rows,
+            ),
             "underlying_dependence": merge_rows(
                 self.connection,
                 TABLE_SPECS["underlying_dependence"],
@@ -597,6 +645,92 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 "create a new snapshot instead"
             )
 
+    def _relation_exists(self, qualified_name: str) -> bool:
+        """Return whether a table/view exists, including in legacy read-only DBs."""
+
+        schema_name, relation_name = qualified_name.split(".", 1)
+        return bool(
+            self.connection.execute(
+                """
+                SELECT count(*) FROM information_schema.tables
+                WHERE table_schema = ? AND table_name = ?
+                """,
+                [schema_name, relation_name],
+            ).fetchone()[0]
+        )
+
+    def _assert_observation_specs_are_compatible(self) -> None:
+        """Protect bridge and volume laws from removal, retrofit or mutation."""
+
+        expected_by_table = {
+            "intraday_bridge_specs": (
+                self.underlying_generator.intraday_bridge_spec_rows(
+                    "compatibility-check"
+                ),
+                "bridge_spec_id",
+                "intraday bridge contract",
+            ),
+            "underlying_volume_models": (
+                self.underlying_generator.underlying_volume_model_rows(
+                    "compatibility-check"
+                ),
+                "volume_spec_id, underlying_id",
+                "underlying volume model contract",
+            ),
+        }
+        existing_path_count = self.connection.execute(
+            """
+            SELECT count(*) FROM market.underlying_daily
+            WHERE snapshot_id = ?
+            """,
+            [self.config.snapshot_id],
+        ).fetchone()[0]
+        for table_key, (expected_rows, ordering, label) in expected_by_table.items():
+            specification = TABLE_SPECS[table_key]
+            if not self._relation_exists(specification.name):
+                if expected_rows:
+                    raise RuntimeError(
+                        f"{label} requires DuckDB schema {SCHEMA_VERSION}"
+                    )
+                continue
+            logical_columns = specification.columns[:-1]
+            existing_rows = self.connection.execute(
+                f"""
+                SELECT {', '.join(logical_columns)}
+                FROM {specification.name}
+                WHERE snapshot_id = ?
+                ORDER BY {ordering}
+                """,
+                [self.config.snapshot_id],
+            ).fetchall()
+            expected_logical_rows = sorted(
+                (tuple(row[:-1]) for row in expected_rows),
+                key=lambda row: tuple(str(value) for value in row),
+            )
+            actual_logical_rows = sorted(
+                (tuple(row) for row in existing_rows),
+                key=lambda row: tuple(str(value) for value in row),
+            )
+            if not expected_logical_rows:
+                if actual_logical_rows:
+                    raise ValueError(
+                        f"{label} cannot be removed within one snapshot; "
+                        "create a new snapshot instead"
+                    )
+                continue
+            if actual_logical_rows:
+                if actual_logical_rows != expected_logical_rows:
+                    raise ValueError(
+                        f"{label} conflicts with config and cannot change "
+                        "within one snapshot"
+                    )
+                continue
+            if existing_path_count:
+                raise ValueError(
+                    f"{label} cannot be added to an existing path; "
+                    "create a new snapshot instead"
+                )
+
     def _assert_option_chain_is_compatible(self) -> None:
         """Keep listing, grid, strike-rounding and roll rules immutable.
 
@@ -698,6 +832,7 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         """
 
         self._assert_underlying_dependence_is_compatible()
+        self._assert_observation_specs_are_compatible()
         self._assert_common_q_context()
         self._assert_option_chain_is_compatible()
         self._assert_option_contracts_are_compatible()
@@ -737,6 +872,13 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                   ON underlying.snapshot_id = daily.snapshot_id
                  AND underlying.underlying_id = daily.underlying_id
                 WHERE daily.snapshot_id = ? AND underlying.underlying_id IS NULL
+            """,
+            "orphan_underlying_volume_model": """
+                SELECT count(*) FROM market.underlying_volume_models model
+                LEFT JOIN market.underlyings underlying
+                  ON underlying.snapshot_id = model.snapshot_id
+                 AND underlying.underlying_id = model.underlying_id
+                WHERE model.snapshot_id = ? AND underlying.underlying_id IS NULL
             """,
             "orphan_option_daily": """
                 SELECT count(*) FROM market.option_daily daily
@@ -781,6 +923,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 WHERE daily.snapshot_id = ? AND quote.option_id IS NULL
             """,
         }
+        if not self._relation_exists("market.underlying_volume_models"):
+            checks.pop("orphan_underlying_volume_model")
         failures = {
             name: self.connection.execute(sql, [self.config.snapshot_id]).fetchone()[0]
             for name, sql in checks.items()
@@ -788,6 +932,146 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
         failures = {name: count for name, count in failures.items() if count}
         if failures:
             raise ValueError(f"snapshot quality gates failed: {failures}")
+        counts = self._counts()
+        if self.config.schema_version == "1.8.0":
+            if counts["intraday_bridge_spec_count"] != 1:
+                raise ValueError(
+                    "config-1.8 snapshot requires exactly one intraday bridge spec"
+                )
+            if counts["underlying_volume_model_count"] != len(
+                self.config.underlyings
+            ):
+                raise ValueError(
+                    "config-1.8 snapshot requires one volume model per underlying"
+                )
+        elif (
+            counts["intraday_bridge_spec_count"]
+            or counts["underlying_volume_model_count"]
+        ):
+            raise ValueError("legacy snapshot must not contain observation-law specs")
+        self._assert_underlying_observation_replay()
+        self._assert_solver_visible_observation_privacy()
+
+    def _assert_underlying_observation_replay(self) -> None:
+        """Exactly replay every config-1.8 OHLCV row from the initial state."""
+
+        if self.config.schema_version != "1.8.0":
+            return
+        maximum_date = self.connection.execute(
+            """
+            SELECT max(date) FROM market.underlying_daily
+            WHERE snapshot_id = ?
+            """,
+            [self.config.snapshot_id],
+        ).fetchone()[0]
+        if maximum_date is None:
+            raise ValueError("config-1.8 snapshot contains no underlying rows")
+        dates = self.underlying_generator.business_dates_between(
+            self.config.start_date, maximum_date
+        )
+        expected_rows: list[tuple[Any, ...]] = []
+        for underlying in self.config.underlyings:
+            previous_date: date | None = None
+            previous_close = underlying.initial_spot
+            for market_date in dates:
+                if previous_date is None:
+                    row = self.underlying_generator.initial_underlying_daily_row(
+                        underlying, "observation-replay"
+                    )
+                else:
+                    row = self.underlying_generator.underlying_daily_row(
+                        underlying,
+                        market_date,
+                        previous_date,
+                        previous_close,
+                        "observation-replay",
+                    )
+                expected_rows.append(tuple(row[:-1]))
+                previous_date = market_date
+                previous_close = row[6]
+        expected_rows.sort(key=lambda row: (row[1], row[2]))
+
+        logical_columns = TABLE_SPECS["underlying_daily"].columns[:-1]
+        actual_rows = self.connection.execute(
+            f"""
+            SELECT {', '.join(logical_columns)}
+            FROM market.underlying_daily
+            WHERE snapshot_id = ?
+            ORDER BY date, underlying_id
+            """,
+            [self.config.snapshot_id],
+        ).fetchall()
+        if [tuple(row) for row in actual_rows] != expected_rows:
+            raise ValueError(
+                "underlying OHLCV rows conflict with exact config-1.8 replay"
+            )
+
+    def _assert_solver_visible_observation_privacy(self) -> None:
+        """Reject private observation fields or values in solver-visible views."""
+
+        forbidden_fields = {
+            "bridge_spec_id",
+            "volume_spec_id",
+            "stream_namespace",
+            "base_volume",
+            "volume_log_stddev",
+            "bridge_increment",
+        }
+        normalized_forbidden = {
+            "".join(character for character in value if character.isalnum())
+            for value in forbidden_fields
+        }
+        visible_columns = self.connection.execute(
+            """
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'solver_visible'
+            """
+        ).fetchall()
+        leaked_columns = [
+            column
+            for (column,) in visible_columns
+            if "".join(
+                character
+                for character in column.casefold()
+                if character.isalnum()
+            )
+            in normalized_forbidden
+        ]
+        if leaked_columns:
+            raise ValueError(
+                f"private observation fields leaked into solver_visible: {leaked_columns}"
+            )
+
+        metadata_rows = self.connection.execute(
+            """
+            SELECT physical_dynamics, pricing_dynamics
+            FROM solver_visible.pricing_metadata
+            WHERE snapshot_id = ?
+            """,
+            [self.config.snapshot_id],
+        ).fetchall()
+        decoded_rows: list[tuple[Any, Any]] = []
+        for physical, pricing in metadata_rows:
+            decoded = (json.loads(physical), json.loads(pricing))
+            assert_no_private_metadata_leakage(decoded)
+            decoded_rows.append(decoded)
+        if self.config.schema_version != "1.8.0":
+            return
+        bridge = self.config.intraday_bridge
+        volume = self.config.volume_model
+        if bridge is None or volume is None:
+            raise ValueError("config-1.8 observation contracts are required")
+        visible_payload = json.dumps(decoded_rows, sort_keys=True, default=str)
+        for private_value in (
+            bridge.bridge_spec_id,
+            bridge.stream_namespace,
+            volume.volume_spec_id,
+            volume.stream_namespace,
+        ):
+            if private_value in visible_payload:
+                raise ValueError(
+                    "private observation contract value leaked into solver_visible"
+                )
 
     def _assert_common_q_context(self) -> None:
         """Freeze the common Q, numeraire and flat rate-path identity.
@@ -872,8 +1156,9 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 option_contract_count, underlying_daily_count,
                 option_daily_count, pricing_metadata_count,
                 underlying_dependence_count, option_chain_spec_count,
+                intraday_bridge_spec_count, underlying_volume_model_count,
                 option_pricing_audit_count
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 self.config.snapshot_id,
@@ -886,6 +1171,8 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 counts["pricing_metadata_count"],
                 counts["underlying_dependence_count"],
                 counts["option_chain_spec_count"],
+                counts["intraday_bridge_spec_count"],
+                counts["underlying_volume_model_count"],
                 counts["option_pricing_audit_count"],
             ],
         )
@@ -935,13 +1222,19 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             "pricing_metadata_count": "market.pricing_metadata",
             "underlying_dependence_count": "market.underlying_dependence",
             "option_chain_spec_count": "market.option_chain_specs",
+            "intraday_bridge_spec_count": "market.intraday_bridge_specs",
+            "underlying_volume_model_count": "market.underlying_volume_models",
             "option_pricing_audit_count": "market.option_pricing_audit",
         }
         return {
-            name: self.connection.execute(
-                f"SELECT count(*) FROM {table} WHERE snapshot_id = ?",
-                [self.config.snapshot_id],
-            ).fetchone()[0]
+            name: (
+                self.connection.execute(
+                    f"SELECT count(*) FROM {table} WHERE snapshot_id = ?",
+                    [self.config.snapshot_id],
+                ).fetchone()[0]
+                if self._relation_exists(table)
+                else 0
+            )
             for name, table in tables.items()
         }
 
@@ -960,8 +1253,6 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
             "generator_version": summary["generator_version"],
             "quantlib_version": summary["quantlib_version"],
             "duckdb_version": summary["duckdb_version"],
-            "seed": summary["seed"],
-            "rng": summary["rng"],
             "date_min": summary["date_min"],
             "date_max": summary["date_max"],
             "business_date_count": summary["business_date_count"],
@@ -974,8 +1265,15 @@ class AuthoringPipeline(AbstractContextManager["AuthoringPipeline"]):
                 "underlying_dependence_count"
             ],
             "option_chain_spec_count": summary["option_chain_spec_count"],
+            "intraday_bridge_spec_count": summary[
+                "intraday_bridge_spec_count"
+            ],
+            "underlying_volume_model_count": summary[
+                "underlying_volume_model_count"
+            ],
             "option_pricing_audit_count": summary["option_pricing_audit_count"],
         }
+        assert_no_private_metadata_leakage(manifest, path="manifest")
         temporary_path.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",

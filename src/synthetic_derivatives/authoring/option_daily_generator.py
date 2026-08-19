@@ -93,7 +93,7 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
             (
                 canonical_json(self.config.quote_model)
                 if self.config.schema_version
-                in {"1.4.0", "1.5.0", "1.6.0", "1.7.0"}
+                in {"1.4.0", "1.5.0", "1.6.0", "1.7.0", "1.8.0"}
                 else None
             ),
             self.config.generator_config_id,

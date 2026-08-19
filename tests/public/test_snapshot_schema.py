@@ -9,6 +9,7 @@ import duckdb
 
 from synthetic_derivatives.authoring.config import load_generator_config
 from synthetic_derivatives.authoring.pipeline import AuthoringPipeline
+from synthetic_derivatives.authoring.schema import SCHEMA_VERSION
 
 
 EXPECTED_UNDERLYING_FIELDS = {
@@ -117,6 +118,79 @@ def test_solver_visible_views_cover_framework_fields(
         )
     finally:
         connection.close()
+
+
+def test_schema_26_has_private_observation_tables_without_public_views(
+    tmp_path: Path, repository_root: Path
+) -> None:
+    config = load_generator_config(
+        repository_root / (
+            "authoring/templates/quantlib_bsm_brownian_bridge_volume.template.json"
+        )
+    )
+    database = tmp_path / "schema-26-observation.duckdb"
+    with AuthoringPipeline(database, replace(config, business_days=2)) as pipeline:
+        pipeline.create_smoke_snapshot()
+
+    connection = duckdb.connect(str(database), read_only=True)
+    try:
+        schema_version = connection.execute(
+            """
+            SELECT schema_version FROM metadata.schema_versions
+            ORDER BY applied_at DESC, schema_version DESC LIMIT 1
+            """
+        ).fetchone()[0]
+        bridge_columns = _columns(connection, "market.intraday_bridge_specs")
+        volume_columns = _columns(connection, "market.underlying_volume_models")
+        revision_columns = _columns(connection, "metadata.snapshot_revisions")
+        solver_relations = {
+            row[0]
+            for row in connection.execute(
+                """
+                SELECT table_name FROM information_schema.tables
+                WHERE table_schema = 'solver_visible'
+                """
+            ).fetchall()
+        }
+    finally:
+        connection.close()
+
+    assert schema_version == SCHEMA_VERSION == "2.6.0"
+    assert bridge_columns == {
+        "snapshot_id",
+        "bridge_spec_id",
+        "method",
+        "steps",
+        "grid",
+        "variance_clock",
+        "endpoint_policy",
+        "extrema_policy",
+        "cross_asset_policy",
+        "stream_namespace",
+        "generator_config_id",
+        "created_run_id",
+    }
+    assert volume_columns == {
+        "snapshot_id",
+        "volume_spec_id",
+        "underlying_id",
+        "measure",
+        "method",
+        "base_volume",
+        "volume_log_stddev",
+        "rounding",
+        "overflow_policy",
+        "dependence_policy",
+        "stream_namespace",
+        "generator_config_id",
+        "created_run_id",
+    }
+    assert {
+        "intraday_bridge_spec_count",
+        "underlying_volume_model_count",
+    } <= revision_columns
+    assert "intraday_bridge_specs" not in solver_relations
+    assert "underlying_volume_models" not in solver_relations
 
 
 def test_checked_in_smoke_snapshot_matches_its_manifest(repository_root: Path) -> None:

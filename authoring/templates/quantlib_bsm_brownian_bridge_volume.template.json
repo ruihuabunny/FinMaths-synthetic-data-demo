@@ -1,0 +1,139 @@
+{
+  "schema_version": "1.8.0",
+  "generator_config_id": "quantlib-tdgbm-bsm-brownian-bridge-volume-template-v1",
+  "generator_version": "0.9.0",
+  "snapshot_id": "DERIVATIVES-TDGBM-BSM-BB-VOLUME-TEMPLATE-v1",
+  "seed": 20260819,
+  "rng": "QuantLib.BoxMullerMersenneTwisterGaussianRng/semantic-keyed-authoring-streams-sha256-v2",
+  "start_date": "2026-08-03",
+  "business_days": 5,
+  "calendar": "WeekendsOnly",
+  "day_count": "Actual365Fixed",
+  "valuation_time_utc": "16:00:00",
+  "pricing_model": "Black-Scholes-Merton",
+  "pricing_engine": "QuantLib.AnalyticEuropeanEngine",
+  "physical_process": "QuantLib.BlackScholesMertonProcess",
+  "currency": "USD",
+  "quote_decimal_places": 8,
+  "underlying_minimum_price_increment": "0.01",
+  "option_minimum_price_increment": "0.01",
+  "underlyings": [
+    {
+      "underlying_id": "SYNTH-BB-U01",
+      "initial_spot": 100.0,
+      "physical_drift": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {"day_offset": 0, "value": 0.06},
+          {"day_offset": 30, "value": 0.08}
+        ],
+        "extrapolation": "flat"
+      },
+      "physical_volatility": {
+        "type": "piecewise_linear",
+        "nodes": [
+          {"day_offset": 0, "value": 0.20},
+          {"day_offset": 30, "value": 0.25}
+        ],
+        "extrapolation": "flat"
+      },
+      "risk_free_rate": 0.03,
+      "dividend_yield": 0.01,
+      "base_volume": 1000000,
+      "volume_log_stddev": 0.1435941754
+    }
+  ],
+  "option_chain": {
+    "chain_id": "BB-VOLUME-STATIC-GRID-v1",
+    "expiry_days": [30],
+    "moneyness_grid": [0.9, 1.0, 1.1],
+    "call_put": ["call", "put"],
+    "listing_rule": "snapshot_start",
+    "roll_rule": "static",
+    "strike_increment": 0.5,
+    "strike_rounding": "ROUND_HALF_EVEN",
+    "exercise_style": "european",
+    "settlement_type": "cash",
+    "contract_multiplier": 100,
+    "liquidity_filter": {
+      "type": "listing_moneyness_band_and_max_expiry",
+      "max_expiry_days": 30,
+      "min_moneyness": 0.9,
+      "max_moneyness": 1.1,
+      "boundary": "inclusive"
+    }
+  },
+  "quote_model": {
+    "relative_half_spread": 0.0025,
+    "minimum_half_spread": 0.005,
+    "bid_ask_noise": {
+      "type": "clipped_gaussian_half_spread_multiplier",
+      "standard_deviation": 0.2,
+      "minimum_multiplier": 0.5,
+      "maximum_multiplier": 1.5,
+      "stream_namespace": "option-bid-ask-noise-v1"
+    },
+    "null_policy": "no-null-for-required-snapshot-fields"
+  },
+  "q_pricing": {
+    "risk_neutral_measure_id": "USD-MONEY-MARKET-Q-v1",
+    "numeraire_id": "USD-MONEY-MARKET-ACCOUNT-v1",
+    "rate_path_id": "USD-FLAT-CONTINUOUS-RATE-v1",
+    "measure_change": "girsanov_drift_only",
+    "volatility_mapping": "same_deterministic_diffusion"
+  },
+  "underlying_dependence_specs": [
+    {
+      "dependence_spec_id": "SYNTH-BB-P-SPOT-FACTOR-v1",
+      "measure": "P",
+      "driver_order": ["SYNTH-BB-U01"],
+      "formulation": "factor_loading",
+      "factor_loading_matrix": [[0.4]],
+      "idiosyncratic_diagonal": "derive_from_row_norms",
+      "matrix_dtype": "float64",
+      "factorization_method": "factor_loading_direct",
+      "factorization_order": "declared_driver_order",
+      "time_grid": "business_daily",
+      "regime_id": "constant-template"
+    },
+    {
+      "dependence_spec_id": "SYNTH-BB-Q-SPOT-FACTOR-v1",
+      "measure": "Q",
+      "driver_order": ["SYNTH-BB-U01"],
+      "formulation": "factor_loading",
+      "factor_loading_matrix": [[0.4]],
+      "idiosyncratic_diagonal": "derive_from_row_norms",
+      "matrix_dtype": "float64",
+      "factorization_method": "factor_loading_direct",
+      "factorization_order": "declared_driver_order",
+      "time_grid": "business_daily",
+      "regime_id": "constant-template",
+      "source_dependence_spec_id": "SYNTH-BB-P-SPOT-FACTOR-v1",
+      "mapping_id": "SYNTH-BB-P-TO-Q-GIRSANOV-v1",
+      "mapping_type": "girsanov_drift_only_same_brownian_covariance",
+      "risk_neutral_measure_id": "USD-MONEY-MARKET-Q-v1",
+      "numeraire_id": "USD-MONEY-MARKET-ACCOUNT-v1",
+      "rate_path_id": "USD-FLAT-CONTINUOUS-RATE-v1"
+    }
+  ],
+  "intraday_bridge": {
+    "bridge_spec_id": "TDGBM-LOG-PRICE-BROWNIAN-BRIDGE-64-v1",
+    "method": "log_price_brownian_bridge",
+    "steps": 64,
+    "grid": "uniform_calendar_fraction",
+    "variance_clock": "integrated_variance",
+    "endpoint_policy": "published_quantized_open_close",
+    "extrema_policy": "quantized_discrete_grid_only",
+    "cross_asset_policy": "marginal_independent_given_close_endpoints",
+    "stream_namespace": "underlying-intraday-brownian-bridge-v1"
+  },
+  "volume_model": {
+    "volume_spec_id": "KEYED-MEAN-PRESERVING-LOGNORMAL-VOLUME-v1",
+    "measure": "P",
+    "method": "keyed_mean_preserving_lognormal",
+    "rounding": "ROUND_HALF_EVEN_INTEGER",
+    "overflow_policy": "clip_signed_int64",
+    "dependence_policy": "independent_by_underlying_date_and_from_price_streams",
+    "stream_namespace": "underlying-volume-keyed-lognormal-v1"
+  }
+}

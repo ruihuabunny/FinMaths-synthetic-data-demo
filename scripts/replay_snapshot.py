@@ -4,8 +4,8 @@
 The comparison is exact for every logical market column. Run UUIDs, audit
 timestamps and DuckDB physical file layout are excluded because they are fresh
 lineage rather than generated market data.  A reference is required explicitly
-so the config-1.6 successor cannot be compared accidentally with the legacy
-v3 public database.
+so the config-1.8 successor cannot be compared accidentally with a legacy
+public database.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from synthetic_derivatives.authoring.schema import TABLE_SPECS  # noqa: E402
 
 
 DEFAULT_CONFIG = REPOSITORY_ROOT / (
-    "configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json"
+    "configs/generators/quantlib_bsm_metals_option_chain_smoke_v3.json"
 )
 
 METADATA_LOGICAL_COLUMNS = {
@@ -67,6 +67,8 @@ METADATA_LOGICAL_COLUMNS = {
         "pricing_metadata_count",
         "underlying_dependence_count",
         "option_chain_spec_count",
+        "intraday_bridge_spec_count",
+        "underlying_volume_model_count",
         "option_pricing_audit_count",
     ),
 }
@@ -133,7 +135,7 @@ def compare_databases(reference: Path, replay: Path) -> dict[str, Any]:
         tables: dict[str, dict[str, int]] = {}
         # TABLE_SPECS is the current materialization contract.  Schema-retained
         # legacy tables such as option_pricing_audit are represented in the
-        # manifest counts but are not expected outputs of a config-1.6 replay.
+        # manifest counts but are not expected outputs of a config-1.8 replay.
         for table_name, spec in TABLE_SPECS.items():
             tables[spec.name] = _table_difference(
                 connection,

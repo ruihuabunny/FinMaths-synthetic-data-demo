@@ -1,8 +1,8 @@
 """Define DuckDB storage, visibility views, and deterministic MERGE contracts.
 
-Schema 2.5 still creates the legacy ``option_pricing_audit`` table so existing
-databases remain readable.  Current authoring does not include that table in
-``TABLE_SPECS`` and therefore cannot stage new IV-answer rows into it.
+Schema 2.6 adds private bridge and volume observation-law tables while still
+creating the legacy ``option_pricing_audit`` table so existing databases remain
+readable. Current authoring cannot stage new IV-answer rows into that table.
 """
 
 from __future__ import annotations
@@ -13,15 +13,17 @@ from typing import Any, Sequence
 import duckdb
 
 
-SCHEMA_VERSION = "2.5.0"
-# Schema 2.5 replaces only the dependence contract table so it can store
-# measure-qualified P/Q rows. Existing market observations are never rewritten.
+SCHEMA_VERSION = "2.6.0"
+# Schema 2.5 replaced the dependence table; schema 2.6 only adds private
+# observation-law tables and revision counts. Existing observations are never
+# rewritten or retrofitted with a new law.
 MIGRATABLE_SCHEMA_VERSIONS = {
     "2.0.0",
     "2.1.0",
     "2.2.0",
     "2.3.0",
     "2.4.0",
+    "2.5.0",
 }
 
 SCHEMA_BOOTSTRAP = r"""
@@ -78,6 +80,8 @@ CREATE TABLE IF NOT EXISTS metadata.snapshot_revisions (
     pricing_metadata_count BIGINT NOT NULL,
     underlying_dependence_count BIGINT NOT NULL DEFAULT 0,
     option_chain_spec_count BIGINT NOT NULL DEFAULT 0,
+    intraday_bridge_spec_count BIGINT NOT NULL DEFAULT 0,
+    underlying_volume_model_count BIGINT NOT NULL DEFAULT 0,
     option_pricing_audit_count BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     PRIMARY KEY (snapshot_id, revision)
@@ -148,6 +152,52 @@ CREATE TABLE IF NOT EXISTS market.underlying_dependence (
             AND rate_path_id IS NOT NULL)
     ),
     PRIMARY KEY (snapshot_id, dependence_spec_id)
+);
+
+-- Private config-1.8 observation law. Deliberately omitted from solver views.
+CREATE TABLE IF NOT EXISTS market.intraday_bridge_specs (
+    snapshot_id VARCHAR NOT NULL,
+    bridge_spec_id VARCHAR NOT NULL CHECK (length(bridge_spec_id) > 0),
+    method VARCHAR NOT NULL CHECK (method = 'log_price_brownian_bridge'),
+    steps INTEGER NOT NULL CHECK (steps BETWEEN 2 AND 4096),
+    grid VARCHAR NOT NULL CHECK (grid = 'uniform_calendar_fraction'),
+    variance_clock VARCHAR NOT NULL CHECK (variance_clock = 'integrated_variance'),
+    endpoint_policy VARCHAR NOT NULL CHECK (
+        endpoint_policy = 'published_quantized_open_close'
+    ),
+    extrema_policy VARCHAR NOT NULL CHECK (
+        extrema_policy = 'quantized_discrete_grid_only'
+    ),
+    cross_asset_policy VARCHAR NOT NULL CHECK (
+        cross_asset_policy = 'marginal_independent_given_close_endpoints'
+    ),
+    stream_namespace VARCHAR NOT NULL CHECK (length(stream_namespace) > 0),
+    generator_config_id VARCHAR NOT NULL,
+    created_run_id VARCHAR NOT NULL,
+    PRIMARY KEY (snapshot_id, bridge_spec_id)
+);
+
+-- One private per-underlying volume parameter row under a shared model ID.
+CREATE TABLE IF NOT EXISTS market.underlying_volume_models (
+    snapshot_id VARCHAR NOT NULL,
+    volume_spec_id VARCHAR NOT NULL CHECK (length(volume_spec_id) > 0),
+    underlying_id VARCHAR NOT NULL,
+    measure VARCHAR NOT NULL CHECK (measure = 'P'),
+    method VARCHAR NOT NULL CHECK (method = 'keyed_mean_preserving_lognormal'),
+    base_volume BIGINT NOT NULL CHECK (base_volume > 0),
+    volume_log_stddev DOUBLE NOT NULL CHECK (
+        isfinite(volume_log_stddev)
+        AND volume_log_stddev BETWEEN 0 AND 2
+    ),
+    rounding VARCHAR NOT NULL CHECK (rounding = 'ROUND_HALF_EVEN_INTEGER'),
+    overflow_policy VARCHAR NOT NULL CHECK (overflow_policy = 'clip_signed_int64'),
+    dependence_policy VARCHAR NOT NULL CHECK (
+        dependence_policy = 'independent_by_underlying_date_and_from_price_streams'
+    ),
+    stream_namespace VARCHAR NOT NULL CHECK (length(stream_namespace) > 0),
+    generator_config_id VARCHAR NOT NULL,
+    created_run_id VARCHAR NOT NULL,
+    PRIMARY KEY (snapshot_id, volume_spec_id, underlying_id)
 );
 
 -- Private option-chain authoring rules. Deliberately omitted from solver views.
@@ -385,7 +435,13 @@ SELECT
         'task_input_reference', 'task-specific pricing context'
     ) AS pricing_dynamics,
     pricing_model, pricing_engine, generator_version,
-    NULL::UBIGINT AS seed, rng, input_precision, canonicalization
+    NULL::UBIGINT AS seed,
+    CASE
+        WHEN rng = 'QuantLib.BoxMullerMersenneTwisterGaussianRng/semantic-keyed-authoring-streams-sha256-v2'
+        THEN NULL::VARCHAR
+        ELSE rng
+    END AS rng,
+    input_precision, canonicalization
 FROM market.pricing_metadata;
 """
 
@@ -405,6 +461,12 @@ PRIVATE_METADATA_KEYS = frozenset(
         "private_truth_signature",
         "mutation_lineage",
         "canonical_answer",
+        "bridge_spec_id",
+        "volume_spec_id",
+        "stream_namespace",
+        "base_volume",
+        "volume_log_stddev",
+        "bridge_increment",
     }
 )
 
@@ -467,6 +529,26 @@ class TableSpec:
 # compares current materialized rows, while manifest counts can still report
 # historical audit rows in a legacy database.
 TABLE_SPECS = {
+    "intraday_bridge_specs": TableSpec(
+        "market.intraday_bridge_specs",
+        (
+            "snapshot_id", "bridge_spec_id", "method", "steps", "grid",
+            "variance_clock", "endpoint_policy", "extrema_policy",
+            "cross_asset_policy", "stream_namespace", "generator_config_id",
+            "created_run_id",
+        ),
+        ("snapshot_id", "bridge_spec_id"),
+    ),
+    "underlying_volume_models": TableSpec(
+        "market.underlying_volume_models",
+        (
+            "snapshot_id", "volume_spec_id", "underlying_id", "measure",
+            "method", "base_volume", "volume_log_stddev", "rounding",
+            "overflow_policy", "dependence_policy", "stream_namespace",
+            "generator_config_id", "created_run_id",
+        ),
+        ("snapshot_id", "volume_spec_id", "underlying_id"),
+    ),
     "underlying_dependence": TableSpec(
         "market.underlying_dependence",
         (
@@ -550,10 +632,11 @@ TABLE_SPECS = {
 def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
     """Create the current schema or apply the supported logical migration.
 
-    Existing mutable 2.0--2.4 snapshots keep every market observation unchanged.
-    The dependence table is rebuilt only to replace its P-only CHECK constraint
-    with the P/Q contract and nullable mapping columns. A frozen database is
-    never migrated in place; it remains readable through a read-only connection.
+    Existing mutable 2.0--2.5 snapshots keep every market observation unchanged.
+    Pre-2.5 dependence tables are rebuilt only to replace their P-only CHECK
+    constraint. Schema 2.6 then adds empty observation-law tables and counts; it
+    never retrofits them onto an existing path. A frozen database is never
+    migrated in place and remains readable through a read-only connection.
     """
 
     connection.execute(SCHEMA_BOOTSTRAP)
@@ -589,7 +672,8 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
                     "clone it before migration"
                 )
         legacy_dependence_table = bool(
-            connection.execute(
+            current_version[0] != "2.5.0"
+            and connection.execute(
                 """
                 SELECT count(*) FROM information_schema.tables
                 WHERE table_schema = 'market'
@@ -641,6 +725,20 @@ def initialize_schema(connection: duckdb.DuckDBPyConnection) -> None:
         """
         ALTER TABLE metadata.snapshot_revisions
         ADD COLUMN IF NOT EXISTS option_chain_spec_count BIGINT
+        DEFAULT 0
+        """
+    )
+    connection.execute(
+        """
+        ALTER TABLE metadata.snapshot_revisions
+        ADD COLUMN IF NOT EXISTS intraday_bridge_spec_count BIGINT
+        DEFAULT 0
+        """
+    )
+    connection.execute(
+        """
+        ALTER TABLE metadata.snapshot_revisions
+        ADD COLUMN IF NOT EXISTS underlying_volume_model_count BIGINT
         DEFAULT 0
         """
     )

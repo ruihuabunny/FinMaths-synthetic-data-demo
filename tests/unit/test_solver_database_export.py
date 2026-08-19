@@ -102,6 +102,9 @@ def test_export_contract_canonicalizes_explicit_option_ids() -> None:
         {"outer": json.dumps({"deeper": {"generatedRunId": "private"}})},
         {"outer": [{"node": {"value": 0.2}}]},
         {"outer": {"answer": {"d1": 1.25}}},
+        {"outer": {"bridge_spec_id": "private-bridge"}},
+        {"outer": {"volume_log_stddev": 0.2}},
+        {"outer": json.dumps({"streamNamespace": "private-stream"})},
     ],
 )
 def test_leakage_scan_recurses_through_objects_lists_and_encoded_json(

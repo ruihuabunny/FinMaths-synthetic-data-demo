@@ -3,10 +3,11 @@
 Configuration versions describe both the market model and the rows an
 authoring run is allowed to materialize.  In particular, config 1.5 is a
 legacy readable identity that may contain an authoring-time IV solver, config
-1.6 removes IV answers from market generation, and config 1.7 adds explicit,
-measure-qualified P/Q underlying-driver dependence specs.  The write boundary
-in :mod:`pipeline` prevents different output contracts from being mixed under
-one snapshot identity.
+1.6 removes IV answers from market generation, config 1.7 adds explicit,
+measure-qualified P/Q underlying-driver dependence specs, and config 1.8 adds
+private Brownian-bridge OHLC and keyed-lognormal volume observation contracts.
+The write boundary in :mod:`pipeline` prevents different output contracts from
+being mixed under one snapshot identity.
 """
 
 from __future__ import annotations
@@ -173,6 +174,64 @@ class UnderlyingConfig:
     risk_free_rate: float
     dividend_yield: float
     base_implied_volatility: float | None
+    base_volume: int | None
+    volume_log_stddev: float | None
+
+
+@dataclass(frozen=True)
+class IntradayBridgeConfig:
+    """Private conditional log-price bridge observation contract."""
+
+    bridge_spec_id: str
+    method: str
+    steps: int
+    grid: str
+    variance_clock: str
+    endpoint_policy: str
+    extrema_policy: str
+    cross_asset_policy: str
+    stream_namespace: str
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return the canonical JSON-ready bridge contract."""
+
+        return {
+            "bridge_spec_id": self.bridge_spec_id,
+            "method": self.method,
+            "steps": self.steps,
+            "grid": self.grid,
+            "variance_clock": self.variance_clock,
+            "endpoint_policy": self.endpoint_policy,
+            "extrema_policy": self.extrema_policy,
+            "cross_asset_policy": self.cross_asset_policy,
+            "stream_namespace": self.stream_namespace,
+        }
+
+
+@dataclass(frozen=True)
+class VolumeModelConfig:
+    """Private keyed mean-preserving lognormal volume contract."""
+
+    volume_spec_id: str
+    measure: str
+    method: str
+    rounding: str
+    overflow_policy: str
+    dependence_policy: str
+    stream_namespace: str
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return the canonical JSON-ready volume contract."""
+
+        return {
+            "volume_spec_id": self.volume_spec_id,
+            "measure": self.measure,
+            "method": self.method,
+            "rounding": self.rounding,
+            "overflow_policy": self.overflow_policy,
+            "dependence_policy": self.dependence_policy,
+            "stream_namespace": self.stream_namespace,
+        }
 
 
 @dataclass(frozen=True)
@@ -507,6 +566,8 @@ class GeneratorConfig:
     bid_ask_noise: BidAskNoiseConfig | None
     underlying_dependence_specs: tuple[UnderlyingDependenceConfig, ...]
     option_chain: OptionChainConfig | None
+    intraday_bridge: IntradayBridgeConfig | None
+    volume_model: VolumeModelConfig | None
 
     @property
     def underlying_simulation(self) -> UnderlyingDependenceConfig | None:
@@ -549,6 +610,8 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
     1.6 removes authoring-time IV solving from that contract. Version 1.7
     replaces the P-only simulation field with ordered, measure-qualified P/Q
     dependence specs linked by an explicit covariance-preserving mapping.
+    Version 1.8 adds closed private observation contracts for marginal
+    Brownian-bridge OHLC and keyed mean-preserving lognormal volume.
     """
 
     config_path = Path(path)
@@ -566,6 +629,7 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
         "1.5.0",
         "1.6.0",
         "1.7.0",
+        "1.8.0",
     }:
         raise ValueError("unsupported generator config schema_version")
 
@@ -615,7 +679,7 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
             item["physical_volatility"], field_name="physical_volatility"
         )
         if (
-            schema_version in {"1.5.0", "1.6.0", "1.7.0"}
+            schema_version in {"1.5.0", "1.6.0", "1.7.0", "1.8.0"}
             and "base_implied_volatility" in item
         ):
             raise ValueError(
@@ -625,9 +689,32 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
             )
         base_implied_volatility = (
             None
-            if schema_version in {"1.5.0", "1.6.0", "1.7.0"}
+            if schema_version in {"1.5.0", "1.6.0", "1.7.0", "1.8.0"}
             else float(item["base_implied_volatility"])
         )
+        if schema_version == "1.8.0":
+            base_volume = item.get("base_volume")
+            if (
+                isinstance(base_volume, bool)
+                or not isinstance(base_volume, int)
+                or not 1 <= base_volume <= 2**63 - 1
+            ):
+                raise ValueError(
+                    "base_volume must be a positive signed-int64 integer"
+                )
+            volume_log_stddev = _finite_float(
+                item.get("volume_log_stddev"),
+                field_name="volume_log_stddev",
+            )
+            if not 0.0 <= volume_log_stddev <= 2.0:
+                raise ValueError("volume_log_stddev must be between 0 and 2")
+        else:
+            if "base_volume" in item or "volume_log_stddev" in item:
+                raise ValueError(
+                    "base_volume and volume_log_stddev require schema_version 1.8.0"
+                )
+            base_volume = None
+            volume_log_stddev = None
         underlyings_list.append(
             UnderlyingConfig(
                 underlying_id=item["underlying_id"],
@@ -639,10 +726,14 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
                 risk_free_rate=float(item["risk_free_rate"]),
                 dividend_yield=float(item["dividend_yield"]),
                 base_implied_volatility=base_implied_volatility,
+                base_volume=base_volume,
+                volume_log_stddev=volume_log_stddev,
             )
         )
     underlyings = tuple(underlyings_list)
-    if schema_version in {"1.3.0", "1.4.0", "1.5.0", "1.6.0", "1.7.0"}:
+    if schema_version in {
+        "1.3.0", "1.4.0", "1.5.0", "1.6.0", "1.7.0", "1.8.0"
+    }:
         if "option_templates" in raw:
             raise ValueError(
                 f"schema_version {schema_version} uses option_chain, not option_templates"
@@ -677,7 +768,7 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
             for item in raw["option_templates"]
         )
     _validate_entities(underlyings, templates)
-    if schema_version in {"1.5.0", "1.6.0", "1.7.0"}:
+    if schema_version in {"1.5.0", "1.6.0", "1.7.0", "1.8.0"}:
         if "smile" in raw:
             raise ValueError(
                 f"schema_version {schema_version} uses an explicit Q pricing "
@@ -695,23 +786,25 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
             raise ValueError("q_pricing requires schema_version 1.5.0+")
         q_pricing = None
         smile = {key: float(value) for key, value in raw["smile"].items()}
-    if schema_version == "1.7.0":
+    if schema_version in {"1.7.0", "1.8.0"}:
         if "underlying_simulation" in raw:
             raise ValueError(
-                "schema_version 1.7.0 uses underlying_dependence_specs, not "
+                f"schema_version {schema_version} uses "
+                "underlying_dependence_specs, not "
                 "underlying_simulation"
             )
         if q_pricing is None:
-            raise ValueError("schema_version 1.7.0 requires q_pricing")
+            raise ValueError(f"schema_version {schema_version} requires q_pricing")
         underlying_dependence_specs = _parse_measure_qualified_dependence_specs(
             raw.get("underlying_dependence_specs"),
             underlyings,
             q_pricing,
+            schema_version=schema_version,
         )
     elif schema_version in {"1.2.0", "1.3.0", "1.4.0", "1.5.0", "1.6.0"}:
         if "underlying_dependence_specs" in raw:
             raise ValueError(
-                "underlying_dependence_specs requires schema_version 1.7.0"
+                "underlying_dependence_specs requires schema_version 1.7.0+"
             )
         underlying_dependence_specs = (
             _parse_underlying_dependence_spec(
@@ -727,12 +820,18 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
                 "underlying dependence requires schema_version 1.2.0+"
             )
         underlying_dependence_specs = ()
-    expected_rng = (
-        "QuantLib.BoxMullerMersenneTwisterGaussianRng/"
-        "underlying-factor-idiosyncratic-sha256-v1"
-        if underlying_dependence_specs
-        else "QuantLib.BoxMullerMersenneTwisterGaussianRng/partitioned-sha256-seed-v1"
-    )
+    if schema_version == "1.8.0":
+        expected_rng = (
+            "QuantLib.BoxMullerMersenneTwisterGaussianRng/"
+            "semantic-keyed-authoring-streams-sha256-v2"
+        )
+    else:
+        expected_rng = (
+            "QuantLib.BoxMullerMersenneTwisterGaussianRng/"
+            "underlying-factor-idiosyncratic-sha256-v1"
+            if underlying_dependence_specs
+            else "QuantLib.BoxMullerMersenneTwisterGaussianRng/partitioned-sha256-seed-v1"
+        )
     if raw.get("rng") != expected_rng:
         raise ValueError(
             "rng must match the configured underlying dependence and current "
@@ -741,6 +840,29 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
     quote_model, bid_ask_noise = _parse_quote_model(
         raw.get("quote_model"), schema_version=schema_version
     )
+    if schema_version == "1.8.0":
+        intraday_bridge = _parse_intraday_bridge(raw.get("intraday_bridge"))
+        volume_model = _parse_volume_model(raw.get("volume_model"))
+        observation_namespaces = {
+            intraday_bridge.stream_namespace,
+            volume_model.stream_namespace,
+        }
+        if len(observation_namespaces) != 2:
+            raise ValueError("bridge and volume stream namespaces must be distinct")
+        if (
+            bid_ask_noise is not None
+            and bid_ask_noise.stream_namespace in observation_namespaces
+        ):
+            raise ValueError(
+                "bridge, volume and option-noise stream namespaces must be distinct"
+            )
+    else:
+        if "intraday_bridge" in raw or "volume_model" in raw:
+            raise ValueError(
+                "intraday_bridge and volume_model require schema_version 1.8.0"
+            )
+        intraday_bridge = None
+        volume_model = None
     return GeneratorConfig(
         schema_version=schema_version,
         generator_config_id=raw["generator_config_id"],
@@ -768,6 +890,8 @@ def load_generator_config(path: str | Path) -> GeneratorConfig:
         bid_ask_noise=bid_ask_noise,
         underlying_dependence_specs=underlying_dependence_specs,
         option_chain=option_chain,
+        intraday_bridge=intraday_bridge,
+        volume_model=volume_model,
     )
 
 
@@ -794,6 +918,110 @@ def _parse_minimum_price_increment(
             f"quote_decimal_places={decimal_places}"
         )
     return increment
+
+
+def _parse_intraday_bridge(raw: Any) -> IntradayBridgeConfig:
+    """Validate the closed config-1.8 Brownian-bridge contract."""
+
+    if not isinstance(raw, dict):
+        raise ValueError("schema_version 1.8.0 requires intraday_bridge")
+    expected_keys = {
+        "bridge_spec_id",
+        "method",
+        "steps",
+        "grid",
+        "variance_clock",
+        "endpoint_policy",
+        "extrema_policy",
+        "cross_asset_policy",
+        "stream_namespace",
+    }
+    if set(raw) != expected_keys:
+        raise ValueError(
+            "intraday_bridge must contain exactly the versioned contract fields"
+        )
+    for field_name in ("bridge_spec_id", "stream_namespace"):
+        value = raw[field_name]
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"intraday_bridge.{field_name} must be non-empty")
+    fixed_values = {
+        "method": "log_price_brownian_bridge",
+        "grid": "uniform_calendar_fraction",
+        "variance_clock": "integrated_variance",
+        "endpoint_policy": "published_quantized_open_close",
+        "extrema_policy": "quantized_discrete_grid_only",
+        "cross_asset_policy": "marginal_independent_given_close_endpoints",
+    }
+    for field_name, expected in fixed_values.items():
+        if raw[field_name] != expected:
+            raise ValueError(
+                f"intraday_bridge.{field_name} must be {expected}"
+            )
+    steps = raw["steps"]
+    if (
+        isinstance(steps, bool)
+        or not isinstance(steps, int)
+        or not 2 <= steps <= 4096
+    ):
+        raise ValueError(
+            "intraday_bridge.steps must be an integer between 2 and 4096"
+        )
+    return IntradayBridgeConfig(
+        bridge_spec_id=raw["bridge_spec_id"],
+        method=raw["method"],
+        steps=steps,
+        grid=raw["grid"],
+        variance_clock=raw["variance_clock"],
+        endpoint_policy=raw["endpoint_policy"],
+        extrema_policy=raw["extrema_policy"],
+        cross_asset_policy=raw["cross_asset_policy"],
+        stream_namespace=raw["stream_namespace"],
+    )
+
+
+def _parse_volume_model(raw: Any) -> VolumeModelConfig:
+    """Validate the closed config-1.8 keyed-lognormal volume contract."""
+
+    if not isinstance(raw, dict):
+        raise ValueError("schema_version 1.8.0 requires volume_model")
+    expected_keys = {
+        "volume_spec_id",
+        "measure",
+        "method",
+        "rounding",
+        "overflow_policy",
+        "dependence_policy",
+        "stream_namespace",
+    }
+    if set(raw) != expected_keys:
+        raise ValueError(
+            "volume_model must contain exactly the versioned contract fields"
+        )
+    for field_name in ("volume_spec_id", "stream_namespace"):
+        value = raw[field_name]
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"volume_model.{field_name} must be non-empty")
+    fixed_values = {
+        "measure": "P",
+        "method": "keyed_mean_preserving_lognormal",
+        "rounding": "ROUND_HALF_EVEN_INTEGER",
+        "overflow_policy": "clip_signed_int64",
+        "dependence_policy": (
+            "independent_by_underlying_date_and_from_price_streams"
+        ),
+    }
+    for field_name, expected in fixed_values.items():
+        if raw[field_name] != expected:
+            raise ValueError(f"volume_model.{field_name} must be {expected}")
+    return VolumeModelConfig(
+        volume_spec_id=raw["volume_spec_id"],
+        measure=raw["measure"],
+        method=raw["method"],
+        rounding=raw["rounding"],
+        overflow_policy=raw["overflow_policy"],
+        dependence_policy=raw["dependence_policy"],
+        stream_namespace=raw["stream_namespace"],
+    )
 
 
 def _parse_option_chain(raw: Any, *, schema_version: str) -> OptionChainConfig:
@@ -934,7 +1162,9 @@ def _parse_liquidity_filter(
 ) -> OptionLiquidityFilter | None:
     """Parse the config-1.4+ inclusive listing liquidity rule."""
 
-    if schema_version not in {"1.4.0", "1.5.0", "1.6.0", "1.7.0"}:
+    if schema_version not in {
+        "1.4.0", "1.5.0", "1.6.0", "1.7.0", "1.8.0"
+    }:
         if raw is not None:
             raise ValueError(
                 "option_chain.liquidity_filter requires schema_version 1.4.0+"
@@ -1002,7 +1232,9 @@ def _parse_quote_model(
         raise ValueError("quote_model half-spreads must be non-negative")
 
     noise_raw = raw.get("bid_ask_noise")
-    if schema_version not in {"1.4.0", "1.5.0", "1.6.0", "1.7.0"}:
+    if schema_version not in {
+        "1.4.0", "1.5.0", "1.6.0", "1.7.0", "1.8.0"
+    }:
         if noise_raw is not None:
             raise ValueError(
                 "quote_model.bid_ask_noise requires schema_version 1.4.0+"
@@ -1062,7 +1294,10 @@ def _parse_q_pricing(raw: Any, *, schema_version: str) -> QPricingConfig:
 
     if not isinstance(raw, dict):
         raise ValueError(f"schema_version {schema_version} requires q_pricing")
-    if schema_version in {"1.6.0", "1.7.0"} and "implied_volatility_solver" in raw:
+    if (
+        schema_version in {"1.6.0", "1.7.0", "1.8.0"}
+        and "implied_volatility_solver" in raw
+    ):
         raise ValueError(
             "q_pricing.implied_volatility_solver belongs to task/verifier "
             f"configuration and is forbidden by schema_version {schema_version}"
@@ -1136,12 +1371,14 @@ def _parse_measure_qualified_dependence_specs(
     raw: Any,
     underlyings: tuple[UnderlyingConfig, ...],
     q_pricing: QPricingConfig,
+    *,
+    schema_version: str,
 ) -> tuple[UnderlyingDependenceConfig, UnderlyingDependenceConfig]:
-    """Parse the config-1.7 P/Q pair and verify its measure-change mapping."""
+    """Parse a config-1.7+ P/Q pair and verify its measure-change mapping."""
 
     if not isinstance(raw, list) or len(raw) != 2:
         raise ValueError(
-            "schema_version 1.7.0 requires exactly two "
+            f"schema_version {schema_version} requires exactly two "
             "underlying_dependence_specs ordered as P then Q"
         )
     if [item.get("measure") if isinstance(item, dict) else None for item in raw] != [

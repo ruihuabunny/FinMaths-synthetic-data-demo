@@ -72,6 +72,8 @@ def _stable_rows(database: Path) -> dict[str, list[tuple[Any, ...]]]:
         for table, run_column in (
             ("underlyings", "created_run_id"),
             ("underlying_dependence", "created_run_id"),
+            ("intraday_bridge_specs", "created_run_id"),
+            ("underlying_volume_models", "created_run_id"),
             ("option_chain_specs", "created_run_id"),
             ("option_contracts", "created_run_id"),
             ("underlying_daily", "generated_run_id"),
