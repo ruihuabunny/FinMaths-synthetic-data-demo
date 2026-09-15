@@ -116,3 +116,10 @@ make append-day
 根目录只保留项目入口。当前行为以代码、versioned config/schema、frozen manifest 和通过的
 tests 为准；`docs/plans/`、`docs/curricula/` 与历史 handoff/report 记录目标或迁移历史，
 不能单独证明功能已经实现。
+
+## License
+
+Copyright 2026 Ruihua Luo.
+
+本仓库中的原创代码及随附文档采用 [Apache License 2.0](LICENSE) 授权。
+第三方依赖及第三方材料遵循各自的许可证。
