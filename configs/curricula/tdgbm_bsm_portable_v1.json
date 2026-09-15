@@ -1,0 +1,36 @@
+{
+  "schema_version": "family-curriculum-v1.0.0",
+  "curriculum_id": "tdgbm-bsm-portable-v1",
+  "model_family_id": "tdgbm_bsm",
+  "mixture": {"replay": 0.2, "current": 0.6, "explore": 0.2},
+  "mastery_bands": [
+    {"minimum": 0.0, "maximum": 0.05, "action": "decompose_or_sft", "weight_multiplier": 0.1},
+    {"minimum": 0.05, "maximum": 0.2, "action": "sparse_repair", "weight_multiplier": 0.35},
+    {"minimum": 0.2, "maximum": 0.8, "action": "core_rl", "weight_multiplier": 1.0},
+    {"minimum": 0.8, "maximum": 0.95, "action": "advance", "weight_multiplier": 0.6},
+    {"minimum": 0.95, "maximum": 1.0, "action": "replay_only", "weight_multiplier": 0.25}
+  ],
+  "stages": [
+    {
+      "index": 0,
+      "stage_id": "market_implied_bundle_static",
+      "task_family_ids": ["market_implied_metric_bundle"],
+      "task_kind_ids": ["core_greeks_bundle"],
+      "solver_interface_ids": ["static-json-query-schema-submit-v2"]
+    },
+    {
+      "index": 1,
+      "stage_id": "market_implied_metrics_static",
+      "task_family_ids": ["market_implied_metric"],
+      "task_kind_ids": ["iv", "delta", "gamma", "vega_1volpt", "theta_1calendar_day", "rho_1pct"],
+      "solver_interface_ids": ["static-json-query-schema-submit-v2"]
+    },
+    {
+      "index": 2,
+      "stage_id": "market_implied_metrics_duckdb_query",
+      "task_family_ids": ["market_implied_metric"],
+      "task_kind_ids": ["iv", "delta", "gamma", "vega_1volpt", "theta_1calendar_day", "rho_1pct"],
+      "solver_interface_ids": ["read-only-duckdb-query-schema-submit-v3"]
+    }
+  ]
+}

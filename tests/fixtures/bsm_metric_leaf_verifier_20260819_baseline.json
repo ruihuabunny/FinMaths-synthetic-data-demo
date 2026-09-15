@@ -1,0 +1,102 @@
+{
+  "schema_version": "bsm-metric-leaf-verifier-golden-baseline-v1.0.0",
+  "assignment_fields": [
+    "target",
+    "source_task_id",
+    "derived_task_id"
+  ],
+  "exception_contract": {
+    "type": "ValueError",
+    "common": {
+      "top_level_shape": "single-metric submission has missing or extra fields",
+      "identity": "single-metric submission identity is invalid",
+      "row_shape": "single-metric result row has missing or extra fields",
+      "wrapped_schema": "submission violates the single-metric schema",
+      "canonical_mismatch": "single-metric canonical submission mismatch"
+    },
+    "static_v2": {
+      "row_count": "single-metric submission must contain exactly 160 rows",
+      "row_order": "submission rows are missing, duplicated, or reordered"
+    },
+    "duckdb_query_v3": {
+      "duplicate_row_id": "single-metric submission contains duplicate row_id",
+      "row_id_set": "submission row_id set differs from the public task"
+    }
+  },
+  "deliveries": {
+    "static_v2": {
+      "relative_path": "task_packages/deliveries/bsm_market_implied_metric_suite_v1/20260819_metric_6x4_static_v2_rerun",
+      "suite_manifest_sha256": "1df2721f50859a42fcf43bd56ea9951dae7b512b3afa1f7369c954b8b96be406",
+      "tree_sha256": "d787e74c8b69cab3bdba612f62faa29863016f3e9164a869229e98ec639c9a64",
+      "file_count": 463,
+      "delivery_id": "20260819_metric_6x4_static_v2_rerun",
+      "suite_id": "bsm-market-metric-suite-v1-cbae54085afcc45e3592f4b4",
+      "suite_schema_version": "bsm-market-metric-suite-v1.0.0",
+      "assignment_digest": "be8ba9929d96809ebfdba7fa41d4222f160025e6be3c6c968851cc3ab9ef0d3c",
+      "total_task_count": 24,
+      "assignments": [
+        ["iv", "bsm-mig-v2-8c0ba90192df065bfefc28ca", "bsm-market-iv-v1-54ef2b02d64a8ac69e62516a"],
+        ["delta", "bsm-mig-v2-da6e624f01c407f321d9667c", "bsm-market-delta-v1-7b169ee969c3a089f590a9cc"],
+        ["gamma", "bsm-mig-v2-3446003b242d7a90e0a5763f", "bsm-market-gamma-v1-ddaa50b2c207b717acee71be"],
+        ["vega_1volpt", "bsm-mig-v2-294167a3ca9ced3b642dae8a", "bsm-market-vega-1volpt-v1-3f595a7cf9a11f176d4e99bb"],
+        ["theta_1calendar_day", "bsm-mig-v2-f4b10525bfa8d076f516110c", "bsm-market-theta-1calendar-day-v1-1925de35c4fefe11dcc16d23"],
+        ["rho_1pct", "bsm-mig-v2-0f8b1610394242b3502de4bb", "bsm-market-rho-1pct-v1-21fb2a395aae7482c8a26679"],
+        ["iv", "bsm-mig-v2-5f008757aa5d4a3960e73260", "bsm-market-iv-v1-5156f4dcc7466552ca0eda27"],
+        ["delta", "bsm-mig-v2-be9b54f90b3200b7faae8389", "bsm-market-delta-v1-078a899fd71470cfb08b6d81"],
+        ["gamma", "bsm-mig-v2-8bdfc1fd3db95ac77c8453f7", "bsm-market-gamma-v1-84d2b0429739b4fc7d1bad12"],
+        ["vega_1volpt", "bsm-mig-v2-f0fd0ab0a6cabe74fd1a812e", "bsm-market-vega-1volpt-v1-9563ab675a21be6769e6b294"],
+        ["theta_1calendar_day", "bsm-mig-v2-d629b4423e41c92b07cbb9d2", "bsm-market-theta-1calendar-day-v1-7f4cfb1eb7b7c4327077e39d"],
+        ["rho_1pct", "bsm-mig-v2-cb868d4d1ba5dfe3225f313c", "bsm-market-rho-1pct-v1-784a426c1bee3c314b78ef75"],
+        ["iv", "bsm-mig-v2-798d83000adac975905e6a14", "bsm-market-iv-v1-18ca3d5c1813c33d3c47fa3f"],
+        ["delta", "bsm-mig-v2-eb7c057654ea352af6182a70", "bsm-market-delta-v1-dba5f5f2724fb2a6ed99d3ac"],
+        ["gamma", "bsm-mig-v2-3eedd97b501acdd7a538eb8f", "bsm-market-gamma-v1-d436153e2d04db7629affbde"],
+        ["vega_1volpt", "bsm-mig-v2-a72dc8c80a420cd99a6e6a29", "bsm-market-vega-1volpt-v1-524f14f0ed2843d502d1e2eb"],
+        ["theta_1calendar_day", "bsm-mig-v2-8711ca872c36c1eaca519059", "bsm-market-theta-1calendar-day-v1-f717d2a725b811a1392f56ed"],
+        ["rho_1pct", "bsm-mig-v2-b813d99fed31738a236e79d5", "bsm-market-rho-1pct-v1-7ac4351e02814a06b331ab5e"],
+        ["iv", "bsm-mig-v2-0aba7622448df21b725ac3e0", "bsm-market-iv-v1-746be9068e7f70c3ef3e29b0"],
+        ["delta", "bsm-mig-v2-cf950e06564ada638f3dc64b", "bsm-market-delta-v1-d8430ddce0bb094142b93499"],
+        ["gamma", "bsm-mig-v2-d612e2cee9890c3977b0c7b9", "bsm-market-gamma-v1-1fd9869f98c03bc3bc8078f9"],
+        ["vega_1volpt", "bsm-mig-v2-ddcdc6dd44ed88a2df0d1f73", "bsm-market-vega-1volpt-v1-039d275a1fa6cfd7b2ab0094"],
+        ["theta_1calendar_day", "bsm-mig-v2-37b5517a3a43a7936990e233", "bsm-market-theta-1calendar-day-v1-676d5cc48f7ae202e9a2888f"],
+        ["rho_1pct", "bsm-mig-v2-4677bac2fd0c7d277e822591", "bsm-market-rho-1pct-v1-6cafaa98f533c3dd7fb5c7d0"]
+      ]
+    },
+    "duckdb_query_v3": {
+      "relative_path": "task_packages/deliveries/bsm_market_implied_metric_suite_v1/20260819_metric_6x4_db_query_v3_rerun",
+      "suite_manifest_sha256": "153a3105c4ecffda6d19eed6fe6ab093128f36a870b018fd33a4fe7d5babae38",
+      "tree_sha256": "0c3ac00edf1a03875122b2313e6b9740dafc3c3e437633d8f5f0f8976506bf31",
+      "file_count": 415,
+      "delivery_id": "20260819_metric_6x4_db_query_v3_rerun",
+      "suite_id": "bsm-market-metric-suite-v2-771f420aed8ba730f60e4875",
+      "suite_schema_version": "bsm-market-metric-suite-v2.0.0",
+      "assignment_digest": "f3345928c217cac55bc5079de4e4c09cd6b9378b5940f8a30b2e3ee624548fa4",
+      "total_task_count": 24,
+      "assignments": [
+        ["iv", "bsm-mig-v2-8c0ba90192df065bfefc28ca", "bsm-market-iv-v2-19576b8eb20b030164732cc3"],
+        ["delta", "bsm-mig-v2-da6e624f01c407f321d9667c", "bsm-market-delta-v2-f5b9466909032777f3c42cb1"],
+        ["gamma", "bsm-mig-v2-3446003b242d7a90e0a5763f", "bsm-market-gamma-v2-9b572d3fa354d772d06890d1"],
+        ["vega_1volpt", "bsm-mig-v2-294167a3ca9ced3b642dae8a", "bsm-market-vega-1volpt-v2-61ad46abdf877a3cbc348e30"],
+        ["theta_1calendar_day", "bsm-mig-v2-f4b10525bfa8d076f516110c", "bsm-market-theta-1calendar-day-v2-6068cff10f66517199ae175d"],
+        ["rho_1pct", "bsm-mig-v2-0f8b1610394242b3502de4bb", "bsm-market-rho-1pct-v2-d4f71b8d8373aacdcdb7feeb"],
+        ["iv", "bsm-mig-v2-5f008757aa5d4a3960e73260", "bsm-market-iv-v2-44b1c51e1d8930246e2a1610"],
+        ["delta", "bsm-mig-v2-be9b54f90b3200b7faae8389", "bsm-market-delta-v2-4bbede604882a66a6df0d498"],
+        ["gamma", "bsm-mig-v2-8bdfc1fd3db95ac77c8453f7", "bsm-market-gamma-v2-fb0f52a7ed81fa422fdb2069"],
+        ["vega_1volpt", "bsm-mig-v2-f0fd0ab0a6cabe74fd1a812e", "bsm-market-vega-1volpt-v2-47aa8c81c09c529c14634e48"],
+        ["theta_1calendar_day", "bsm-mig-v2-d629b4423e41c92b07cbb9d2", "bsm-market-theta-1calendar-day-v2-a8f9f9f05d010bbf56ae335d"],
+        ["rho_1pct", "bsm-mig-v2-cb868d4d1ba5dfe3225f313c", "bsm-market-rho-1pct-v2-1384f19fc2fddfa4085941e7"],
+        ["iv", "bsm-mig-v2-798d83000adac975905e6a14", "bsm-market-iv-v2-74e2ceca3d1c058a85b3e215"],
+        ["delta", "bsm-mig-v2-eb7c057654ea352af6182a70", "bsm-market-delta-v2-6e9a3160a2b7840219c1195a"],
+        ["gamma", "bsm-mig-v2-3eedd97b501acdd7a538eb8f", "bsm-market-gamma-v2-87a87981c2385c6d085d3374"],
+        ["vega_1volpt", "bsm-mig-v2-a72dc8c80a420cd99a6e6a29", "bsm-market-vega-1volpt-v2-0d7ebe871d24d324b4129eaa"],
+        ["theta_1calendar_day", "bsm-mig-v2-8711ca872c36c1eaca519059", "bsm-market-theta-1calendar-day-v2-3b21e6756881614073ba6922"],
+        ["rho_1pct", "bsm-mig-v2-b813d99fed31738a236e79d5", "bsm-market-rho-1pct-v2-cb587dcb9e7f9c85fd70fdab"],
+        ["iv", "bsm-mig-v2-0aba7622448df21b725ac3e0", "bsm-market-iv-v2-0afcc165b42e06e7b51c1245"],
+        ["delta", "bsm-mig-v2-cf950e06564ada638f3dc64b", "bsm-market-delta-v2-6be942a4cbd3d152fc844771"],
+        ["gamma", "bsm-mig-v2-d612e2cee9890c3977b0c7b9", "bsm-market-gamma-v2-bf47edb8f438925288700cc3"],
+        ["vega_1volpt", "bsm-mig-v2-ddcdc6dd44ed88a2df0d1f73", "bsm-market-vega-1volpt-v2-bc692831eb03787009532218"],
+        ["theta_1calendar_day", "bsm-mig-v2-37b5517a3a43a7936990e233", "bsm-market-theta-1calendar-day-v2-8a72759ed02f91da19c2d986"],
+        ["rho_1pct", "bsm-mig-v2-4677bac2fd0c7d277e822591", "bsm-market-rho-1pct-v2-4a419b125e001b8cc52027c1"]
+      ]
+    }
+  }
+}

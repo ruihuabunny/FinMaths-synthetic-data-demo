@@ -7,6 +7,18 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Literal
 
+from synthetic_derivatives.model_families.adapters import (
+    DUCKDB_QUERY_V3_SOLVER_INTERFACE_ID,
+    STATIC_JSON_SOLVER_INTERFACE_ID,
+    TDGBM_BSM_MODEL_FAMILY_ID,
+    get_legacy_variant_identity,
+)
+from synthetic_derivatives.model_families.capabilities import (
+    CapabilityBinding,
+    CapabilityKey,
+)
+from synthetic_derivatives.task_space.models import TaskSpecV3
+
 
 DecimalConstraint = Literal[
     "signed_decimal8",
@@ -249,6 +261,63 @@ def is_registered_metric_spec(spec: object) -> bool:
     }
 
 
+_METRIC_COORDINATES = get_legacy_variant_identity(
+    "bsm_market_implied_greeks_v1"
+).coordinates
+
+
+def metric_capability_binding(spec: MetricSpec) -> CapabilityBinding:
+    """Map one exact frozen ``MetricSpec`` to its semantic capability.
+
+    Static v1 and DuckDB-query v3 specs deliberately map to different solver
+    interfaces and output contracts even though their financial method IDs are
+    unchanged.
+    """
+
+    if not isinstance(spec, MetricSpec):
+        raise TypeError("metric capability adapter requires MetricSpec")
+    if METRIC_SPECS_BY_TARGET.get(spec.target) == spec:
+        solver_interface_id = STATIC_JSON_SOLVER_INTERFACE_ID
+    elif METRIC_SPECS_DB_QUERY_V3_BY_TARGET.get(spec.target) == spec:
+        solver_interface_id = DUCKDB_QUERY_V3_SOLVER_INTERFACE_ID
+    else:
+        raise ValueError("metric capability adapter requires a frozen registry entry")
+    return CapabilityBinding(
+        CapabilityKey(
+            model_family_id=TDGBM_BSM_MODEL_FAMILY_ID,
+            task_family_id="market_implied_metric",
+            task_kind_id=spec.target,
+            method_id=spec.method_id,
+            solver_interface_id=solver_interface_id,
+        ),
+        output_contract_id=spec.submission_schema_version,
+    )
+
+
+def metric_task_spec_v3(
+    spec: MetricSpec,
+    *,
+    task_id: str,
+    snapshot_id: str,
+    snapshot_revision: int,
+) -> TaskSpecV3:
+    """Adapt one materialized metric task without modifying its old artifact."""
+
+    binding = metric_capability_binding(spec)
+    return TaskSpecV3(
+        task_id=task_id,
+        model_family_id=binding.key.model_family_id,
+        task_family_id=binding.key.task_family_id,
+        task_kind_id=binding.key.task_kind_id,
+        solver_interface_id=binding.key.solver_interface_id,
+        coordinates=_METRIC_COORDINATES,
+        snapshot_id=snapshot_id,
+        snapshot_revision=snapshot_revision,
+        method_id=binding.key.method_id,
+        output_contract_id=binding.output_contract_id,
+    )
+
+
 __all__ = [
     "BSM_METRIC_TARGET_ORDER",
     "DecimalConstraint",
@@ -261,4 +330,6 @@ __all__ = [
     "get_metric_spec",
     "get_metric_spec_db_query_v3",
     "is_registered_metric_spec",
+    "metric_capability_binding",
+    "metric_task_spec_v3",
 ]

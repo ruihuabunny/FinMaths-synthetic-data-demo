@@ -13,8 +13,14 @@ import sys
 import duckdb
 import pytest
 
-from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv import (
-    bsm_market_metric_verifier_runtime as packaged_runtime,
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_leaf_verifier_runtime import (
+    STATIC_V2_PROFILE,
+    bsm_metric_logical_checksum,
+    digest_file,
+    load_bsm_market_metric_inputs,
+)
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_leaf_verifier_runtime import (
+    profiles as runtime_profiles,
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.contracts import (
     canonical_json_bytes,
@@ -92,12 +98,10 @@ def metric_leaf_tasks(
         config = metric_oracle_config(spec)
         manifest = {
             "public_child_snapshot": {
-                "logical_checksum": packaged_runtime.bsm_metric_logical_checksum(
-                    database, config
-                )
+                "logical_checksum": bsm_metric_logical_checksum(database, config)
             },
             "artifacts": {
-                "task.duckdb": packaged_runtime.digest_file(database),
+                "task.duckdb": digest_file(database),
             },
         }
         (root / "delivery_manifest.json").write_bytes(
@@ -257,7 +261,7 @@ def test_metric_verifier_rejects_wrong_units_and_contract_multiplier(
 
     delta_root, delta = metric_leaf_tasks["delta"]
     config = metric_oracle_config("delta")
-    inputs = packaged_runtime.load_bsm_market_metric_inputs(
+    inputs = load_bsm_market_metric_inputs(
         delta_root / "task.duckdb", config
     )
     multiplied = deepcopy(delta)
@@ -273,7 +277,9 @@ def test_metric_verifier_rejects_wrong_units_and_contract_multiplier(
 @pytest.mark.parametrize("spec", METRIC_SPECS, ids=lambda spec: spec.target)
 def test_oracle_config_is_an_exact_builtin_whitelist(spec: MetricSpec) -> None:
     config = metric_oracle_config(spec)
-    internal = packaged_runtime._spec_from_config(config)
+    internal = runtime_profiles._spec_from_config(
+        config, profile=STATIC_V2_PROFILE
+    )
     assert internal.target == spec.target
 
     for field, wrong in (
@@ -286,12 +292,12 @@ def test_oracle_config_is_an_exact_builtin_whitelist(spec: MetricSpec) -> None:
         changed = dict(config)
         changed[field] = wrong
         with pytest.raises(ValueError, match="different oracle config"):
-            packaged_runtime._spec_from_config(changed)
+            runtime_profiles._spec_from_config(
+                changed, profile=STATIC_V2_PROFILE
+            )
 
 
-def test_leaf_templates_are_fixed_self_contained_and_use_exact_comparison(
-    repository_root: Path,
-) -> None:
+def test_leaf_templates_are_fixed_self_contained_and_use_exact_comparison() -> None:
     iv_files = metric_verifier_files("iv")
     delta_files = metric_verifier_files("delta")
     assert tuple(iv_files) == METRIC_VERIFIER_FILENAMES
@@ -299,28 +305,28 @@ def test_leaf_templates_are_fixed_self_contained_and_use_exact_comparison(
     assert iv_files["runtime.py"] == delta_files["runtime.py"]
     assert iv_files["oracle_config.json"] != delta_files["oracle_config.json"]
 
-    source_path = (
-        repository_root
-        / "src/synthetic_derivatives/packaging_analytic_and_implied_greeks_iv"
-        / "bsm_market_metric_verifier_runtime.py"
-    )
-    source = source_path.read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    imported_roots = {
-        alias.name.split(".", 1)[0]
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Import)
-        for alias in node.names
-    } | {
-        (node.module or "").split(".", 1)[0]
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
+    python_sources = {
+        name: payload.decode("utf-8")
+        for name, payload in iv_files.items()
+        if name.endswith(".py")
     }
-    assert "synthetic_derivatives" not in imported_roots
-    assert "isclose" not in source
-    assert "pytest.approx" not in source
-    assert "actual != expected" in source
-    assert "reference/final_submission" not in source
+    for name, source in python_sources.items():
+        tree = ast.parse(source, filename=name)
+        imported_roots = {
+            alias.name.split(".", 1)[0]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        } | {
+            (node.module or "").split(".", 1)[0]
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom) and node.level == 0
+        }
+        assert "synthetic_derivatives" not in imported_roots, name
+        assert "isclose" not in source, name
+        assert "pytest.approx" not in source, name
+        assert "reference/final_submission" not in source, name
+    assert "actual != expected" in python_sources["_runtime/submission.py"]
 
 
 def test_leaf_verifier_runs_without_project_import_path(

@@ -92,8 +92,9 @@ Generic 六关系 P2 child 仍只在 `tests/integration/` 与
 `metadata.public_task`、`solver_visible.underlying_market_inputs` 和
 `solver_visible.option_quote_inputs`。它通过两个 data-only trusted adapters 接到标准库固定 80 步 IV +
 Greeks solver，并由 pinned QuantLib verifier exact-compare；详见
-[`task_packages/README.md`](../../../task_packages/README.md)。当前 checked-in source artifact
-仍只有一条 `ACCEPTED` golden task；Phase F 已参数化 private selector seed，并提供 verified
-nine-field dataset exporter。Valuation date 仍由 frozen package contract 固定；旧 interface
-有一套 Git-ignored 本地 100-task run，当前最小 prompt/interface 的完整 batch、split audit
-与 `RELEASED` promotion 尚未执行。
+[`task_packages/README.md`](../../../task_packages/README.md)。当前 checked-in portable artifacts
+包括 100-task combined v2 delivery，以及多个各含 24 tasks 的 static-v2 / DuckDB-query-v3
+6×4 metric suites。新的 modular-verifier 交付与历史 monolithic baseline 使用不同 delivery
+identity；状态分别由其冻结 batch/suite manifest 决定，不因 repository-side model-family
+refactor 自动 promotion。Semantic TaskSpec v3 与 capability adapter 只用于新 workflow 的身份
+映射和写入前门禁，不改变 exporter 的 public rows、selection、checksum 或既有 artifact digest。

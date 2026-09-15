@@ -10,6 +10,25 @@ source package contains four authoring areas:
 - `reference/`: observable train/dev replay artifacts;
 - `authoring_private/`: selection provenance, oracle answer, and build reports.
 
+## Semantic capability preflight
+
+Existing package/task IDs, manifests, schemas and delivery digests remain on
+their accepted versioned contracts. The model-family refactor maps those legacy
+identities through explicit adapters into semantic TaskSpec v3; it does not add
+new fields to a frozen package or rename its interface.
+
+Before a new single-metric suite is materialized, the builder loads the
+`tdgbm_bsm` family registry and requires exact `portable_verified` capabilities
+for its source combined bundle and every selected metric/interface. Static
+v2 and DuckDB-query v3 are distinct capability keys and output contracts. A
+catalog-compatible but unimplemented family, missing evidence, or identity
+mismatch fails before a staging/output directory is created.
+
+This repository-side preflight is not copied into the Agent-visible package and
+does not replace the effective runtime profile. Replay and verification of an
+already accepted artifact continue to use its frozen manifest, runtime,
+toolset, schema and trusted verifier.
+
 Only `views/evaluation` is mountable as the solver filesystem. Its exact tree
 is:
 
@@ -157,6 +176,41 @@ Repackage the same frozen 24 source markets with:
 The v3 builder validates all SQL-tool, runtime, database, submission, verifier,
 manifest, uniqueness, and no-payload bindings before the atomic publish.
 
+### Modular leaf-verifier deliveries
+
+The completed leaf-runtime refactor is published under new identities; it does
+not alter either immutable `20260819_*_rerun` baseline:
+
+```text
+deliveries/bsm_market_implied_metric_suite_v1/
+├── 20260819_metric_6x4_static_v2_rerun          # frozen monolithic baseline
+├── 20260819_metric_6x4_db_query_v3_rerun        # frozen monolithic baseline
+├── 20260819_metric_6x4_static_v2_modular        # new 15-file verifier leaves
+└── 20260819_metric_6x4_db_query_v3_modular      # new 15-file verifier leaves
+```
+
+Both new suites reuse the accepted source run
+`runs/bsm_market_implied_greeks/20260819_24_tasks_authoring_refactor_rerun_parent_seed_20260806_selector_seed_0`
+and `allocation_id=20260819_metric_6x4_v1`; no market data was regenerated.
+Reproduce the static-v2 publication with a different, absent delivery ID using:
+
+```bash
+.venv/bin/python scripts/package_bsm_greeks_delivery.py \
+  --run-root runs/bsm_market_implied_greeks/20260819_24_tasks_authoring_refactor_rerun_parent_seed_20260806_selector_seed_0 \
+  --output-root task_packages/deliveries \
+  --delivery-id <new-static-v2-delivery-id> \
+  --profile configs/deliveries/bsm_market_implied_metric_suite_6x4_v1.json \
+  --allocation-id 20260819_metric_6x4_v1 \
+  --expected-source-task-count 24
+```
+
+Add `--metric-protocol v3-duckdb-query` and use a distinct new ID for v3.
+Each generated leaf has a stable `verifier/runtime.py` facade and private
+`verifier/_runtime/` modules. Every nested file is digest-bound and classified
+`verifier_only`; the leaf remains runnable outside this repository. Exact
+old/new identities and path changes are recorded in
+[`reports/bsm_metric_leaf_verifier_modular_runtime_migration.md`](reports/bsm_metric_leaf_verifier_modular_runtime_migration.md).
+
 Generate one authoring-side reference trajectory for each metric without adding
 reference files to the portable leaves:
 
@@ -168,3 +222,8 @@ reference files to the portable leaves:
 
 The frozen contract, provenance, validation evidence, and release digests are
 recorded in `reports/bsm_public_duckdb_query_v3_migration.md`.
+
+## Reports
+
+Migration handoffs and completed validation evidence are indexed in
+[`reports/README.md`](reports/README.md).

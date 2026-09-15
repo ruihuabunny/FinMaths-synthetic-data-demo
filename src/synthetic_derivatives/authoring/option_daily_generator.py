@@ -15,18 +15,25 @@ from typing import Any
 
 import QuantLib as ql
 
-from synthetic_derivatives.authoring.config import (
+from synthetic_derivatives.authoring.canonicalization import canonical_json
+from synthetic_derivatives.authoring.config_models import (
     GeneratorConfig,
+    UnderlyingConfig,
+)
+from synthetic_derivatives.authoring.option_chain import (
     OptionChainBuilder,
     OptionTemplate,
-    UnderlyingConfig,
     option_id,
 )
 from synthetic_derivatives.authoring.generator_common import (
     QuantLibGeneratorBase,
-    canonical_json,
     py_date,
     ql_date,
+)
+from synthetic_derivatives.authoring.row_contracts import (
+    OptionChainSpecRow,
+    OptionContractRow,
+    OptionDailyRow,
 )
 
 
@@ -34,7 +41,7 @@ from synthetic_derivatives.authoring.generator_common import (
 class OptionDailyResult:
     """One generated public option quote."""
 
-    quote_row: tuple[Any, ...]
+    quote_row: OptionDailyRow
 
 
 class OptionDailyGenerator(QuantLibGeneratorBase):
@@ -50,7 +57,7 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
 
         super().__init__(config)
 
-    def option_chain_spec_row(self, run_id: str) -> tuple[Any, ...] | None:
+    def option_chain_spec_row(self, run_id: str) -> OptionChainSpecRow | None:
         """Build private listing and roll provenance for a generated chain.
 
         Grid values are serialized as decimal strings so JSON round-tripping
@@ -61,7 +68,7 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         chain = self.config.option_chain
         if chain is None:
             return None
-        logical = [
+        return OptionChainSpecRow(
             self.config.snapshot_id,
             chain.chain_id,
             chain.listing_rule,
@@ -93,12 +100,12 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
             (
                 canonical_json(self.config.quote_model)
                 if self.config.schema_version
-                in {"1.4.0", "1.5.0", "1.6.0", "1.7.0"}
+                in {"1.4.0", "1.5.0", "1.6.0", "1.7.0", "1.8.0"}
                 else None
             ),
             self.config.generator_config_id,
-        ]
-        return (*logical, run_id)
+            run_id,
+        )
 
     def option_chain_listing_date(self) -> date:
         """Return the first business date on which static chain contracts list."""
@@ -112,7 +119,7 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         underlying: UnderlyingConfig,
         template: OptionTemplate,
         run_id: str,
-    ) -> tuple[Any, ...]:
+    ) -> OptionContractRow:
         """Materialize one immutable contract from listing-time state.
 
         For a 1.3 chain, ``initial_spot`` is the declared listing spot and is
@@ -151,7 +158,7 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
             + timedelta(days=template.expiry_days)
         )
         expiry = py_date(self.calendar.adjust(expiry_unadjusted, ql.Following))
-        logical = [
+        return OptionContractRow(
             self.config.snapshot_id,
             option_id(underlying.underlying_id, template.template_id),
             underlying.underlying_id,
@@ -170,17 +177,17 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
                 if template.strike_moneyness is not None
                 else None
             ),
-        ]
-        return (*logical, run_id)
+            run_id,
+        )
 
     def option_daily_row(
         self,
         underlying: UnderlyingConfig,
-        contract_row: tuple[Any, ...],
+        contract_row: OptionContractRow | tuple[Any, ...],
         market_date: date,
         spot_close: Decimal,
         run_id: str,
-    ) -> tuple[Any, ...] | None:
+    ) -> OptionDailyRow | None:
         """Return the public quote row, retaining the legacy generator API."""
 
         result = self.option_daily_result(
@@ -191,7 +198,7 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
     def option_daily_result(
         self,
         underlying: UnderlyingConfig,
-        contract_row: tuple[Any, ...],
+        contract_row: OptionContractRow | tuple[Any, ...],
         market_date: date,
         spot_close: Decimal,
         run_id: str,
@@ -208,23 +215,29 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         the bid and ask half-spreads; it cannot perturb the model value.
         """
 
-        (
-            _, option_identifier, underlying_id, _, call_put, strike, expiry,
-            exercise_style, settlement_type, multiplier, *_lineage,
-        ) = contract_row
+        contract = (
+            contract_row
+            if isinstance(contract_row, OptionContractRow)
+            else OptionContractRow(*contract_row)
+        )
         # Expiry-day settlement is outside the current daily quote contract.
         # Returning None makes absence after expiry explicit rather than a zero
         # or stale quote, and the pipeline quality gate uses the same predicate.
-        if market_date >= expiry:
+        if market_date >= contract.expiry:
             return None
 
         evaluation_date = ql_date(market_date)
-        expiry_date = ql_date(expiry)
+        expiry_date = ql_date(contract.expiry)
         ql.Settings.instance().evaluationDate = evaluation_date
         maturity = self.day_count.yearFraction(evaluation_date, expiry_date)
         spot_close = self.quantize_underlying_price(spot_close)
         pricing_volatility = self._pricing_volatility(
-            underlying, market_date, expiry, spot_close, strike, maturity
+            underlying,
+            market_date,
+            contract.expiry,
+            spot_close,
+            contract.strike,
+            maturity,
         )
         spot_handle = ql.QuoteHandle(ql.SimpleQuote(float(spot_close)))
         risk_free_curve = ql.YieldTermStructureHandle(
@@ -241,9 +254,11 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
         process = ql.BlackScholesMertonProcess(
             spot_handle, dividend_curve, risk_free_curve, vol_surface
         )
-        option_type = ql.Option.Call if call_put == "call" else ql.Option.Put
+        option_type = (
+            ql.Option.Call if contract.call_put == "call" else ql.Option.Put
+        )
         option = ql.VanillaOption(
-            ql.PlainVanillaPayoff(option_type, float(strike)),
+            ql.PlainVanillaPayoff(option_type, float(contract.strike)),
             ql.EuropeanExercise(expiry_date),
         )
         option.setPricingEngine(ql.AnalyticEuropeanEngine(process))
@@ -259,38 +274,48 @@ class OptionDailyGenerator(QuantLibGeneratorBase):
             mid * Decimal(str(self.config.quote_model["relative_half_spread"])),
         )
         bid_half_spread = half_spread * Decimal(
-            str(self._half_spread_multiplier("bid", option_identifier, market_date))
+            str(
+                self._half_spread_multiplier(
+                    "bid", contract.option_id, market_date
+                )
+            )
         )
         ask_half_spread = half_spread * Decimal(
-            str(self._half_spread_multiplier("ask", option_identifier, market_date))
+            str(
+                self._half_spread_multiplier(
+                    "ask", contract.option_id, market_date
+                )
+            )
         )
         # Side-specific noise widens/narrows only executable quotes.  Flooring
         # bid at zero and keeping both spreads non-negative preserves
         # bid <= BSM mid <= ask by construction.
         bid = self.quantize_option_price(max(Decimal("0"), mid - bid_half_spread))
         ask = self.quantize_option_price(mid + ask_half_spread)
-        activity = self._uniform("option-activity", option_identifier, market_date)
+        activity = self._uniform(
+            "option-activity", contract.option_id, market_date
+        )
         volume = int(25 + activity * 475)
         open_interest = int(500 + activity * 4_500)
-        logical = [
+        quote_row = OptionDailyRow(
             self.config.snapshot_id,
             market_date,
-            underlying_id,
-            option_identifier,
-            call_put,
-            strike,
-            expiry,
-            exercise_style,
-            settlement_type,
-            multiplier,
+            contract.underlying_id,
+            contract.option_id,
+            contract.call_put,
+            contract.strike,
+            contract.expiry,
+            contract.exercise_style,
+            contract.settlement_type,
+            contract.contract_multiplier,
             bid,
             ask,
             mid,
             mid,
             volume,
             open_interest,
-        ]
-        quote_row = (*logical, run_id)
+            run_id,
+        )
         return OptionDailyResult(quote_row=quote_row)
 
     def _pricing_volatility(

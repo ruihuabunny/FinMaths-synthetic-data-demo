@@ -1,7 +1,20 @@
 # DuckDB + QuantLib Authoring Pipeline
 
-> 实现状态（2026-08-12）：underlying simulator 第一阶段与 static
-> `OptionChainBuilder` 与 liquidity-filtered quote profile 已经实现。Generator config
+> 实现状态（2026-08-19）：config `1.8.0` / generator `0.9.0` 已实现
+> integrated-variance log-price Brownian bridge OHLC 与 keyed mean-preserving lognormal
+> volume；schema `2.6.0` 新增 private observation specs、exact OHLCV replay、tamper 与
+> leakage gates。正式配置是
+> `configs/generators/quantlib_bsm_metals_option_chain_smoke_v3.json`。旧 config、frozen
+> snapshot、task package 和 delivery 未原地改写。
+>
+> 结构重构状态（2026-08-19）：config `1.0.0`--`1.8.0` 能力已集中到 closed
+> policy table；config/schema/pipeline 保留稳定 façade。Typed rows 与显式 table specs
+> exact 对齐；DDL/migration/persistence、preflight/post-write gates、materialization/store/
+> manifest，以及 P-close/OHLCV/metadata serialization 已按职责拆分。此次重构不改变
+> 数学、随机流、schema/config/generator identity、逻辑行或冻结 artifact。
+>
+> 历史实现状态（2026-08-17）：underlying simulator 第一阶段与 static
+> `OptionChainBuilder`、liquidity-filtered quote profile 已经实现。Generator config
 > `1.2.0` 可以用 $\Lambda/D/R$ 相关结构生成物理测度 $\mathbb P$ 下的多个
 > underlying path；config `1.3.0` 生成 expiry × listing-moneyness × call/put 完整网格，
 > 并冻结挂牌 strike；config `1.4.0` 从 candidate grid 只挂牌近月、近价合约，并以
@@ -10,10 +23,30 @@
 > 将 IV inversion 移出 authoring，config `1.7.0` 增加独立 P/Q underlying-driver
 > dependence identities。Authoring schema `2.5.0` 保存 source/mapping/common-Q context。
 > Option/derivative pricing 不读取 underlying 相关矩阵，原有 v1/v1.1/v1.2 pipeline
-> 保持兼容。独立 exporter 与 BSM Greeks packaging pipeline 已能从 frozen P/Q parent
-> 生成一条 accepted 的 8-underlying D4 golden task；Phase F batch runner 与九字段 dataset
-> exporter 已实现。旧 solver interface 在 Git-ignored `runs/` 中留有本地 100-task 历史
-> run；当前最小 prompt/interface 尚未重建、审核或 promotion 该批次。
+> 保持兼容。当前 pipeline 先通过显式 `TDGBMBSMAuthoringBackend` 解析唯一已实现的
+> `tdgbm_bsm` family，未知 family 在创建 artifact 前失败；固定 config/seed 的原 direct
+> constructor 与 backend path 已通过 row/checksum equivalence。独立 exporter、BSM Greeks
+> packaging、100-task combined v2 delivery，以及 static/query-v3 两个 24-task metric suites
+> 均已实现。L3 Monte Carlo、第二个 model family 与 generic packaging kernel 尚未实现。
+
+## 当前模块与事务边界
+
+公开 import 继续从 `authoring.config`、`authoring.schema`、`authoring.pipeline` 和现有
+generator 模块进入。内部依赖固定为：
+
+| 边界 | Owning modules | 约束 |
+|:---|:---|:---|
+| Config contract | `config_versions`、`config_loader`、各领域 parser/model | 只登记 1.0–1.8；未知版本 fail closed。 |
+| Neutral contracts | `canonicalization`、`row_contracts`、`table_specs` | NamedTuple 字段序与显式 DuckDB columns exact equal，不反射生成 DDL。 |
+| P generation | `underlying_path`、`underlying_observations`、`pricing_metadata` | 可使用 QuantLib/RNG，不导入 DuckDB；P-close、conditional OHLCV 与 P/Q serialization 分离。 |
+| Storage | `schema_ddl`、`schema_migrations`、`persistence`、`snapshot_store` | 不导入 QuantLib 或金融模型实现；migration 只接受显式 2.0–2.5 → 2.6 路径。 |
+| Validation | `compatibility`、`quality_gates` | immutable preflight 与 post-write replay/completeness/privacy 是两个独立阶段。 |
+| Orchestration | `pipeline`、`materialization`、`manifest` | 只有 pipeline 决定完整事务；manifest 在 commit 后原子发布。 |
+
+`sync_range` 的规范顺序是：preflight → RUNNING audit → materialization → post-write
+gates → conditional revision → COMPLETED/NOOP → commit → manifest。Preflight 失败不写
+FAILED；RUNNING 后失败回滚整个 market transaction，再单独记录 FAILED。Manifest 发布失败
+会明确报告 DuckDB 已提交，不会伪装成数据库 rollback。
 
 ## 目标与范围
 
@@ -25,12 +58,12 @@
 
 Smoke test 中有 5 个 underlying 定义和 5 个 option templates。每个 template 会实例化到每个 underlying，因此数据库包含 25 个 option contracts，而不是总共 5 个合约。
 
-Mutation + curriculum 本身不直接写 authoring DuckDB：`task_space` 只登记 snapshot
-id/revision 和七维坐标（当前 task 固定 `F0`；旧六维输入仅由显式 adapter 迁移），
-`mutation` 只产生 child task/lineage，`curriculum` 只计算
-采样权重。联合 simulator 会扩展 authoring pipeline；若 mutation 改变市场状态、共享
-利率路径、边际模型或联合依赖，仍须通过新的 authoring config/snapshot id 生成，再把
-新 revision 注册到 child task。
+Mutation + curriculum 本身不直接写 authoring DuckDB：`task_space` 只定义七维 design
+catalog 与 semantic TaskSpec v3（当前 task 固定 `F0`；旧六维输入仅由显式 adapter 迁移），
+不声明执行能力。Family-aware scheduler/mutation 必须先通过 exact capability gate；mutation
+只产生 child task/lineage，curriculum 只计算采样权重。若 mutation 改变市场状态、共享利率
+路径、边际模型或联合依赖，仍须通过新的 authoring config/snapshot ID 生成，再把新 revision
+写入 child task identity。
 
 ## Underlying simulator 第一阶段（历史基线）
 
@@ -105,8 +138,8 @@ underlying 生成器，同时保持确定性重放、事务写入、snapshot 不
 ### DuckDB schema 与持久化
 
 本节记录 config `1.2.0` 当时将 authoring schema 从 `2.0.0` additive migration 到
-`2.1.0` 的里程碑；当前实现已经是 schema `2.5.0` / config `1.7.0`，同时保存独立的
-P/Q dependence identities、共同定价测度与 measure mapping：
+`2.1.0` 的里程碑；当前实现已经是 schema `2.6.0` / config `1.8.0`，同时保存独立的
+P/Q dependence identities、共同定价测度、measure mapping 与 private observation law：
 
 | 对象 | 业务主键 | 当前内容 |
 |:---|:---|:---|
@@ -205,6 +238,68 @@ derivative pricing 的 no-arbitrage 条件，也不用于构造 derivative quote
 profile 无回归；$\Lambda/D/R$ 可规范重放；相关结构只改变 underlying close shocks；
 option engine 不读取该结构；snapshot 冻结和不可变规则继续成立。
 
+## Config 1.8.0：Brownian bridge OHLC 与 keyed lognormal volume
+
+这一层是 $\mathbb P$-measure underlying observation law，不改变 close endpoint 的
+time-inhomogeneous GBM，也不进入 $\mathbb Q$-measure BSM pricing。对相邻 observation
+offsets $a<b$，定义
+
+$$
+M(a,u)=\frac1{365}\int_a^u\left(\mu(v)-\frac12\sigma(v)^2\right)dv,
+\qquad
+A(a,u)=\frac1{365}\int_a^u\sigma(v)^2dv.
+$$
+
+实现对 piecewise-linear functions 跨全部 nodes 精确分段积分。Close proposal 继续由现有
+P dependence shock 生成、按 underlying tick 量化，并把 published close 作为下一期 state。
+Bridge 只条件化于 `open = previous published close` 与当前 published close，不重新抽或修改
+close shock。
+
+`intraday_bridge` 固定 64 个 uniform calendar-fraction 子区间。令 $M_j=M(a,u_j)$、
+$A_j=A(a,u_j)$，由每步独立 keyed normal 构造 $W_j$，则 grid log price 为
+
+$$
+X_j=x_0+M_j+\frac{A_j}{A_m}(x_m-x_0-M_m)
++W_j-\frac{A_j}{A_m}W_m.
+$$
+
+Endpoints 原样使用 published open/close；interior prices 先逐点执行 underlying tick 的
+`ROUND_HALF_EVEN`，再在全部 65 点上取 discrete high/low。`WeekendsOnly` 下 Monday bar
+从 Friday close 跨完整三 calendar days 积分，因此它不是单一 Monday exchange session。
+Close endpoints 仍按 $R$ 跨资产相关；给定 endpoints 后 residual bridge 是
+per-underlying marginal，不声明 synchronous intraday extrema correlation，也不代表
+continuous-time maximum/minimum。
+
+每个 underlying 另声明正整数 `base_volume=b` 与 $s\in[0,2]$ 的
+`volume_log_stddev`：
+
+$$
+V^*=b\exp(sZ-\tfrac12s^2),
+\qquad E[V^*]=b.
+$$
+
+$Z$ 按 `(snapshot, seed, volume namespace, volume spec, date, underlying)` keyed，并与
+close factor/idiosyncratic、bridge 和 option-noise streams 隔离。实现先在 binary64 log
+domain 检查 signed-int64 boundary，安全时调用 `math.exp`，再使用 Python `round`
+（ties-to-even）并 clip 到 $[0,2^{63}-1]$。初始日期生成 volume，但 OHLC 为量化后的
+initial spot，不虚构前一日 bridge。
+
+Schema `2.6.0` 新增仅 trusted parent 可读的：
+
+- `market.intraday_bridge_specs`：bridge method/grid/clock/endpoint/extrema/cross-asset/RNG
+  namespace；
+- `market.underlying_volume_models`：每个 underlying 的 base/log-std、rounding、overflow、
+  dependence 与 namespace；
+- revision/manifest 中的两个 row counts。Manifest 不包含 seed、spec IDs、namespaces 或
+  volume parameters。
+
+`sync_range` 在 daily rows 前 MERGE 这两类 immutable contracts；已有 path 不能补挂、删除或
+修改 observation law。`validate` 与 `freeze` 都逐字段核验 private rows，并从 initial
+published state 重放到数据库最大日期，exact compare 全部 OHLCV/dividend/corporate-action
+logical columns。`solver_visible` 只得到最终 OHLCV；recursive leakage denylist 拒绝 spec
+IDs、namespaces 与 volume parameters。Mutable `2.0.0`--`2.5.0` 数据库只做 additive
+schema migration，旧 path 保持原 observation law；FROZEN 数据库绝不原地迁移。
+
 ## OptionChainBuilder 第一阶段
 
 Config `1.3.0/1.4.0` 落实 README 的阶段 1，只改变 option contract construction 和
@@ -253,8 +348,8 @@ latent-smile volatility 输入，并引入明确的 single-asset common-$\mathbb
 
 ### Schema、增量与边界
 
-Option-chain provenance 首次由 schema `2.2.0` 引入；当前 schema `2.5.0` 支持 mutable
-`2.0.0`--`2.4.0` migration，冻结库保持只读且不原地迁移：
+Option-chain provenance 首次由 schema `2.2.0` 引入；当前 schema `2.6.0` 支持 mutable
+`2.0.0`--`2.5.0` migration，冻结库保持只读且不原地迁移：
 
 | 对象 | 作用 |
 |:---|:---|
@@ -305,18 +400,23 @@ discounting 或 underlying simulation。完整 filter 与 quote model 均写入 
 
 | 文件 | 用途 |
 |:---|:---|
+| `configs/model_families/tdgbm_bsm_v1.json` | 当前 P/Q dynamics、pricing、mapping、state、day-count、dtype、RNG 与 canonicalization identity。 |
+| `configs/task_space/executable_capabilities_v1.json` | 当前 analytic/IV/metric static/query-v3 路径的 exact implementation evidence；design catalog 本身不授予能力。 |
 | `configs/generators/quantlib_bsm_smoke_v1.json` | 固定 seed、模型、underlyings、option templates 与 quote rules。 |
 | `authoring/templates/quantlib_bsm_correlated_underlyings.template.json` | 可运行的 config `1.2.0` correlated-underlying 示例。 |
 | `configs/generators/quantlib_bsm_metals_option_chain_smoke_v1.json` | 冻结 config `1.5.0` 的 22-underlying 历史 profile；保留 private authoring IV audit 仅用于迁移审计。 |
-| `configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json` | 当前 writable config `1.6.0` baseline；保留 Q pricing inputs，但不在 authoring 层生成 IV answers。 |
+| `configs/generators/quantlib_bsm_metals_option_chain_smoke_v2.json` | Legacy writable config `1.6.0` baseline；保留 heuristic OHLC/uniform volume 用于历史 replay。 |
+| `configs/generators/quantlib_bsm_metals_option_chain_smoke_v3.json` | 当前 config `1.8.0` / generator `0.9.0` baseline；P/Q pair、64-step bridge 与 keyed lognormal volume。 |
+| `authoring/templates/quantlib_bsm_brownian_bridge_volume.template.json` | 最小可运行的 config `1.8.0` observation-law 示例。 |
 | `configs/task_packages/bsm_market_implied_greeks_v1.json` | D4 golden task 的七维坐标、确定性 selection、精确 method/schema/capability 合同，以及用于 stable identity 的 solver-interface 版本。 |
 | `snapshots/public/quantlib_bsm_smoke_v1.duckdb` | 已冻结的 metals public snapshot；文件路径为向后兼容保留名。 |
 | `snapshots/public/quantlib_bsm_smoke_v1.manifest.json` | 当前 logical revision、版本标识和行数。 |
 | `scripts/edit_snapshot.py` | 仓库本地 `.venv` 使用的编辑入口。 |
 | `scripts/sample_physical_dynamics.py` | 从声明分布可重放地抽样 physical drift/volatility nodes，并将 realized nodes 冻结到 config。 |
 | `scripts/package_bsm_greeks_task.py` | 从现有 frozen `1.7` parent，或从 `1.6` baseline 临时构造 private P/Q parent，构建并验证 accepted/released package。 |
-| `src/synthetic_derivatives/authoring/generator_common.py` | 两个 generator 共享的 pinned QuantLib、calendar/day-count、decimal canonicalization 与 deterministic RNG。 |
-| `src/synthetic_derivatives/authoring/underlying_daily_generator.py` | Underlying master/dependence、P path 与 pricing metadata；唯一消费 $\Lambda/D/R$ 的 generator。 |
+| `src/synthetic_derivatives/authoring/generator_common.py` | 两个 generator 共享的 pinned QuantLib、calendar/day-count、decimal canonicalization、deterministic RNG 与 safe lognormal-volume helper。 |
+| `src/synthetic_derivatives/authoring/backends.py` | 将 `tdgbm_bsm` 显式 dispatch 到现有 generators；未知 family 在写入前 fail closed。 |
+| `src/synthetic_derivatives/authoring/underlying_daily_generator.py` | Underlying master/dependence、private bridge/volume specs、P close、conditional OHLCV 与 pricing metadata；唯一消费 $\Lambda/D/R$ 的 generator。 |
 | `src/synthetic_derivatives/authoring/option_daily_generator.py` | Option chain spec、frozen contracts 与 daily quotes；只接收 realized spot，不提供 underlying dependence API。 |
 | `src/synthetic_derivatives/authoring/pipeline.py` | 显式编排两个 generator、DuckDB transaction、incremental MERGE 与 quality gates。 |
 | `src/synthetic_derivatives/export/solver_database.py` | 从 frozen parent 确定性写出独立 public-only child、stable IDs、logical checksum 与 read-only handoff。 |
@@ -337,6 +437,8 @@ discounting 或 underlying simulation。完整 filter 与 quote model 均写入 
 |:---|:---|:---|
 | `market.underlyings` | `(snapshot_id, underlying_id)` | Underlying master 和 P/Q 参数入口。 |
 | `market.underlying_dependence` | `(snapshot_id, dependence_spec_id)` | P/Q measure-qualified factor-loading 合同；完整 P/Q pair 通过 safe solver view 投影，不含 seed/run provenance。 |
+| `market.intraday_bridge_specs` | `(snapshot_id, bridge_spec_id)` | Private bridge grid/clock/endpoint/extrema/cross-asset/RNG contract；无 solver view。 |
+| `market.underlying_volume_models` | `(snapshot_id, volume_spec_id, underlying_id)` | Private per-underlying base/log-std 与 volume numerical/stream contract；无 solver view。 |
 | `market.option_chain_specs` | `(snapshot_id, chain_id)` | 私有 option-chain listing/grid/roll/rounding 合同；不进入 solver views。 |
 | `market.option_contracts` | `(snapshot_id, option_id)` | Option 合约静态字段及 listing provenance；绝对 strike 挂牌后冻结。 |
 | `market.underlying_daily` | `(snapshot_id, date, underlying_id)` | Framework 要求的 underlying daily panel。 |
@@ -459,9 +561,10 @@ drift phi/std、log-vol phi/std 和有界均值回归 Gaussian/lognormal nodes�
 per-underlying seeds、每个参数的 hard bounds 和 realized values 全部冻结；路径生成只消费
 realized nodes。
 
-OHLC 另有明确但简化的 observation contract：`open = previous published close`，即 no-gap；
-`high/low` 由 `separate_synthetic_range-v1` heuristic stream 构造，不来自同一 intraperiod
-path、Brownian bridge 或 exact range distribution。Volume 使用独立 uniform stream。
+Legacy config `1.0.0`--`1.7.0` 的 OHLC 另有明确但简化的 observation contract：
+`open = previous published close`；`high/low` 由 `separate_synthetic_range-v1` heuristic
+stream 构造，volume 使用独立 uniform stream。Config `1.8.0` 使用上文版本化的 marginal
+integrated-variance bridge 与 keyed lognormal volume。
 `adjusted_close = close`、`dividend = 0`、`corporate_action = none` 也是显式规则。这些字段不
 支持 barrier、realized-range、overnight-gap、total-return 或真实流动性推断。
 
@@ -474,7 +577,8 @@ path、Brownian bridge 或 exact range distribution。Volume 使用独立 unifor
 config `1.2.0` 则按上文的 factor 与 idiosyncratic namespaces 派生 close shocks。两者均由
 `QuantLib.MersenneTwisterUniformRng` 和
 `QuantLib.BoxMullerMersenneTwisterGaussianRng` 产生 draw。相关结构只替换 close
-transition 的 $Z_t$；range、volume 与 option activity 仍使用各自的稳定 streams。
+transition 的 $Z_t$；legacy range/volume、config `1.8.0` bridge/volume 与 option activity
+使用各自的稳定 streams。
 
 ### Option quotes
 
@@ -531,6 +635,8 @@ validate DRAFT/config
   回填 legacy audit rows。
 - config `1.7.0` 的共同 Q/numeraire/rate-path context、P/Q dependence identities 与
   measure mapping 都属于 snapshot identity；任何变化都必须产生新 snapshot。
+- config `1.8.0` 的 bridge/volume specs、所有 per-underlying volume parameters、RNG identity
+  与量化 checkpoint 都属于 snapshot identity；已有 path 禁止 retrofit 或修改这些 rows。
 
 ## 命令
 
@@ -540,8 +646,8 @@ validate DRAFT/config
 
 ```bash
 .venv/bin/python scripts/edit_snapshot.py \
-  --database /tmp/quantlib-bsm-smoke-v1.duckdb \
-  --config configs/generators/quantlib_bsm_smoke_v1.json \
+  --database /tmp/metals-tdgbm-bb-keyed-volume-v1.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v3.json \
   create-smoke
 ```
 
@@ -569,11 +675,14 @@ validate DRAFT/config
 
 `sync-config` 使用数据库当前的最小/最大日期，为新增实体回填已有时间范围。
 
-### 查看与冻结
+### 校验、查看与冻结
 
 ```bash
 .venv/bin/python scripts/edit_snapshot.py --database path/to/snapshot.duckdb \
   --config path/to/config.json summary
+
+.venv/bin/python scripts/edit_snapshot.py --database path/to/snapshot.duckdb \
+  --config path/to/config.json validate
 
 .venv/bin/python scripts/edit_snapshot.py --database path/to/snapshot.duckdb \
   --config path/to/config.json freeze
@@ -609,6 +718,20 @@ time-varying-diffusion BSM marginal model。
   create-smoke
 ```
 
+当前 `1.8.0` profile 使用新 identity，并要求 create 后依次完成只读校验与冻结：
+
+```bash
+.venv/bin/python scripts/edit_snapshot.py \
+  --database /tmp/metals-tdgbm-bb-keyed-volume-v1.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v3.json \
+  create-smoke
+
+.venv/bin/python scripts/edit_snapshot.py \
+  --database /tmp/metals-tdgbm-bb-keyed-volume-v1.duckdb \
+  --config configs/generators/quantlib_bsm_metals_option_chain_smoke_v3.json \
+  validate
+```
+
 ### 构建并验证 accepted D4 golden package
 
 构建入口会从 `1.6.0` baseline 在临时目录生成独立的 frozen `1.7.0` P/Q parent；parent
@@ -622,19 +745,21 @@ time-varying-diffusion BSM marginal model。
   --build-status ACCEPTED
 ```
 
-当前 checked-in golden task 是
-`bsm-mig-v1-bde472c5cb0ca8a660314c9e`：8 个 underlyings、2 个 live expiries、每 expiry
-5 个 strikes、call/put 成对，共 160 行；agent database 仅含 3 个允许关系。它仍处于
-`ACCEPTED`。Phase F 已提供 seed-parameterized batch runner 和 verified nine-field dataset
-exporter。旧 interface 有 Git-ignored 本地 100-task 历史 run；当前 interface 尚未执行完整
-100-task rebuild、split audit 或 `RELEASED` promotion。
+原始 D4 acceptance baseline task
+`bsm-mig-v1-bde472c5cb0ca8a660314c9e` 使用 8 个 underlyings、2 个 live expiries、每 expiry
+5 个 strikes、call/put 成对，共 160 行；agent database 仅含 3 个允许关系。当前维护的
+combined delivery 已升级为 100 个 `bsm-mig-v2-*` portable tasks，路径为
+`task_packages/deliveries/bsm_market_implied_greeks_v1/20260813_prompt_v2_100/`，其状态是
+manifest 声明的 `PORTABLE_VERIFIED`，不是隐式 `RELEASED`。另有两个各 24-task 的 6×4
+single-metric suites；所有 accepted delivery 都保持冻结。
 
 采用最小 prompt 的新构建必须先计算 `solver_interface_digest`。该 canonical digest 绑定
 solver-interface contract version、rendered prompt、method contract、submission schema 和
 effective runtime contract，并进入 stable task-ID 公式；trusted adapter/input surface 的语义
 变化通过升级 interface version 纳入 identity。任何一个接口变化都必须生成新 task directory。
-当前 checked-in `ACCEPTED` package 已在新 identity 完成构建、replay、verifier、leakage、
-release-view 和源码隔离验收后完成显式 promotion。
+当前 v2 package/delivery identity 已完成 build、replay、verifier、leakage、release-view 和
+源码隔离验收。Model-family adapter 不改写这些 identity；新 metric-suite materialization
+只在创建 staging tree 前额外执行 exact executable-capability preflight。
 
 ## Smoke-test 验收（当前实现）
 

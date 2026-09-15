@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import duckdb
@@ -220,3 +221,147 @@ def test_frozen_snapshot_rejects_incremental_writes(
         assert pipeline.connection.execute(
             "SELECT current_revision FROM metadata.snapshots"
         ).fetchone()[0] == revision
+
+
+def test_config_18_bridge_volume_snapshot_is_runnable_private_and_validated(
+    tmp_path: Path, repository_root: Path
+) -> None:
+    config = load_generator_config(
+        repository_root
+        / "configs/generators/quantlib_bsm_metals_option_chain_smoke_v3.json"
+    )
+    config = replace(config, business_days=2, option_templates=config.option_templates[:2])
+    database = tmp_path / "bridge-volume-v3.duckdb"
+    with AuthoringPipeline(database, config) as pipeline:
+        result = pipeline.create_smoke_snapshot()
+        validated = pipeline.validate()
+        private_counts = pipeline.connection.execute(
+            """
+            SELECT
+                (SELECT count(*) FROM market.intraday_bridge_specs),
+                (SELECT count(*) FROM market.underlying_volume_models)
+            """
+        ).fetchone()
+        solver_relations = {
+            row[0]
+            for row in pipeline.connection.execute(
+                """
+                SELECT table_name FROM information_schema.tables
+                WHERE table_schema = 'solver_visible'
+                """
+            ).fetchall()
+        }
+        solver_metadata = pipeline.connection.execute(
+            """
+            SELECT physical_dynamics, seed, rng
+            FROM solver_visible.pricing_metadata
+            ORDER BY underlying_id LIMIT 1
+            """
+        ).fetchone()
+
+    assert config.intraday_bridge is not None
+    assert config.volume_model is not None
+    assert result["summary"]["intraday_bridge_spec_count"] == 1
+    assert result["summary"]["underlying_volume_model_count"] == 22
+    assert validated["underlying_daily_count"] == 44
+    assert private_counts == (1, 22)
+    assert "intraday_bridge_specs" not in solver_relations
+    assert "underlying_volume_models" not in solver_relations
+    assert config.intraday_bridge.bridge_spec_id not in solver_metadata[0]
+    assert config.volume_model.volume_spec_id not in solver_metadata[0]
+    assert solver_metadata[1:] == (None, None)
+
+    manifest_text = database.with_suffix(".manifest.json").read_text(
+        encoding="utf-8"
+    )
+    manifest = json.loads(manifest_text)
+    assert manifest["intraday_bridge_spec_count"] == 1
+    assert manifest["underlying_volume_model_count"] == 22
+    for private_marker in (
+        "seed",
+        "rng",
+        "bridge_spec_id",
+        "volume_spec_id",
+        "stream_namespace",
+        "base_volume",
+        "volume_log_stddev",
+        config.intraday_bridge.bridge_spec_id,
+        config.volume_model.volume_spec_id,
+    ):
+        assert private_marker not in manifest_text
+
+
+def test_config_18_one_shot_and_append_have_exact_logical_rows(
+    tmp_path: Path, repository_root: Path
+) -> None:
+    template = repository_root / (
+        "authoring/templates/quantlib_bsm_brownian_bridge_volume.template.json"
+    )
+    config = load_generator_config(template)
+    one_shot = replace(config, business_days=3, option_templates=config.option_templates[:2])
+    incremental = replace(
+        config, business_days=2, option_templates=config.option_templates[:2]
+    )
+    one_shot_database = tmp_path / "bridge-one-shot.duckdb"
+    incremental_database = tmp_path / "bridge-incremental.duckdb"
+    with AuthoringPipeline(one_shot_database, one_shot) as pipeline:
+        pipeline.create_smoke_snapshot()
+    with AuthoringPipeline(incremental_database, incremental) as pipeline:
+        pipeline.create_smoke_snapshot()
+        pipeline.append_business_days(1)
+        pipeline.validate()
+
+    assert _rows(
+        one_shot_database, "underlying_daily", "date, underlying_id"
+    ) == _rows(
+        incremental_database, "underlying_daily", "date, underlying_id"
+    )
+    assert _rows(one_shot_database, "option_daily", "date, option_id") == _rows(
+        incremental_database, "option_daily", "date, option_id"
+    )
+
+
+def test_config_18_validate_detects_private_specs_and_ohlcv_tampering(
+    tmp_path: Path, repository_root: Path
+) -> None:
+    template = repository_root / (
+        "authoring/templates/quantlib_bsm_brownian_bridge_volume.template.json"
+    )
+    config = replace(
+        load_generator_config(template),
+        business_days=2,
+        option_templates=load_generator_config(template).option_templates[:1],
+    )
+    database = tmp_path / "bridge-tamper.duckdb"
+    with AuthoringPipeline(database, config) as pipeline:
+        pipeline.create_smoke_snapshot()
+        pipeline.connection.execute(
+            "UPDATE market.intraday_bridge_specs SET steps = steps + 1"
+        )
+        with pytest.raises(ValueError, match="intraday bridge contract conflicts"):
+            pipeline.validate()
+        pipeline.connection.execute(
+            "UPDATE market.intraday_bridge_specs SET steps = 64"
+        )
+
+        pipeline.connection.execute(
+            "UPDATE market.underlying_volume_models SET base_volume = base_volume + 1"
+        )
+        with pytest.raises(
+            ValueError, match="underlying volume model contract conflicts"
+        ):
+            pipeline.validate()
+        pipeline.connection.execute(
+            "UPDATE market.underlying_volume_models SET base_volume = 1000000"
+        )
+
+        pipeline.connection.execute(
+            """
+            UPDATE market.underlying_daily
+            SET spot_high = spot_high + 0.01
+            WHERE date > ?
+            """,
+            [config.start_date],
+        )
+        with pytest.raises(ValueError, match="exact config-1.8 replay"):
+            pipeline.validate()

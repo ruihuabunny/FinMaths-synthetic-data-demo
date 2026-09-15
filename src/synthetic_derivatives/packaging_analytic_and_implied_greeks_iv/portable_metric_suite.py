@@ -45,6 +45,17 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_specs
     get_metric_spec,
     get_metric_spec_db_query_v3,
 )
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_verifier import (
+    METRIC_VERIFIER_FILENAMES,
+    expected_metric_submission,
+    expected_metric_submission_v3,
+    metric_oracle_config,
+    metric_oracle_config_v3,
+    verify_market_metric_submission,
+    verify_market_metric_submission_v3,
+    write_metric_verifier,
+    write_metric_verifier_v3,
+)
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.portable_tools import (
     export_portable_metric_toolset,
     validate_portable_metric_toolset,
@@ -59,6 +70,9 @@ from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.prompt_rende
 )
 from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.runtime import (
     compose_runtime_contract_v3,
+)
+from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.semantic_capabilities import (
+    require_portable_metric_capabilities,
 )
 
 
@@ -106,17 +120,6 @@ _TOOL_FILES = (
     "payloads/options.json",
 )
 _TOOL_FILES_V3 = ("toolset.json",)
-_VERIFIER_FILES = (
-    "README.md",
-    "__init__.py",
-    "conftest.py",
-    "oracle_config.json",
-    "requirements.lock",
-    "runtime.py",
-    "test_contract.py",
-    "test_data_identity.py",
-    "test_semantics.py",
-)
 _FORBIDDEN_TREE_PARTS = {
     "authoring_private",
     "dataset",
@@ -612,16 +615,8 @@ def _build_metric_leaf(
         metric_spec=prepared.spec,
     )
     if protocol is _V3_PROTOCOL:
-        from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_verifier import (
-            write_metric_verifier_v3,
-        )
-
         write_metric_verifier_v3(task_root / "verifier", prepared.spec)
     else:
-        from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_verifier import (
-            write_metric_verifier,
-        )
-
         write_metric_verifier(task_root / "verifier", prepared.spec)
     _write_source_manifest(
         prepared=prepared,
@@ -631,6 +626,8 @@ def _build_metric_leaf(
         derived_logical_checksum=derived_logical_checksum,
         derived_market_content_digest=derived_content_digest,
     )
+    # Recursive discovery catches unexpected files, while the authoritative
+    # renderer inventory below admits every nested `_runtime/` module explicitly.
     artifact_paths = sorted(
         path.relative_to(task_root).as_posix()
         for path in task_root.rglob("*")
@@ -640,7 +637,7 @@ def _build_metric_leaf(
         ["task.duckdb", "source_manifest.json"]
         + [f"evaluation_view/{name}" for name in _EVALUATION_FILES]
         + [f"trusted_tools/{name}" for name in protocol.tool_files]
-        + [f"verifier/{name}" for name in _VERIFIER_FILES]
+        + [f"verifier/{name}" for name in METRIC_VERIFIER_FILENAMES]
     )
     if artifact_paths != expected_paths:
         raise ValueError("metric leaf contains an artifact outside the allowlist")
@@ -784,11 +781,13 @@ def _verify_metric_leaf(
     visibility = manifest["artifact_visibility"]
     if not isinstance(artifacts, Mapping) or not isinstance(visibility, Mapping):
         raise ValueError("metric leaf artifact maps are invalid")
+    # Do not infer verifier membership from the filesystem: every trusted module
+    # must be declared by the renderer and bound by digest plus visibility here.
     expected_artifacts = set(
         ["task.duckdb", "source_manifest.json"]
         + [f"evaluation_view/{name}" for name in _EVALUATION_FILES]
         + [f"trusted_tools/{name}" for name in protocol.tool_files]
-        + [f"verifier/{name}" for name in _VERIFIER_FILES]
+        + [f"verifier/{name}" for name in METRIC_VERIFIER_FILENAMES]
     )
     if set(artifacts) != expected_artifacts or set(visibility) != expected_artifacts:
         raise ValueError("metric leaf artifact allowlist changed")
@@ -917,17 +916,13 @@ def _verify_metric_leaf(
     ):
         raise ValueError("metric source manifest database binding changed")
     if protocol is _V3_PROTOCOL:
-        from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_verifier import (
-            expected_metric_submission_v3 as expected_submission,
-            metric_oracle_config_v3 as oracle_for_spec,
-            verify_market_metric_submission_v3 as verify_submission,
-        )
+        expected_submission = expected_metric_submission_v3
+        oracle_for_spec = metric_oracle_config_v3
+        verify_submission = verify_market_metric_submission_v3
     else:
-        from synthetic_derivatives.packaging_analytic_and_implied_greeks_iv.metric_verifier import (
-            expected_metric_submission as expected_submission,
-            metric_oracle_config as oracle_for_spec,
-            verify_market_metric_submission as verify_submission,
-        )
+        expected_submission = expected_metric_submission
+        oracle_for_spec = metric_oracle_config
+        verify_submission = verify_market_metric_submission
 
     expected_oracle = oracle_for_spec(spec)
     if load_json_object(task_root / "verifier/oracle_config.json") != expected_oracle:
@@ -968,7 +963,10 @@ def _assert_suite_tree(
             f"{relative_root}/trusted_tools/{name}"
             for name in protocol.tool_files
         )
-        expected.update(f"{relative_root}/verifier/{name}" for name in _VERIFIER_FILES)
+        expected.update(
+            f"{relative_root}/verifier/{name}"
+            for name in METRIC_VERIFIER_FILENAMES
+        )
     actual: set[str] = set()
     for path in root.rglob("*"):
         if path.is_symlink():
@@ -1176,6 +1174,10 @@ def _build_portable_bsm_metric_suite(
 ) -> PortableMetricSuite:
     """Build all targets in one staging tree and publish with one rename."""
 
+    # This preflight is sidecar-only and deliberately does not enter any frozen
+    # package identity. Verification/replay of accepted packages stays on the
+    # legacy path, while new materialization fails before creating output.
+    require_portable_metric_capabilities(query_v3=protocol is _V3_PROTOCOL)
     delivery_name = _require_identifier(delivery_id, "delivery_id")
     allocation_name = _require_identifier(allocation_id, "allocation_id")
     profile_value = _load_profile(profile)

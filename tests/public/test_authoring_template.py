@@ -116,3 +116,22 @@ def test_existing_definition_is_identified_by_config_id_and_version(
 
     assert result["status"] == "NOOP"
     assert result["summary"]["revision"] == 1
+
+
+def test_brownian_bridge_volume_template_is_runnable(
+    tmp_path: Path, repository_root: Path
+) -> None:
+    template_path = repository_root / (
+        "authoring/templates/quantlib_bsm_brownian_bridge_volume.template.json"
+    )
+    config = load_generator_config(template_path)
+
+    assert config.schema_version == "1.8.0"
+    assert config.intraday_bridge is not None
+    assert config.volume_model is not None
+    with AuthoringPipeline(tmp_path / "bridge-template.duckdb", config) as pipeline:
+        result = pipeline.create_smoke_snapshot()
+        pipeline.validate()
+
+    assert result["summary"]["intraday_bridge_spec_count"] == 1
+    assert result["summary"]["underlying_volume_model_count"] == 1

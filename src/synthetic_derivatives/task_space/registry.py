@@ -50,7 +50,9 @@ class CompatibilityRule:
 
 
 class TaskSpaceRegistry:
-    """Validate coordinate bounds and product/model/method compatibility."""
+    """Validate design-catalog coordinate compatibility, never capability."""
+
+    registry_role = "design_catalog"
 
     def __init__(self, raw: Mapping[str, Any]):
         """Validate and compile one task-space registry mapping.

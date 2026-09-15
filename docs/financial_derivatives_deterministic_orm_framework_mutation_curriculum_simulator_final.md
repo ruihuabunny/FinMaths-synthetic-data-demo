@@ -10,24 +10,27 @@
 
 ---
 
-## 当前仓库实现状态（2026-08-12）
+## 当前仓库实现状态（2026-08-17）
 
 本文是完整目标框架，不表示每个产品、模型、套利层级或训练导出都已落地。当前仓库已经
 实现 config `1.6.0` authoring/IV 边界、config `1.7.0` measure-qualified P/Q dependence、
-七维 runtime（现有 BSM tasks 固定 `F0`）、独立 public-child exporter，以及一条
-`ACCEPTED` 的 D4 `bsm_market_implied_greeks_v1` golden package。该 package 使用三关系
-DuckDB、trusted query/submit adapters、标准库 80-step IV + Greeks solver、独立 QuantLib
-verifier 和隔离 release views。
+七维 design catalog（现有 BSM tasks 固定 `F0`）、独立 public-child exporter，以及
+`bsm_market_implied_greeks_v1` 三关系 DuckDB、trusted query/submit adapters、标准库
+80-step IV + Greeks solver、独立 QuantLib verifier 和隔离 release views。当前维护的冻结
+portable artifacts 是 100-task combined v2 delivery，以及 static v2 / DuckDB-query v3 两个
+各 24-task 的 6×4 metric suites。
 
 仓库内 checked-in `snapshots/public/quantlib_bsm_smoke_v1.duckdb` 仍是不可变的 config
 `1.5.0` 历史 demo，只含 P dependence 和 private authoring IV audit；新任务从另一个冻结的
 config `1.7.0` P/Q parent 构建，不原地迁移该文件。Phase F batch runner 与 BSM-specific
-nine-field dataset exporter 已实现。旧 solver interface 有一套 Git-ignored 本地 100-task
-历史 run；当前最小 prompt/interface 的 100-task rebuild、split audit 与 release promotion
-尚未执行。L3 Monte Carlo 只有目录骨架；L4--L8、basket/index/spread joint payoff、F2A+
-套利业务与跨 task-family 通用 training exporter 仍未实现。当前精确边界以
-[主 README](../README.md)、[执行清单](plans/synthetic_bsm_multi_asset_psd_duckdb_greeks_codex_checklist.md)
-和 [golden package 说明](../task_packages/README.md) 为准。
+nine-field dataset exporter 已实现。当前唯一 model family 已显式登记为 `tdgbm_bsm`
+（`M=0`）；semantic TaskSpec v3、exact executable-capability sidecar、authoring backend
+dispatch，以及 family-aware curriculum/mutation 路径已经实现。Design catalog 不授予执行
+能力，旧 TaskSpec/config/artifact 均通过 adapter 保持不变。L3 Monte Carlo 只有目录骨架；
+第二个 model family、L4--L8、basket/index/spread joint payoff、F2A+ 套利业务与跨
+task-family 通用 training exporter 仍未实现。当前精确边界以
+[主 README](../README.md)、[model-family 说明](../src/synthetic_derivatives/model_families/README.md)
+和 [package 说明](../task_packages/README.md) 为准。
 
 ## 摘要
 
@@ -42,6 +45,10 @@ Solver 的核心训练目标是自己实现 Greeks、implied volatility、volati
 ## 最终设计结论
 
 #### 最终方案
+
+实现层对下面的目标设计增加一道独立门禁：`task_space` 只判断结构兼容；完整 semantic
+TaskSpec 还必须匹配已实现 model family 与 exact executable capability，scheduler 才能采样。
+因此规划中的模型或任务不会因为出现在 catalog/curriculum 中而自动变成 runtime 能力。
 
 金融衍生品市场单独建域：authoring 端用 pinned QuantLib 统一生成 underlying daily prices、option daily prices 与定价元数据；每个 variant 固定 generator、seed 与全部市场约定，生成后冻结 snapshot；Greeks/IV/smile/surface/VaR/ES 都从该快照派生。同币种多资产 snapshot 使用共同 $\mathbb Q$、共同 numeraire、共享利率路径与合法边际模型，并以合法相关矩阵耦合 underlying/model drivers，而不是 derivative contracts。每个任务再注册为七维坐标 $\tau=(L,P,M,A,D,R,F)$，其中 $F$ 单独刻画在 mutated frozen snapshot 中发现套利的难度。Task-space registry 定义各级含义与 compatibility constraints；mutation engine 产生可追踪变体；curriculum scheduler 根据模型 mastery 选择训练分布。Task contract 同时约束 solver 与 verifier 的公式/算法、dtype、操作顺序和输出 schema；solver 禁止调用现成 Greeks/IV/smile 包，trusted verifier 用 `pytest` 调固定版本、同方法的金融包复算并以 `==` 精确验收。`arbitrage_finding` 要求 LLM 生成完整 trajectory；F0/F1 的 outcome ORM 比较 bool，F2A--F6A 比较 bool 与 cross-sectional/calendar 类型集合，F2B--F6B 比较 bool 与 maximal spread。全部适用 tests pass 才有 $R_{\mathrm{ORM}}=1$。
 
@@ -676,10 +683,11 @@ $$
 
 ## 工程模块与仓库边界
 
-三个一等模块必须职责分离：
+当前实现把 model identity/capability 与三个 workflow 模块分离：
 
 | 模块 | 回答的问题 | 不负责什么 |
 |---|---|---|
+| `model_families` | 哪个 stochastic model identity 已实现；哪个 exact semantic task 有 implementation evidence | 不实现 pricing/solver/verifier numerics，不替代 Agent runtime profile |
 | `task_space` | 哪些坐标和组合合法 | 不生成任务、不决定采样 |
 | `mutation` | 如何从母题生成有 lineage 的变体 | 不根据模型表现安排训练 |
 | `curriculum` | 当前采样哪些任务、权重是多少 | 不修改任务本身 |
@@ -687,9 +695,9 @@ $$
 建议核心目录：
 
 ```text
-configs/{task_space,mutations,curricula}/
+configs/{model_families,task_space,mutations,curricula}/
 datasets/{generated/{base,mutated,splits},manifests/{tasks,lineage,curricula}}/
-src/synthetic_derivatives/{task_space,mutation,curriculum,authoring,solver,training,verifier}/
+src/synthetic_derivatives/{model_families,task_space,mutation,curriculum,authoring,solver,training,verifier}/
 schemas/{task,difficulty,mutation,curriculum,manifest,snapshot,trajectory,submission}.schema.json
 tests/{unit,integration,verifier_robustness,public}/
 runs/{rollouts,evaluations,curriculum_state}/
@@ -699,7 +707,7 @@ runs/{rollouts,evaluations,curriculum_state}/
 
 $$
 \text{Base Task}\rightarrow\text{Mutation Engine}\rightarrow\text{Candidate Pool}
-\rightarrow\text{Curriculum Scheduler}\rightarrow\text{Solver Rollout}
+\rightarrow\text{Executable Capability Gate}\rightarrow\text{Curriculum Scheduler}\rightarrow\text{Solver Rollout}
 \rightarrow\text{Hard Verifier}\rightarrow\text{Mastery Update}.
 $$
 
